@@ -1,0 +1,150 @@
+package sandbox
+
+import (
+	"fmt"
+	"os"
+
+	"afterglow-judge-sandbox/internal/model"
+)
+
+// LanguageProfile defines compilation and execution configuration for a language.
+type LanguageProfile struct {
+	Compile CompileConfig
+	Run     RunConfig
+}
+
+// CompileConfig describes how to compile source code in a container.
+type CompileConfig struct {
+	ImageRef     string
+	SourceFiles  []string
+	ArtifactName string
+	BuildCommand func(workDir string, sources []string) []string
+	TimeoutMs    int
+	MemoryMB     int
+}
+
+// RunConfig describes how to execute a compiled artifact in a container.
+type RunConfig struct {
+	ImageRef       string
+	ArtifactName   string
+	RuntimeCommand func(artifactPath string) []string
+	FileMode       os.FileMode
+}
+
+// ProfileForLanguage returns the language profile for the given language.
+func ProfileForLanguage(lang model.Language) (LanguageProfile, error) {
+	switch lang {
+	case model.LanguageC:
+		return CProfile(), nil
+	case model.LanguageCPP:
+		return CPPProfile(), nil
+	case model.LanguageJava:
+		return JavaProfile(), nil
+	case model.LanguagePython:
+		return PythonProfile(), nil
+	default:
+		return LanguageProfile{}, fmt.Errorf("unsupported language: %v", lang)
+	}
+}
+
+// CProfile returns the profile for C language.
+func CProfile() LanguageProfile {
+	return LanguageProfile{
+		Compile: CompileConfig{
+			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			SourceFiles:  []string{"main.c"},
+			ArtifactName: "program",
+			BuildCommand: func(_ string, sources []string) []string {
+				args := make([]string, 0, 9+len(sources))
+				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-lm", "-o", "/work/program")
+				for _, src := range sources {
+					args = append(args, "/work/"+src)
+				}
+				return args
+			},
+			TimeoutMs: 30000,
+			MemoryMB:  512,
+		},
+		Run: RunConfig{
+			ImageRef:       "gcr.io/distroless/static-debian12:latest",
+			ArtifactName:   "program",
+			RuntimeCommand: func(p string) []string { return []string{p} },
+			FileMode:       0755,
+		},
+	}
+}
+
+// CPPProfile returns the profile for C++ language.
+func CPPProfile() LanguageProfile {
+	return LanguageProfile{
+		Compile: CompileConfig{
+			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			SourceFiles:  []string{"main.cpp"},
+			ArtifactName: "program",
+			BuildCommand: func(_ string, sources []string) []string {
+				args := make([]string, 0, 11+len(sources))
+				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-lm", "-o", "/work/program")
+				for _, src := range sources {
+					args = append(args, "/work/"+src)
+				}
+				return args
+			},
+			TimeoutMs: 30000,
+			MemoryMB:  512,
+		},
+		Run: RunConfig{
+			ImageRef:       "gcr.io/distroless/static-debian12:latest",
+			ArtifactName:   "program",
+			RuntimeCommand: func(p string) []string { return []string{p} },
+			FileMode:       0755,
+		},
+	}
+}
+
+// JavaProfile returns the profile for Java language.
+func JavaProfile() LanguageProfile {
+	return LanguageProfile{
+		Compile: CompileConfig{
+			ImageRef:     "docker.io/library/eclipse-temurin:21-jdk-jammy",
+			SourceFiles:  []string{"Main.java"},
+			ArtifactName: "solution.jar",
+			BuildCommand: func(_ string, _ []string) []string {
+				return []string{"sh", "-c",
+					"mkdir -p /work/classes && " +
+						"javac -encoding UTF-8 -d /work/classes /work/Main.java && " +
+						"jar --create --file /work/solution.jar --main-class Main -C /work/classes ."}
+			},
+			TimeoutMs: 30000,
+			MemoryMB:  512,
+		},
+		Run: RunConfig{
+			ImageRef:       "gcr.io/distroless/java21-debian12:latest",
+			ArtifactName:   "solution.jar",
+			RuntimeCommand: func(p string) []string { return []string{"java", "-Xmx256m", "-Xms64m", "-jar", p} },
+			FileMode:       0644,
+		},
+	}
+}
+
+// PythonProfile returns the profile for Python language.
+// Python compiles to bytecode (.pyc) to catch syntax errors early.
+func PythonProfile() LanguageProfile {
+	return LanguageProfile{
+		Compile: CompileConfig{
+			ImageRef:     "docker.io/library/python:3.11-slim-bookworm",
+			SourceFiles:  []string{"solution.py"},
+			ArtifactName: "solution.pyc",
+			BuildCommand: func(_ string, _ []string) []string {
+				return []string{"python3", "-m", "py_compile", "/work/solution.py"}
+			},
+			TimeoutMs: 10000,
+			MemoryMB:  256,
+		},
+		Run: RunConfig{
+			ImageRef:       "gcr.io/distroless/python3-debian12:latest",
+			ArtifactName:   "solution.pyc",
+			RuntimeCommand: func(p string) []string { return []string{"python3", p} },
+			FileMode:       0644,
+		},
+	}
+}

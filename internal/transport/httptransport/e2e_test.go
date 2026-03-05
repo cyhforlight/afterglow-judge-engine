@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
 
 	"github.com/stretchr/testify/assert"
@@ -28,8 +29,9 @@ func requireE2EPrerequisites(t *testing.T) {
 func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
+	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock")
+	compiler := service.NewContainerCompiler(sb)
 	runner := service.NewContainerdRunner("/run/containerd/containerd.sock")
-	compiler := service.NewHostCompiler()
 	judge := service.NewJudgeEngine(runner, compiler)
 
 	ctx := context.Background()
@@ -169,6 +171,10 @@ func TestE2E_HTTP_ConcurrentJudges(t *testing.T) {
 			if decodeErr != nil {
 				results <- "DECODE_ERROR"
 				return
+			}
+			if resp.Verdict != "OK" && len(resp.Cases) > 0 {
+				t.Logf("Unexpected verdict: %s, stdout: %s, extraInfo: %s",
+					resp.Verdict, resp.Cases[0].Stdout, resp.Cases[0].ExtraInfo)
 			}
 			results <- resp.Verdict
 		}()

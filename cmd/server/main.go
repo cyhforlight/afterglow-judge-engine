@@ -52,9 +52,9 @@ func setupLogger(logLevel string) *slog.Logger {
 func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	limiter := concurrency.NewExecutionLimiter(int64(cfg.MaxConcurrentExecutions))
 
-	baseRunner := service.NewContainerdRunner(cfg.ContainerdSocket)
-	compiler := service.NewHostCompiler()
-	baseJudge := service.NewJudgeEngine(baseRunner, compiler)
+	runner := service.NewContainerdRunner(cfg.ContainerdSocket)
+	compiler := service.NewContainerCompiler(runner.GetSandbox())
+	baseJudge := service.NewJudgeEngine(runner, compiler)
 
 	judge := &limitedJudgeService{
 		judge:   baseJudge,
