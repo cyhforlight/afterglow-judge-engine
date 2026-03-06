@@ -168,6 +168,20 @@ print("Hello from Python")
 			wantSucceeded: true,
 			wantArtifact:  true,
 		},
+		{
+			name:            "Python fixture compile error",
+			language:        model.LanguagePython,
+			sourceFixture:   []string{"python", "ce.py"},
+			wantSucceeded:   false,
+			wantLogContains: "SyntaxError",
+		},
+		{
+			name:            "Java fixture compile error",
+			language:        model.LanguageJava,
+			sourceFixture:   []string{"java", "ce", "Main.java"},
+			wantSucceeded:   false,
+			wantLogContains: "error",
+		},
 	}
 
 	for _, tt := range tests {

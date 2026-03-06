@@ -15,15 +15,29 @@
 /bin/
 /dist/
 
-# Compiled C/C++ binaries (no extension, alongside .cpp sources)
-testprograms/cpp/ok
-testprograms/cpp/tle
+# Compiled test programs - all binaries without extensions
+testprograms/c/ac
+testprograms/c/ce
+testprograms/c/mle
+testprograms/c/ole
+testprograms/c/re
+testprograms/c/tle
+testprograms/c/wa
+testprograms/cpp/ac
+testprograms/cpp/ce
 testprograms/cpp/mle
 testprograms/cpp/ole
 testprograms/cpp/re
+testprograms/cpp/tle
+testprograms/cpp/wa
 
-# Compiled Java JARs
-testprograms/java/*.jar
+# Compiled Java artifacts
+testprograms/java/*/classes/
+testprograms/java/*/*.jar
+
+# Compiled Python bytecode
+testprograms/python/*.pyc
+testprograms/python/__pycache__/
 
 # Go workspace file
 go.work

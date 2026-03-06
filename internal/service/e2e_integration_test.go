@@ -129,11 +129,13 @@ print(sum(numbers))
 	}
 }
 
+//nolint:funlen // Table-driven integration test with multiple runtime limit test cases
 func TestE2E_RuntimeLimits(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
 	tests := []struct {
 		name                string
+		language            model.Language
 		sourceFixture       []string
 		timeLimit           int
 		memoryLimit         int
@@ -142,6 +144,7 @@ func TestE2E_RuntimeLimits(t *testing.T) {
 	}{
 		{
 			name:          "C TLE",
+			language:      model.LanguageC,
 			sourceFixture: []string{"c", "tle.c"},
 			timeLimit:     100,
 			memoryLimit:   128,
@@ -149,6 +152,7 @@ func TestE2E_RuntimeLimits(t *testing.T) {
 		},
 		{
 			name:          "C MLE",
+			language:      model.LanguageC,
 			sourceFixture: []string{"c", "mle.c"},
 			timeLimit:     5000,
 			memoryLimit:   64,
@@ -156,9 +160,85 @@ func TestE2E_RuntimeLimits(t *testing.T) {
 		},
 		{
 			name:                "C RE",
+			language:            model.LanguageC,
 			sourceFixture:       []string{"c", "re.c"},
 			timeLimit:           1000,
 			memoryLimit:         128,
+			wantVerdict:         model.VerdictRE,
+			wantNonZeroExitCode: true,
+		},
+		{
+			name:          "C++ TLE",
+			language:      model.LanguageCPP,
+			sourceFixture: []string{"cpp", "tle.cpp"},
+			timeLimit:     100,
+			memoryLimit:   128,
+			wantVerdict:   model.VerdictTLE,
+		},
+		{
+			name:          "C++ MLE",
+			language:      model.LanguageCPP,
+			sourceFixture: []string{"cpp", "mle.cpp"},
+			timeLimit:     5000,
+			memoryLimit:   64,
+			wantVerdict:   model.VerdictMLE,
+		},
+		{
+			name:                "C++ RE",
+			language:            model.LanguageCPP,
+			sourceFixture:       []string{"cpp", "re.cpp"},
+			timeLimit:           1000,
+			memoryLimit:         128,
+			wantVerdict:         model.VerdictRE,
+			wantNonZeroExitCode: true,
+		},
+		{
+			name:          "Java TLE",
+			language:      model.LanguageJava,
+			sourceFixture: []string{"java", "tle", "Main.java"},
+			timeLimit:     100,
+			memoryLimit:   256,
+			wantVerdict:   model.VerdictTLE,
+		},
+		{
+			name:          "Java MLE",
+			language:      model.LanguageJava,
+			sourceFixture: []string{"java", "mle", "Main.java"},
+			timeLimit:     5000,
+			memoryLimit:   64,
+			wantVerdict:   model.VerdictMLE,
+		},
+		{
+			name:                "Java RE",
+			language:            model.LanguageJava,
+			sourceFixture:       []string{"java", "re", "Main.java"},
+			timeLimit:           2000,
+			memoryLimit:         256,
+			wantVerdict:         model.VerdictRE,
+			wantNonZeroExitCode: true,
+		},
+		{
+			name:          "Python TLE",
+			language:      model.LanguagePython,
+			sourceFixture: []string{"python", "tle.py"},
+			timeLimit:     100,
+			memoryLimit:   256,
+			wantVerdict:   model.VerdictTLE,
+		},
+		{
+			name:          "Python MLE",
+			language:      model.LanguagePython,
+			sourceFixture: []string{"python", "mle.py"},
+			timeLimit:     5000,
+			memoryLimit:   64,
+			wantVerdict:   model.VerdictMLE,
+		},
+		{
+			name:                "Python RE",
+			language:            model.LanguagePython,
+			sourceFixture:       []string{"python", "runtime_error.py"},
+			timeLimit:           2000,
+			memoryLimit:         256,
 			wantVerdict:         model.VerdictRE,
 			wantNonZeroExitCode: true,
 		},
@@ -169,7 +249,7 @@ func TestE2E_RuntimeLimits(t *testing.T) {
 			env := newServiceIntegrationEnv(t, 90*time.Second)
 
 			compileOut := compileProgram(t, env, CompileRequest{
-				Language:   model.LanguageC,
+				Language:   tt.language,
 				SourceCode: readFixture(t, tt.sourceFixture...),
 			})
 			assert.True(t, compileOut.Result.Succeeded)
@@ -177,7 +257,7 @@ func TestE2E_RuntimeLimits(t *testing.T) {
 			execResult := env.runner.Execute(env.ctx, model.ExecuteRequest{
 				ExecutablePath: compileOut.ArtifactPath,
 				InputPath:      writeTempInputFile(t, ""),
-				Language:       model.LanguageC,
+				Language:       tt.language,
 				TimeLimit:      tt.timeLimit,
 				MemoryLimit:    tt.memoryLimit,
 			})
