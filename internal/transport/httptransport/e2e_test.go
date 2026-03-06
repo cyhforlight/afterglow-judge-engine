@@ -48,6 +48,23 @@ func decodeJudgeResponse(body *bytes.Buffer) (JudgeResponseDTO, error) {
 	return resp, err
 }
 
+func executeJudgeRequest(t *testing.T, handler *Handler, reqBody JudgeRequestDTO) JudgeResponseDTO {
+	t.Helper()
+
+	body, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.HandleExecute(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	resp, err := decodeJudgeResponse(w.Body)
+	require.NoError(t, err)
+	return resp
+}
+
 func TestE2E_HTTP_Python_OK(t *testing.T) {
 	requireE2EPrerequisites(t)
 	handler := newE2EHandler(t)
@@ -65,17 +82,7 @@ print(n * 2)`,
 		},
 	}
 
-	body, err := json.Marshal(reqBody)
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	resp, err := decodeJudgeResponse(w.Body)
-	require.NoError(t, err)
+	resp := executeJudgeRequest(t, handler, reqBody)
 
 	assert.Equal(t, "OK", resp.Verdict)
 	assert.True(t, resp.Compile.Succeeded)
@@ -95,17 +102,7 @@ func TestE2E_HTTP_Python_WA(t *testing.T) {
 		TestCases:   []JudgeTestCaseDTO{{Name: "case-1", InputText: "", ExpectedOutputText: "42\n"}},
 	}
 
-	body, err := json.Marshal(reqBody)
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	resp, err := decodeJudgeResponse(w.Body)
-	require.NoError(t, err)
+	resp := executeJudgeRequest(t, handler, reqBody)
 
 	assert.Equal(t, "WrongAnswer", resp.Verdict)
 	require.Len(t, resp.Cases, 1)
@@ -131,17 +128,7 @@ func TestE2E_HTTP_CPP_TLE(t *testing.T) {
 		TestCases:   []JudgeTestCaseDTO{{Name: "case-1", InputText: "", ExpectedOutputText: ""}},
 	}
 
-	body, err := json.Marshal(reqBody)
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	resp, err := decodeJudgeResponse(w.Body)
-	require.NoError(t, err)
+	resp := executeJudgeRequest(t, handler, reqBody)
 	assert.Equal(t, "TimeLimitExceeded", resp.Verdict)
 }
 
@@ -161,15 +148,9 @@ func TestE2E_HTTP_ConcurrentJudges(t *testing.T) {
 				MemoryLimit: 256,
 				TestCases:   []JudgeTestCaseDTO{{Name: "case-1", InputText: "", ExpectedOutputText: "OK\n"}},
 			}
-			body, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			w := httptest.NewRecorder()
-			handler.HandleExecute(w, req)
-
-			resp, decodeErr := decodeJudgeResponse(w.Body)
-			if decodeErr != nil {
-				results <- "DECODE_ERROR"
+			resp, err := executeConcurrentJudgeRequest(handler, reqBody)
+			if err != nil {
+				results <- "REQUEST_ERROR"
 				return
 			}
 			if resp.Verdict != "OK" && len(resp.Cases) > 0 {
@@ -188,4 +169,18 @@ func TestE2E_HTTP_ConcurrentJudges(t *testing.T) {
 			t.Fatal("timeout waiting for concurrent execution")
 		}
 	}
+}
+
+func executeConcurrentJudgeRequest(handler *Handler, reqBody JudgeRequestDTO) (JudgeResponseDTO, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return JudgeResponseDTO{}, err
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.HandleExecute(w, req)
+
+	return decodeJudgeResponse(w.Body)
 }

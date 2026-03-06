@@ -1,400 +1,220 @@
 package service
 
 import (
-	"context"
-	"os"
 	"testing"
 	"time"
 
 	"afterglow-judge-sandbox/internal/model"
-	"afterglow-judge-sandbox/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// End-to-end integration tests - compile and execute
+// End-to-end integration tests - compile and execute.
+//
+//nolint:funlen // Table-driven integration test with multiple language test cases
+func TestE2E_AcceptedPrograms(t *testing.T) {
+	requireServiceIntegrationTest(t)
 
-func TestE2E_C_SortProgram(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read source code
-	sourceCode, err := os.ReadFile("../../testprograms/c/ac.c")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Create input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-
-	_, err = inputFile.WriteString("5\n10 20 30 40 50\n")
-	require.NoError(t, err)
-	_ = inputFile.Close()
-
-	// Execute
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguageC,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, "10 20 30 40 50")
-}
-
-func TestE2E_CPP_SortProgram(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read source code
-	sourceCode, err := os.ReadFile("../../testprograms/cpp/ac.cpp")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageCPP,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Test with data1
-	inputFile, err := os.Open("../../testprograms/data1.in")
-	require.NoError(t, err)
-	defer func() { _ = inputFile.Close() }()
-
-	expectedOutput, err := os.ReadFile("../../testprograms/data1.out")
-	require.NoError(t, err)
-
-	// Execute
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data1.in",
-		Language:       model.LanguageCPP,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, string(expectedOutput)[:10])
-}
-
-func TestE2E_Java_HelloWorld(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	sourceCode := `
+	tests := []struct {
+		name          string
+		language      model.Language
+		sourceText    string
+		sourceFixture []string
+		inputText     string
+		inputFixture  []string
+		timeLimit     int
+		memoryLimit   int
+		assertOutput  func(t *testing.T, stdout string)
+	}{
+		{
+			name:          "C sort program",
+			language:      model.LanguageC,
+			sourceFixture: []string{"c", "ac.c"},
+			inputText:     "5\n10 20 30 40 50\n",
+			timeLimit:     1000,
+			memoryLimit:   128,
+			assertOutput: func(t *testing.T, stdout string) {
+				assert.Contains(t, stdout, "10 20 30 40 50")
+			},
+		},
+		{
+			name:          "C++ sort program",
+			language:      model.LanguageCPP,
+			sourceFixture: []string{"cpp", "ac.cpp"},
+			inputFixture:  []string{"data1.in"},
+			timeLimit:     1000,
+			memoryLimit:   128,
+			assertOutput: func(t *testing.T, stdout string) {
+				expectedOutput := readFixture(t, "data1.out")
+				assert.Contains(t, stdout, expectedOutput[:10])
+			},
+		},
+		{
+			name:     "Java hello world",
+			language: model.LanguageJava,
+			sourceText: `
 public class Main {
     public static void main(String[] args) {
         System.out.println("Hello World");
     }
 }
-`
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageJava,
-		SourceCode: sourceCode,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Create empty input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-	_ = inputFile.Close()
-
-	// Execute
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguageJava,
-		TimeLimit:      2000,
-		MemoryLimit:    256,
-	})
-
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, "Hello World")
-}
-
-func TestE2E_Python_SimpleIO(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	sourceCode := `
+`,
+			inputText:   "",
+			timeLimit:   2000,
+			memoryLimit: 256,
+			assertOutput: func(t *testing.T, stdout string) {
+				assert.Contains(t, stdout, "Hello World")
+			},
+		},
+		{
+			name:     "Python simple IO",
+			language: model.LanguagePython,
+			sourceText: `
 n = int(input())
 numbers = list(map(int, input().split()))
 print(sum(numbers))
-`
-
-	// Compile (Python just copies the file)
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguagePython,
-		SourceCode: sourceCode,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Create input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-
-	_, err = inputFile.WriteString("3\n10 20 30\n")
-	require.NoError(t, err)
-	_ = inputFile.Close()
-
-	// Execute
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguagePython,
-		TimeLimit:      2000,
-		MemoryLimit:    256,
-	})
-
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, "60")
-}
-
-func TestE2E_C_TLE(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+`,
+			inputText:   "3\n10 20 30\n",
+			timeLimit:   2000,
+			memoryLimit: 256,
+			assertOutput: func(t *testing.T, stdout string) {
+				assert.Contains(t, stdout, "60")
+			},
+		},
+		{
+			name:          "Java accepted answer",
+			language:      model.LanguageJava,
+			sourceFixture: []string{"java", "ac", "Main.java"},
+			inputFixture:  []string{"data1.in"},
+			timeLimit:     2000,
+			memoryLimit:   256,
+			assertOutput: func(t *testing.T, stdout string) {
+				assert.Contains(t, stdout, "0 1 1 1 1 1 1 4 4 5 8 9 9")
+			},
+		},
 	}
 
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newServiceIntegrationEnv(t, 90*time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+			sourceCode := tt.sourceText
+			if len(tt.sourceFixture) > 0 {
+				sourceCode = readFixture(t, tt.sourceFixture...)
+			}
 
-	// Read TLE source code
-	sourceCode, err := os.ReadFile("../../testprograms/c/tle.c")
-	require.NoError(t, err)
+			compileOut := compileProgram(t, env, CompileRequest{
+				Language:   tt.language,
+				SourceCode: sourceCode,
+			})
+			assert.True(t, compileOut.Result.Succeeded)
 
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
+			inputPath := fixturePath(t, tt.inputFixture...)
+			if len(tt.inputFixture) == 0 {
+				inputPath = writeTempInputFile(t, tt.inputText)
+			}
 
-	assert.True(t, compileOut.Result.Succeeded)
+			execResult := env.runner.Execute(env.ctx, model.ExecuteRequest{
+				ExecutablePath: compileOut.ArtifactPath,
+				InputPath:      inputPath,
+				Language:       tt.language,
+				TimeLimit:      tt.timeLimit,
+				MemoryLimit:    tt.memoryLimit,
+			})
 
-	// Create empty input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-	_ = inputFile.Close()
-
-	// Execute with short time limit
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguageC,
-		TimeLimit:      100, // 100ms
-		MemoryLimit:    128,
-	})
-
-	assert.Equal(t, model.VerdictTLE, execResult.Verdict)
+			assert.Equal(t, model.VerdictOK, execResult.Verdict)
+			assert.Equal(t, 0, execResult.ExitCode)
+			tt.assertOutput(t, execResult.Stdout)
+		})
+	}
 }
 
-func TestE2E_C_MLE(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+func TestE2E_RuntimeLimits(t *testing.T) {
+	requireServiceIntegrationTest(t)
+
+	tests := []struct {
+		name                string
+		sourceFixture       []string
+		timeLimit           int
+		memoryLimit         int
+		wantVerdict         model.Verdict
+		wantNonZeroExitCode bool
+	}{
+		{
+			name:          "C TLE",
+			sourceFixture: []string{"c", "tle.c"},
+			timeLimit:     100,
+			memoryLimit:   128,
+			wantVerdict:   model.VerdictTLE,
+		},
+		{
+			name:          "C MLE",
+			sourceFixture: []string{"c", "mle.c"},
+			timeLimit:     5000,
+			memoryLimit:   64,
+			wantVerdict:   model.VerdictMLE,
+		},
+		{
+			name:                "C RE",
+			sourceFixture:       []string{"c", "re.c"},
+			timeLimit:           1000,
+			memoryLimit:         128,
+			wantVerdict:         model.VerdictRE,
+			wantNonZeroExitCode: true,
+		},
 	}
 
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newServiceIntegrationEnv(t, 90*time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+			compileOut := compileProgram(t, env, CompileRequest{
+				Language:   model.LanguageC,
+				SourceCode: readFixture(t, tt.sourceFixture...),
+			})
+			assert.True(t, compileOut.Result.Succeeded)
 
-	// Read MLE source code
-	sourceCode, err := os.ReadFile("../../testprograms/c/mle.c")
-	require.NoError(t, err)
+			execResult := env.runner.Execute(env.ctx, model.ExecuteRequest{
+				ExecutablePath: compileOut.ArtifactPath,
+				InputPath:      writeTempInputFile(t, ""),
+				Language:       model.LanguageC,
+				TimeLimit:      tt.timeLimit,
+				MemoryLimit:    tt.memoryLimit,
+			})
 
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Create empty input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-	_ = inputFile.Close()
-
-	// Execute with low memory limit
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguageC,
-		TimeLimit:      5000,
-		MemoryLimit:    64, // 64MB - should trigger MLE
-	})
-
-	assert.Equal(t, model.VerdictMLE, execResult.Verdict)
-}
-
-func TestE2E_C_RE(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+			assert.Equal(t, tt.wantVerdict, execResult.Verdict)
+			if tt.wantNonZeroExitCode {
+				assert.NotEqual(t, 0, execResult.ExitCode)
+			}
+		})
 	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read RE source code
-	sourceCode, err := os.ReadFile("../../testprograms/c/re.c")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Create empty input file
-	inputFile, err := os.CreateTemp("", "test-input-*.txt")
-	require.NoError(t, err)
-	defer func() { _ = os.Remove(inputFile.Name()) }()
-	_ = inputFile.Close()
-
-	// Execute
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      inputFile.Name(),
-		Language:       model.LanguageC,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	assert.Equal(t, model.VerdictRE, execResult.Verdict)
-	assert.NotEqual(t, 0, execResult.ExitCode)
 }
 
 func TestE2E_AllTestData(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+	requireServiceIntegrationTest(t)
 
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	// Read and compile C++ sort program
-	sourceCode, err := os.ReadFile("../../testprograms/cpp/ac.cpp")
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
+	env := newServiceIntegrationEnv(t, 120*time.Second)
+	compileOut := compileProgram(t, env, CompileRequest{
 		Language:   model.LanguageCPP,
-		SourceCode: string(sourceCode),
+		SourceCode: readFixture(t, "cpp", "ac.cpp"),
 	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
 	assert.True(t, compileOut.Result.Succeeded)
 
-	// Test all data files
 	testCases := []struct {
 		name       string
-		inputFile  string
-		outputFile string
+		inputFile  []string
+		outputFile []string
 	}{
-		{"data1", "../../testprograms/data1.in", "../../testprograms/data1.out"},
-		{"data2", "../../testprograms/data2.in", "../../testprograms/data2.out"},
-		{"data3", "../../testprograms/data3.in", "../../testprograms/data3.out"},
+		{name: "data1", inputFile: []string{"data1.in"}, outputFile: []string{"data1.out"}},
+		{name: "data2", inputFile: []string{"data2.in"}, outputFile: []string{"data2.out"}},
+		{name: "data3", inputFile: []string{"data3.in"}, outputFile: []string{"data3.out"}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			execResult := runner.Execute(ctx, model.ExecuteRequest{
+			execResult := env.runner.Execute(env.ctx, model.ExecuteRequest{
 				ExecutablePath: compileOut.ArtifactPath,
-				InputPath:      tc.inputFile,
+				InputPath:      fixturePath(t, tc.inputFile...),
 				Language:       model.LanguageCPP,
 				TimeLimit:      1000,
 				MemoryLimit:    128,
@@ -402,228 +222,91 @@ func TestE2E_AllTestData(t *testing.T) {
 
 			assert.Equal(t, model.VerdictOK, execResult.Verdict)
 			assert.Equal(t, 0, execResult.ExitCode)
-
-			// Just check that output is not empty
 			assert.NotEmpty(t, execResult.Stdout, "Output should not be empty")
 		})
 	}
 }
 
-//nolint:funlen
-func TestE2E_WrongAnswer_C(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+//nolint:funlen // Table-driven integration test with multiple language test cases
+func TestE2E_WrongAnswerPrograms(t *testing.T) {
+	requireServiceIntegrationTest(t)
+
+	tests := []struct {
+		name              string
+		language          model.Language
+		sourceFixture     []string
+		inputFixture      []string
+		timeLimit         int
+		memoryLimit       int
+		assertWrongOutput func(t *testing.T, stdout string)
+	}{
+		{
+			name:          "C wrong answer",
+			language:      model.LanguageC,
+			sourceFixture: []string{"c", "wa.c"},
+			inputFixture:  []string{"data1.in"},
+			timeLimit:     1000,
+			memoryLimit:   128,
+			assertWrongOutput: func(t *testing.T, stdout string) {
+				assert.NotContains(t, stdout, "0 1 1 1 1 1 1 4 4 5 8 9 9")
+			},
+		},
+		{
+			name:          "C++ wrong answer",
+			language:      model.LanguageCPP,
+			sourceFixture: []string{"cpp", "wa.cpp"},
+			inputFixture:  []string{"data2.in"},
+			timeLimit:     1000,
+			memoryLimit:   128,
+			assertWrongOutput: func(t *testing.T, stdout string) {
+				assert.NotContains(t, stdout, "10 20 30 40 50")
+			},
+		},
+		{
+			name:          "Python wrong answer",
+			language:      model.LanguagePython,
+			sourceFixture: []string{"python", "wa.py"},
+			inputFixture:  []string{"data3.in"},
+			timeLimit:     1000,
+			memoryLimit:   128,
+			assertWrongOutput: func(t *testing.T, stdout string) {
+				assert.NotEmpty(t, stdout)
+			},
+		},
+		{
+			name:          "Java wrong answer",
+			language:      model.LanguageJava,
+			sourceFixture: []string{"java", "wa", "Main.java"},
+			inputFixture:  []string{"data2.in"},
+			timeLimit:     2000,
+			memoryLimit:   256,
+			assertWrongOutput: func(t *testing.T, stdout string) {
+				assert.NotContains(t, stdout, "10 20 30 40 50")
+			},
+		},
 	}
 
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newServiceIntegrationEnv(t, 90*time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+			compileOut := compileProgram(t, env, CompileRequest{
+				Language:   tt.language,
+				SourceCode: readFixture(t, tt.sourceFixture...),
+			})
+			assert.True(t, compileOut.Result.Succeeded)
 
-	// Read WA source code (sorts in descending order)
-	sourceCode, err := os.ReadFile("../../testprograms/c/wa.c")
-	require.NoError(t, err)
+			execResult := env.runner.Execute(env.ctx, model.ExecuteRequest{
+				ExecutablePath: compileOut.ArtifactPath,
+				InputPath:      fixturePath(t, tt.inputFixture...),
+				Language:       tt.language,
+				TimeLimit:      tt.timeLimit,
+				MemoryLimit:    tt.memoryLimit,
+			})
 
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Execute with test data
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data1.in",
-		Language:       model.LanguageC,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	// Should run successfully but produce wrong output
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	// Output should be descending, not ascending
-	assert.NotContains(t, execResult.Stdout, "0 1 1 1 1 1 1 4 4 5 8 9 9")
-}
-
-//nolint:funlen
-func TestE2E_WrongAnswer_CPP(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+			assert.Equal(t, model.VerdictOK, execResult.Verdict)
+			assert.Equal(t, 0, execResult.ExitCode)
+			tt.assertWrongOutput(t, execResult.Stdout)
+		})
 	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read WA source code
-	sourceCode, err := os.ReadFile("../../testprograms/cpp/wa.cpp")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageCPP,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Execute with test data
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data2.in",
-		Language:       model.LanguageCPP,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	// Should run successfully but produce wrong output
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	// Output should be descending, not ascending
-	assert.NotContains(t, execResult.Stdout, "10 20 30 40 50")
-}
-
-//nolint:funlen
-func TestE2E_WrongAnswer_Python(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read WA source code
-	sourceCode, err := os.ReadFile("../../testprograms/python/wa.py")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguagePython,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Execute with test data
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data3.in",
-		Language:       model.LanguagePython,
-		TimeLimit:      1000,
-		MemoryLimit:    128,
-	})
-
-	// Should run successfully but produce wrong output
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	// Output should be descending, not ascending
-	assert.NotEmpty(t, execResult.Stdout)
-}
-
-//nolint:funlen
-func TestE2E_AcceptedAnswer_Java(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read AC source code
-	sourceCode, err := os.ReadFile("../../testprograms/java/ac/Main.java")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageJava,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Execute with test data
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data1.in",
-		Language:       model.LanguageJava,
-		TimeLimit:      2000,
-		MemoryLimit:    256,
-	})
-
-	// Should produce correct output
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, "0 1 1 1 1 1 1 4 4 5 8 9 9")
-}
-
-//nolint:funlen
-func TestE2E_WrongAnswer_Java(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
-	runner := NewContainerdRunner("")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Read WA source code
-	sourceCode, err := os.ReadFile("../../testprograms/java/wa/Main.java")
-	require.NoError(t, err)
-
-	// Compile
-	compileOut, err := compiler.Compile(ctx, CompileRequest{
-		Language:   model.LanguageJava,
-		SourceCode: string(sourceCode),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, compileOut.Cleanup)
-	defer compileOut.Cleanup()
-
-	assert.True(t, compileOut.Result.Succeeded)
-
-	// Execute with test data
-	execResult := runner.Execute(ctx, model.ExecuteRequest{
-		ExecutablePath: compileOut.ArtifactPath,
-		InputPath:      "../../testprograms/data2.in",
-		Language:       model.LanguageJava,
-		TimeLimit:      2000,
-		MemoryLimit:    256,
-	})
-
-	// Should run successfully but produce wrong output
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	// Output should be descending, not ascending
-	assert.NotContains(t, execResult.Stdout, "10 20 30 40 50")
 }

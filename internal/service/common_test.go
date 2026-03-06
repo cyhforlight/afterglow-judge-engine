@@ -1,0 +1,130 @@
+package service
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"afterglow-judge-sandbox/internal/sandbox"
+
+	"github.com/stretchr/testify/require"
+)
+
+type serviceIntegrationEnv struct {
+	ctx      context.Context
+	compiler *ContainerCompiler
+	runner   *ContainerdRunner
+}
+
+var (
+	projectRootOnce   sync.Once
+	cachedProjectRoot string
+	errProjectRoot    error
+)
+
+func requireServiceIntegrationTest(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+}
+
+func projectRoot(t *testing.T) string {
+	t.Helper()
+
+	projectRootOnce.Do(func() {
+		wd, err := os.Getwd()
+		if err != nil {
+			errProjectRoot = err
+			return
+		}
+
+		dir := wd
+		for {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				cachedProjectRoot = dir
+				return
+			}
+
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				errProjectRoot = os.ErrNotExist
+				return
+			}
+			dir = parent
+		}
+	})
+
+	require.NoError(t, errProjectRoot, "failed to locate project root from current working directory")
+	return cachedProjectRoot
+}
+
+func fixturePath(t *testing.T, elems ...string) string {
+	t.Helper()
+
+	parts := append([]string{projectRoot(t), "testprograms"}, elems...)
+	return filepath.Join(parts...)
+}
+
+func readFixture(t *testing.T, elems ...string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(fixturePath(t, elems...))
+	require.NoError(t, err)
+	return string(content)
+}
+
+func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func newContainerCompilerForTest(t *testing.T) *ContainerCompiler {
+	t.Helper()
+	return NewContainerCompiler(sandbox.NewContainerdSandbox(""))
+}
+
+func newContainerRunnerForTest(t *testing.T) *ContainerdRunner {
+	t.Helper()
+	return NewContainerdRunner("")
+}
+
+func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {
+	t.Helper()
+
+	return serviceIntegrationEnv{
+		ctx:      newIntegrationContext(t, timeout),
+		compiler: newContainerCompilerForTest(t),
+		runner:   newContainerRunnerForTest(t),
+	}
+}
+
+func writeTempInputFile(t *testing.T, content string) string {
+	t.Helper()
+
+	inputFile, err := os.CreateTemp("", "test-input-*.txt")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(inputFile.Name()) })
+
+	_, err = inputFile.WriteString(content)
+	require.NoError(t, err)
+	require.NoError(t, inputFile.Close())
+
+	return inputFile.Name()
+}
+
+func compileProgram(t *testing.T, env serviceIntegrationEnv, req CompileRequest) CompileOutput {
+	t.Helper()
+
+	out, err := env.compiler.Compile(env.ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, out.Cleanup)
+	t.Cleanup(out.Cleanup)
+	return out
+}

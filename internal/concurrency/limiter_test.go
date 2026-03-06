@@ -14,40 +14,52 @@ import (
 
 func TestExecutionLimiter_WithLimit(t *testing.T) {
 	limiter := NewExecutionLimiter(2)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
 
 	var concurrent atomic.Int32
 	var maxConcurrent atomic.Int32
+
+	readyCh := make(chan struct{}, 5)
+	startedCh := make(chan struct{}, 5)
+	releaseCh := make(chan struct{})
+	errCh := make(chan error, 5)
 
 	var wg sync.WaitGroup
 	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			err := limiter.WithLimit(ctx, func() error {
-				current := concurrent.Add(1)
-				defer concurrent.Add(-1)
-
-				// Track max concurrent
-				for {
-					maxVal := maxConcurrent.Load()
-					if current <= maxVal || maxConcurrent.CompareAndSwap(maxVal, current) {
-						break
-					}
-				}
-
-				time.Sleep(50 * time.Millisecond)
-				return nil
-			})
-			assert.NoError(t, err)
+			runLimitedWorker(ctx, limiter, &concurrent, &maxConcurrent, readyCh, startedCh, releaseCh, errCh)
 		}()
 	}
 
-	wg.Wait()
+	for range 5 {
+		waitForSignal(ctx, t, readyCh, "workers to become ready")
+	}
+	for range 2 {
+		waitForSignal(ctx, t, startedCh, "workers to acquire execution slots")
+	}
 
-	// Should never exceed limit of 2
-	assert.LessOrEqual(t, maxConcurrent.Load(), int32(2))
+	assert.Equal(t, int32(2), concurrent.Load())
+	assert.Equal(t, int32(2), maxConcurrent.Load())
+
+	select {
+	case <-startedCh:
+		t.Fatal("worker acquired an execution slot before one was released")
+	default:
+	}
+
+	close(releaseCh)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	assert.Zero(t, concurrent.Load())
+	assert.Equal(t, int32(2), maxConcurrent.Load())
 }
 
 func TestExecutionLimiter_ContextCancellation(t *testing.T) {
@@ -77,7 +89,7 @@ func TestExecutionLimiter_ContextCancellation(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context canceled")
+	require.ErrorIs(t, err, context.Canceled)
 
 	close(done)
 }
@@ -115,5 +127,48 @@ func TestNewExecutionLimiter_InvalidLimit(t *testing.T) {
 			})
 			assert.NoError(t, err)
 		})
+	}
+}
+
+func runLimitedWorker(
+	ctx context.Context,
+	limiter *ExecutionLimiter,
+	concurrent *atomic.Int32,
+	maxConcurrent *atomic.Int32,
+	readyCh chan<- struct{},
+	startedCh chan<- struct{},
+	releaseCh <-chan struct{},
+	errCh chan<- error,
+) {
+	readyCh <- struct{}{}
+
+	errCh <- limiter.WithLimit(ctx, func() error {
+		current := concurrent.Add(1)
+		defer concurrent.Add(-1)
+
+		trackMaxConcurrent(current, maxConcurrent)
+		startedCh <- struct{}{}
+		<-releaseCh
+
+		return nil
+	})
+}
+
+func trackMaxConcurrent(current int32, maxConcurrent *atomic.Int32) {
+	for {
+		maxVal := maxConcurrent.Load()
+		if current <= maxVal || maxConcurrent.CompareAndSwap(maxVal, current) {
+			return
+		}
+	}
+}
+
+func waitForSignal(ctx context.Context, t *testing.T, ch <-chan struct{}, description string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for %s: %v", description, ctx.Err())
 	}
 }
