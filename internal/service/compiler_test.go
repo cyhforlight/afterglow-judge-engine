@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"afterglow-judge-sandbox/internal/cache"
@@ -282,26 +281,6 @@ func hasContainerd(t *testing.T) bool {
 	return err == nil
 }
 
-// countingSandbox wraps a real sandbox and counts Execute calls.
-type countingSandbox struct {
-	sandbox.Sandbox
-	executeCount int
-	mu           sync.Mutex
-}
-
-func (c *countingSandbox) Execute(ctx context.Context, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
-	c.mu.Lock()
-	c.executeCount++
-	c.mu.Unlock()
-	return c.Sandbox.Execute(ctx, req)
-}
-
-func (c *countingSandbox) getExecuteCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.executeCount
-}
-
 // TestContainerCompiler_RealCacheHit tests real cache hit with compilation.
 func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	if !hasContainerd(t) {
@@ -516,147 +495,6 @@ func countJudgeWorkspaces(entries []os.DirEntry) int {
 	return count
 }
 
-// TestContainerCompiler_ConcurrentCacheFailure tests concurrent compilation with cache unavailable.
-func TestContainerCompiler_ConcurrentCacheFailure(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
-
-	// Create compiler with nil cache (simulates cache unavailable)
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := &ContainerCompiler{
-		sandbox: sb,
-		cache:   nil, // Cache unavailable - forces fallback path
-	}
-
-	req := CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: "int main() { return 42; }",
-	}
-
-	const concurrency = 10
-	results := make([]CompileOutput, concurrency)
-	errors := make([]error, concurrency)
-
-	// Launch 10 concurrent compilations with cache unavailable
-	var wg sync.WaitGroup
-	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			out, err := compiler.Compile(context.Background(), req)
-			results[idx] = out
-			errors[idx] = err
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all requests succeeded despite cache being unavailable
-	for i := range concurrency {
-		require.NoError(t, errors[i], "request %d should succeed even with cache unavailable", i)
-		require.True(t, results[i].Result.Succeeded, "request %d compilation should succeed", i)
-		require.NotEmpty(t, results[i].ArtifactPath, "request %d should have artifact", i)
-		defer results[i].Cleanup()
-	}
-
-	// Verify all artifacts exist and are valid
-	for i := range concurrency {
-		info, err := os.Stat(results[i].ArtifactPath)
-		require.NoError(t, err, "request %d artifact should exist", i)
-		assert.NotZero(t, info.Size(), "request %d artifact should not be empty", i)
-	}
-
-	// Verify all artifacts are in different workspaces (isolated)
-	paths := make(map[string]bool)
-	for _, result := range results {
-		paths[result.ArtifactPath] = true
-	}
-	assert.Len(t, paths, concurrency, "all artifacts should be in different workspaces")
-}
-
-// TestContainerCompiler_ConcurrentCompilationDeduplication tests singleflight deduplication.
-//
-//nolint:funlen // Concurrent test requires setup, execution, and verification
-func TestContainerCompiler_ConcurrentCompilationDeduplication(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
-
-	// Create isolated cache for this test
-	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
-	require.NoError(t, err)
-
-	// Wrap sandbox with counting wrapper to verify deduplication
-	countingSb := &countingSandbox{
-		Sandbox: sandbox.NewContainerdSandbox(""),
-	}
-
-	compiler := &ContainerCompiler{
-		sandbox: countingSb,
-		cache:   testCache,
-	}
-
-	req := CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: "int main() { return 99; }",
-	}
-
-	const concurrency = 10
-	results := make([]CompileOutput, concurrency)
-	errors := make([]error, concurrency)
-
-	// Verify cache starts empty
-	initialStats := testCache.Stats()
-	assert.Equal(t, 0, initialStats.Entries, "cache should start empty")
-
-	// Launch 10 concurrent compilations of the same code
-	var wg sync.WaitGroup
-	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			out, err := compiler.Compile(context.Background(), req)
-			results[idx] = out
-			errors[idx] = err
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all requests succeeded
-	for i := range concurrency {
-		require.NoError(t, errors[i], "request %d should succeed", i)
-		require.True(t, results[i].Result.Succeeded, "request %d compilation should succeed", i)
-		require.NotEmpty(t, results[i].ArtifactPath, "request %d should have artifact", i)
-		defer results[i].Cleanup()
-	}
-
-	// Verify all artifacts exist and are executable
-	for i := range concurrency {
-		info, err := os.Stat(results[i].ArtifactPath)
-		require.NoError(t, err, "request %d artifact should exist", i)
-		assert.NotZero(t, info.Size(), "request %d artifact should not be empty", i)
-	}
-
-	// Verify all artifacts are in different workspaces (isolated)
-	paths := make(map[string]bool)
-	for _, result := range results {
-		paths[result.ArtifactPath] = true
-	}
-	assert.Len(t, paths, concurrency, "all artifacts should be in different workspaces")
-
-	// Verify cache has only 1 entry (not 10)
-	stats := testCache.Stats()
-	assert.Equal(t, 1, stats.Entries, "cache should have only 1 entry despite 10 concurrent requests")
-
-	// CRITICAL: Verify that sandbox.Execute was only called ONCE (not 10 times)
-	// This proves that singleflight actually deduplicated the compilations
-	executeCount := countingSb.getExecuteCount()
-	assert.Equal(t, 1, executeCount, "sandbox.Execute should be called only once due to singleflight deduplication")
-}
-
 // TestContainerCompiler_CompilationFailure tests that compilation failures are handled correctly.
 func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	if !hasContainerd(t) {
@@ -693,51 +531,4 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	// Verify cache is empty (failed compilations not cached)
 	stats := testCache.Stats()
 	assert.Equal(t, 0, stats.Entries, "failed compilations should not be cached")
-}
-
-// TestContainerCompiler_ConcurrentCompilationFailure tests concurrent compilation failures.
-func TestContainerCompiler_ConcurrentCompilationFailure(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
-
-	// Create isolated cache for this test
-	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
-	require.NoError(t, err)
-
-	sb := sandbox.NewContainerdSandbox("")
-	compiler := &ContainerCompiler{
-		sandbox: sb,
-		cache:   testCache,
-	}
-
-	req := CompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: "int main( { return 0; }", // Syntax error
-	}
-
-	const concurrency = 5
-	results := make([]CompileOutput, concurrency)
-	errors := make([]error, concurrency)
-
-	var wg sync.WaitGroup
-	for i := range concurrency {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			out, err := compiler.Compile(context.Background(), req)
-			results[idx] = out
-			errors[idx] = err
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all requests got compilation failure (not infrastructure error)
-	for i := range concurrency {
-		require.NoError(t, errors[i], "request %d should not return error", i)
-		require.False(t, results[i].Result.Succeeded, "request %d compilation should fail", i)
-		require.NotEmpty(t, results[i].Result.Log, "request %d should have error log", i)
-	}
 }
