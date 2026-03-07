@@ -288,7 +288,13 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	}
 
 	sb := sandbox.NewContainerdSandbox("")
-	compiler := NewContainerCompiler(sb)
+
+	// Create a cache for this test
+	cacheDir := filepath.Join(os.TempDir(), "test-compile-cache")
+	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 10)
+	require.NoError(t, err)
+
+	compiler := NewContainerCompiler(sb, compileCache)
 	require.NotNil(t, compiler.cache, "cache should be initialized")
 
 	req := CompileRequest{

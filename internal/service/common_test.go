@@ -84,12 +84,14 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 
 func newContainerCompilerForTest(t *testing.T) *ContainerCompiler {
 	t.Helper()
-	return NewContainerCompiler(sandbox.NewContainerdSandbox(""))
+	sb := sandbox.NewContainerdSandbox("")
+	return NewContainerCompiler(sb, nil) // nil cache for tests
 }
 
 func newContainerRunnerForTest(t *testing.T) *ContainerdRunner {
 	t.Helper()
-	return NewContainerdRunner("")
+	sb := sandbox.NewContainerdSandbox("")
+	return NewContainerdRunner(sb)
 }
 
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {

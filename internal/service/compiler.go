@@ -41,15 +41,7 @@ type ContainerCompiler struct {
 }
 
 // NewContainerCompiler creates a container-based compiler.
-func NewContainerCompiler(sb sandbox.Sandbox) *ContainerCompiler {
-	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
-	const maxEntries = 500 // ~250MB-2.5GB
-
-	compileCache, err := cache.GetGlobalCache(cacheDir, maxEntries)
-	if err != nil {
-		slog.Warn("failed to initialize compile cache", "error", err)
-	}
-
+func NewContainerCompiler(sb sandbox.Sandbox, compileCache *cache.CompileCache) *ContainerCompiler {
 	return &ContainerCompiler{
 		sandbox: sb,
 		cache:   compileCache,

@@ -20,8 +20,7 @@ type ContainerdRunner struct {
 }
 
 // NewContainerdRunner creates a runner with default language profiles.
-func NewContainerdRunner(socketPath string) *ContainerdRunner {
-	sb := sandbox.NewContainerdSandbox(socketPath)
+func NewContainerdRunner(sb sandbox.Sandbox) *ContainerdRunner {
 	profiles := make(map[model.Language]sandbox.RunConfig)
 
 	profiles[model.LanguageC] = sandbox.CProfile().Run
@@ -34,11 +33,6 @@ func NewContainerdRunner(socketPath string) *ContainerdRunner {
 		profiles: profiles,
 		log:      slog.Default(),
 	}
-}
-
-// GetSandbox returns the underlying sandbox instance (for compiler initialization).
-func (r *ContainerdRunner) GetSandbox() sandbox.Sandbox {
-	return r.sandbox
 }
 
 // PreflightCheck verifies that cgroup v2 and containerd are available.

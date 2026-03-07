@@ -30,8 +30,8 @@ func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock")
-	compiler := service.NewContainerCompiler(sb)
-	runner := service.NewContainerdRunner("/run/containerd/containerd.sock")
+	compiler := service.NewContainerCompiler(sb, nil) // nil cache for tests
+	runner := service.NewContainerdRunner(sb)
 	judge := service.NewJudgeEngine(runner, compiler)
 
 	ctx := context.Background()

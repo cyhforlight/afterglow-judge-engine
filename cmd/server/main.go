@@ -7,11 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/concurrency"
 	"afterglow-judge-sandbox/internal/config"
 	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
 	"afterglow-judge-sandbox/internal/transport/httptransport"
 )
@@ -52,8 +55,20 @@ func setupLogger(logLevel string) *slog.Logger {
 func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	limiter := concurrency.NewExecutionLimiter(int64(cfg.MaxConcurrentExecutions))
 
-	runner := service.NewContainerdRunner(cfg.ContainerdSocket)
-	compiler := service.NewContainerCompiler(runner.GetSandbox())
+	// 1. Create shared Sandbox instance
+	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket)
+
+	// 2. Create CompileCache instance (not a global singleton)
+	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
+	compileCache, err := cache.NewCompileCache(cacheDir, 500)
+	if err != nil {
+		slog.Warn("failed to initialize compile cache", "error", err)
+		compileCache = nil // Allow running without cache
+	}
+
+	// 3. Inject dependencies into Runner and Compiler
+	runner := service.NewContainerdRunner(sb)
+	compiler := service.NewContainerCompiler(sb, compileCache)
 	baseJudge := service.NewJudgeEngine(runner, compiler)
 
 	judge := &limitedJudgeService{

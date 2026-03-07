@@ -31,25 +31,9 @@ type Stats struct {
 	Entries int
 }
 
-var (
-	globalCache     *CompileCache
-	globalCacheOnce sync.Once
-	errGlobalCache  error
-)
-
-// GetGlobalCache returns the process-wide singleton cache instance.
-// Multiple calls return the same instance, ensuring cache sharing across the process.
-func GetGlobalCache(cacheDir string, maxEntries int) (*CompileCache, error) {
-	globalCacheOnce.Do(func() {
-		globalCache, errGlobalCache = newCompileCache(cacheDir, maxEntries)
-	})
-	return globalCache, errGlobalCache
-}
-
-// newCompileCache creates a compilation cache with entry limit.
+// NewCompileCache creates a compilation cache with entry limit.
 // It cleans up orphan files from previous runs on startup.
-// This is private; use GetGlobalCache for process-wide singleton.
-func newCompileCache(cacheDir string, maxEntries int) (*CompileCache, error) {
+func NewCompileCache(cacheDir string, maxEntries int) (*CompileCache, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
@@ -79,9 +63,9 @@ func newCompileCache(cacheDir string, maxEntries int) (*CompileCache, error) {
 }
 
 // NewCompileCacheForTest creates an isolated cache instance for testing.
-// Production code should use GetGlobalCache instead.
+// This is now just an alias for NewCompileCache.
 func NewCompileCacheForTest(cacheDir string, maxEntries int) (*CompileCache, error) {
-	return newCompileCache(cacheDir, maxEntries)
+	return NewCompileCache(cacheDir, maxEntries)
 }
 
 // Get retrieves a cached artifact by key.
