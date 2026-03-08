@@ -13,7 +13,7 @@ import (
 
 func TestCompileCache_PutAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
-	cache, err := NewCompileCacheForTest(tmpDir, 10)
+	cache, err := NewCompileCache(tmpDir, 10)
 	require.NoError(t, err)
 
 	err = cache.Put("key1", createCompiledArtifact("program", "binary content"), "compile log", model.LanguageC)
@@ -31,7 +31,7 @@ func TestCompileCache_PutAndGet(t *testing.T) {
 
 func TestCompileCache_MissOnNonexistent(t *testing.T) {
 	tmpDir := t.TempDir()
-	cache, err := NewCompileCacheForTest(tmpDir, 10)
+	cache, err := NewCompileCache(tmpDir, 10)
 	require.NoError(t, err)
 
 	_, ok := cache.Get("nonexistent")
@@ -40,7 +40,7 @@ func TestCompileCache_MissOnNonexistent(t *testing.T) {
 
 func TestCompileCache_EvictionRemovesFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	cache, err := NewCompileCacheForTest(tmpDir, 2) // max 2 entries
+	cache, err := NewCompileCache(tmpDir, 2) // max 2 entries
 	require.NoError(t, err)
 
 	err = cache.Put("key1", createCompiledArtifact("program1", "binary1"), "log1", model.LanguageC)
@@ -68,7 +68,7 @@ func TestCompileCache_EvictionRemovesFile(t *testing.T) {
 
 func TestCompileCache_LRUOrdering(t *testing.T) {
 	tmpDir := t.TempDir()
-	cache, err := NewCompileCacheForTest(tmpDir, 2)
+	cache, err := NewCompileCache(tmpDir, 2)
 	require.NoError(t, err)
 
 	require.NoError(t, cache.Put("key1", createCompiledArtifact("program1", "binary1"), "log1", model.LanguageC))
@@ -91,7 +91,7 @@ func TestCompileCache_LRUOrdering(t *testing.T) {
 
 func TestCompileCache_Stats(t *testing.T) {
 	tmpDir := t.TempDir()
-	cache, err := NewCompileCacheForTest(tmpDir, 10)
+	cache, err := NewCompileCache(tmpDir, 10)
 	require.NoError(t, err)
 
 	stats := cache.Stats()
@@ -119,7 +119,7 @@ func TestCompileCache_OrphanCleanup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create new cache (should clean up orphans)
-	cache, err := NewCompileCacheForTest(tmpDir, 10)
+	cache, err := NewCompileCache(tmpDir, 10)
 	require.NoError(t, err)
 
 	// Verify orphans are deleted

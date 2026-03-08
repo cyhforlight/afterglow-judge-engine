@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -16,223 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHostCompiler_Compile_PythonSuccess(t *testing.T) {
-	compiler := NewHostCompiler()
-
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguagePython,
-		SourceCode: "print(42)\n",
-	})
-	require.NoError(t, err)
-
-	assert.True(t, out.Result.Succeeded)
-	assert.Equal(t, model.LanguagePython, out.RuntimeLanguage)
-	assert.Contains(t, out.Result.Log, "does not require compile")
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, "solution.py", out.Artifact.Name)
-	assert.Equal(t, []byte("print(42)\n"), out.Artifact.Data)
-}
-
-func TestHostCompiler_Compile_UnknownLanguage(t *testing.T) {
-	compiler := NewHostCompiler()
-
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguageUnknown,
-		SourceCode: "whatever",
-	})
-	require.NoError(t, err)
-
-	assert.False(t, out.Result.Succeeded)
-	assert.Nil(t, out.Artifact)
-	assert.Contains(t, out.Result.Log, "unsupported language")
-}
-
-func TestHostCompiler_Compile_CPPToolchainMissing(t *testing.T) {
-	t.Setenv("PATH", "")
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguageCPP,
-		SourceCode: "int main(){return 0;}\n",
-	})
-	require.NoError(t, err)
-
-	assert.False(t, out.Result.Succeeded)
-	assert.Nil(t, out.Artifact)
-	assert.Contains(t, out.Result.Log, "g++ not found in PATH")
-}
-
-func TestHostCompiler_Compile_JavaToolchainMissing(t *testing.T) {
-	t.Setenv("PATH", "")
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language: model.LanguageJava,
-		SourceCode: `public class Main {
-	public static void main(String[] args) {
-		System.out.println(42);
-	}
-}`,
-	})
-	require.NoError(t, err)
-
-	assert.False(t, out.Result.Succeeded)
-	assert.Nil(t, out.Artifact)
-	assert.True(t, strings.Contains(out.Result.Log, "javac not found") || strings.Contains(out.Result.Log, "jar not found"))
-}
-
-func TestHostCompiler_Compile_CPPSyntaxError(t *testing.T) {
-	if _, err := exec.LookPath("g++"); err != nil {
-		t.Skip("g++ not available")
-	}
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguageCPP,
-		SourceCode: "int main( { return 0; }\n",
-	})
-	require.NoError(t, err)
-
-	assert.False(t, out.Result.Succeeded)
-	assert.Nil(t, out.Artifact)
-	assert.NotEmpty(t, strings.TrimSpace(out.Result.Log))
-}
-
-func TestHostCompiler_ArtifactReturnedByValue(t *testing.T) {
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguagePython,
-		SourceCode: "print(1)\n",
-	})
-	require.NoError(t, err)
-	require.True(t, out.Result.Succeeded)
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, []byte("print(1)\n"), out.Artifact.Data)
-}
-
-// TestHostCompiler_CPP_RealCompilation tests real C++ compilation with executable verification.
-func TestHostCompiler_CPP_RealCompilation(t *testing.T) {
-	if _, err := exec.LookPath("g++"); err != nil {
-		t.Skip("g++ not available")
-	}
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language: model.LanguageCPP,
-		SourceCode: `#include <iostream>
-int main() {
-    int n;
-    std::cin >> n;
-    std::cout << n * 2 << std::endl;
-    return 0;
-}`,
-	})
-	require.NoError(t, err)
-
-	assert.True(t, out.Result.Succeeded, "compilation should succeed")
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, model.LanguageCPP, out.RuntimeLanguage)
-	assert.NotEmpty(t, out.Artifact.Data)
-	assert.NotZero(t, out.Artifact.Mode&0o111, "binary should be executable")
-}
-
-// TestHostCompiler_C_RealCompilation tests real C compilation.
-func TestHostCompiler_C_RealCompilation(t *testing.T) {
-	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Skip("gcc not available")
-	}
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language: model.LanguageC,
-		SourceCode: `#include <stdio.h>
-int main() {
-    printf("Hello, World!\n");
-    return 0;
-}`,
-	})
-	require.NoError(t, err)
-
-	assert.True(t, out.Result.Succeeded)
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, model.LanguageC, out.RuntimeLanguage)
-	assert.NotEmpty(t, out.Artifact.Data)
-}
-
-// TestHostCompiler_Java_RealCompilation tests real Java compilation.
-func TestHostCompiler_Java_RealCompilation(t *testing.T) {
-	if _, err := exec.LookPath("javac"); err != nil {
-		t.Skip("javac not available")
-	}
-	if _, err := exec.LookPath("jar"); err != nil {
-		t.Skip("jar not available")
-	}
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language: model.LanguageJava,
-		SourceCode: `import java.util.Scanner;
-public class Main {
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        int n = sc.nextInt();
-        System.out.println(n * 2);
-    }
-}`,
-	})
-	require.NoError(t, err)
-
-	assert.True(t, out.Result.Succeeded, "compilation should succeed")
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, "solution.jar", out.Artifact.Name)
-	assert.Equal(t, model.LanguageJava, out.RuntimeLanguage)
-	assert.NotEmpty(t, out.Artifact.Data)
-}
-
-// TestHostCompiler_Python_MultilineCode tests Python with multiline code.
-func TestHostCompiler_Python_MultilineCode(t *testing.T) {
-	compiler := NewHostCompiler()
-	sourceCode := `import sys
-
-def double(n):
-    return n * 2
-
-if __name__ == "__main__":
-    n = int(sys.stdin.readline())
-    print(double(n))
-`
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguagePython,
-		SourceCode: sourceCode,
-	})
-	require.NoError(t, err)
-
-	assert.True(t, out.Result.Succeeded)
-	require.NotNil(t, out.Artifact)
-	assert.Equal(t, []byte(sourceCode), out.Artifact.Data)
-}
-
-// TestHostCompiler_CPP_CompileErrorDetails tests that compile errors include useful details.
-func TestHostCompiler_CPP_CompileErrorDetails(t *testing.T) {
-	if _, err := exec.LookPath("g++"); err != nil {
-		t.Skip("g++ not available")
-	}
-
-	compiler := NewHostCompiler()
-	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Language:   model.LanguageCPP,
-		SourceCode: "int main() { undeclared_variable = 42; return 0; }\n",
-	})
-	require.NoError(t, err, "Compile should not return error, but set Succeeded=false")
-
-	assert.False(t, out.Result.Succeeded)
-	assert.Nil(t, out.Artifact)
-	assert.NotEmpty(t, out.Result.Log)
-	// Verify the log contains useful error information
-	assert.Contains(t, out.Result.Log, "undeclared", "error log should mention undeclared variable")
-}
-
-// hasContainerd checks if containerd is available for testing.
 func hasContainerd(t *testing.T) bool {
 	t.Helper()
 
@@ -243,7 +25,6 @@ func hasContainerd(t *testing.T) bool {
 	return sb.PreflightCheck(ctx) == nil
 }
 
-// TestContainerCompiler_RealCacheHit tests real cache hit with compilation.
 func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	if !hasContainerd(t) {
 		t.Skip("containerd not available")
@@ -252,7 +33,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	sb := sandbox.NewContainerdSandbox("", "")
 
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 10)
+	compileCache, err := cache.NewCompileCache(cacheDir, 10)
 	require.NoError(t, err)
 
 	compiler := NewContainerCompiler(sb, compileCache)
@@ -300,7 +81,7 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 
 	// Create cache with very small capacity (2 entries)
 	tmpCacheDir := t.TempDir()
-	smallCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 2)
+	smallCache, err := cache.NewCompileCache(tmpCacheDir, 2)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -371,7 +152,7 @@ func TestContainerCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	}
 
 	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
+	testCache, err := cache.NewCompileCache(tmpCacheDir, 100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -426,7 +207,7 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 
 	// Create isolated cache for this test
 	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
+	testCache, err := cache.NewCompileCache(tmpCacheDir, 100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")

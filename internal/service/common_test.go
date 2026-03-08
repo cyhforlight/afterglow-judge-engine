@@ -95,7 +95,7 @@ func newContainerCompilerForTest(t *testing.T) *ContainerCompiler {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 100)
+	compileCache, err := cache.NewCompileCache(cacheDir, 100)
 	require.NoError(t, err)
 	return NewContainerCompiler(sb, compileCache)
 }

@@ -32,7 +32,7 @@ func newE2EHandler(t *testing.T) *Handler {
 
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 100)
+	compileCache, err := cache.NewCompileCache(cacheDir, 100)
 	require.NoError(t, err)
 	compiler := service.NewContainerCompiler(sb, compileCache)
 	runner := service.NewContainerdRunner(sb)

@@ -63,12 +63,6 @@ func NewCompileCache(cacheDir string, maxEntries int) (*CompileCache, error) {
 	}, nil
 }
 
-// NewCompileCacheForTest creates an isolated cache instance for testing.
-// This is now just an alias for NewCompileCache.
-func NewCompileCacheForTest(cacheDir string, maxEntries int) (*CompileCache, error) {
-	return NewCompileCache(cacheDir, maxEntries)
-}
-
 // Get retrieves a cached artifact by key.
 func (c *CompileCache) Get(key string) (*CachedArtifact, bool) {
 	cached, ok := c.cache.Get(key)
