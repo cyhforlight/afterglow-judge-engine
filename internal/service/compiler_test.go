@@ -239,7 +239,7 @@ func hasContainerd(t *testing.T) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	return sb.PreflightCheck(ctx) == nil
 }
 
@@ -249,7 +249,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 		t.Skip("containerd not available")
 	}
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 
 	cacheDir := t.TempDir()
 	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 10)
@@ -303,7 +303,7 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 	smallCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 2)
 	require.NoError(t, err)
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	compiler := &ContainerCompiler{
 		sandbox: sb,
 		cache:   smallCache,
@@ -346,7 +346,7 @@ func TestContainerCompiler_NilCacheStillCompiles(t *testing.T) {
 		t.Skip("containerd not available")
 	}
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	compiler := &ContainerCompiler{
 		sandbox: sb,
 		cache:   nil,
@@ -374,7 +374,7 @@ func TestContainerCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
 	require.NoError(t, err)
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	compiler := &ContainerCompiler{
 		sandbox: sb,
 		cache:   testCache,
@@ -429,7 +429,7 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	testCache, err := cache.NewCompileCacheForTest(tmpCacheDir, 100)
 	require.NoError(t, err)
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	compiler := &ContainerCompiler{
 		sandbox: sb,
 		cache:   testCache,

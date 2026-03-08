@@ -46,14 +46,17 @@ type ContainerdSandbox struct {
 }
 
 // NewContainerdSandbox creates a new containerd-based sandbox.
-func NewContainerdSandbox(socketPath string) *ContainerdSandbox {
+func NewContainerdSandbox(socketPath, namespace string) *ContainerdSandbox {
 	if socketPath == "" {
 		socketPath = defaultSocketPath
+	}
+	if namespace == "" {
+		namespace = defaultNamespace
 	}
 
 	return &ContainerdSandbox{
 		socketPath:      socketPath,
-		namespace:       defaultNamespace,
+		namespace:       namespace,
 		log:             slog.Default(),
 		checkCgroupV2:   ensureCgroupV2Enabled,
 		checkContainerd: ensureContainerdAvailable,

@@ -32,7 +32,7 @@ func requireServiceIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	if err := sb.PreflightCheck(ctx); err != nil {
 		t.Skipf("service integration environment unavailable: %v", err)
 	}
@@ -93,7 +93,7 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 
 func newContainerCompilerForTest(t *testing.T) *ContainerCompiler {
 	t.Helper()
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	cacheDir := t.TempDir()
 	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 100)
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func newContainerCompilerForTest(t *testing.T) *ContainerCompiler {
 
 func newContainerRunnerForTest(t *testing.T) *ContainerdRunner {
 	t.Helper()
-	sb := sandbox.NewContainerdSandbox("")
+	sb := sandbox.NewContainerdSandbox("", "")
 	return NewContainerdRunner(sb)
 }
 

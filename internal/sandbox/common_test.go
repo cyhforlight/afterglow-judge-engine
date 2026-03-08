@@ -17,7 +17,7 @@ func requireSandboxIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	sb := NewContainerdSandbox("")
+	sb := NewContainerdSandbox("", "")
 	if err := sb.PreflightCheck(ctx); err != nil {
 		t.Skipf("sandbox integration environment unavailable: %v", err)
 	}
@@ -34,5 +34,5 @@ func newSandboxTestContext(t *testing.T, timeout time.Duration) context.Context 
 func newTestSandbox(t *testing.T) *ContainerdSandbox {
 	t.Helper()
 
-	return NewContainerdSandbox("")
+	return NewContainerdSandbox("", "")
 }

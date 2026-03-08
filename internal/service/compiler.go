@@ -149,9 +149,9 @@ func (c *ContainerCompiler) compileInContainer(
 		},
 		Limits: sandbox.ResourceLimits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * 3,
+			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: 1024 * 1024, // 1MB compile output
+			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
 		},
 	}
 

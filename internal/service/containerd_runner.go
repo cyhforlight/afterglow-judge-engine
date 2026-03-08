@@ -93,9 +93,9 @@ func (r *ContainerdRunner) execute(ctx context.Context, req model.ExecuteRequest
 		Stdin: strings.NewReader(req.Input),
 		Limits: sandbox.ResourceLimits{
 			CPUTimeMs:   req.TimeLimit,
-			WallTimeMs:  req.TimeLimit * 3,
+			WallTimeMs:  req.TimeLimit * sandbox.WallTimeMultiplier,
 			MemoryMB:    req.MemoryLimit,
-			OutputBytes: 16 * 1024 * 1024, // 16MB
+			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
 		},
 	}
 

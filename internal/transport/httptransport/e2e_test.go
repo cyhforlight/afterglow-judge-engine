@@ -30,7 +30,7 @@ func requireE2EPrerequisites(t *testing.T) {
 func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
-	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock")
+	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
 	cacheDir := t.TempDir()
 	compileCache, err := cache.NewCompileCacheForTest(cacheDir, 100)
 	require.NoError(t, err)

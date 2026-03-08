@@ -56,7 +56,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	limiter := concurrency.NewExecutionLimiter(int64(cfg.MaxConcurrentExecutions))
 
 	// 1. Create shared Sandbox instance
-	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket)
+	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 
 	// 2. Create CompileCache instance (not a global singleton)
 	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
