@@ -51,7 +51,12 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	// 1. Create shared Sandbox instance
 	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 
-	// 2. Create CacheStorage instance (not a global singleton)
+	// 2. Load bundled internal resources before the service starts listening.
+	if _, err := storage.NewBundledInternalStorage(); err != nil {
+		return nil, fmt.Errorf("initialize internal storage: %w", err)
+	}
+
+	// 3. Create CacheStorage instance (not a global singleton)
 	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
 	cacheStorage, err := storage.NewCacheStorage(cacheDir, 500)
 	if err != nil {
@@ -59,7 +64,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		cacheStorage = nil // Allow running without cache
 	}
 
-	// 3. Inject dependencies into Runner and Compiler
+	// 4. Inject dependencies into Runner and Compiler
 	runner := service.NewRunner(sb)
 	compiler := service.NewCompiler(sb, cacheStorage)
 	judge := service.NewJudgeEngine(runner, compiler)
