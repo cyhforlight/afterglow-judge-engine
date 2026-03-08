@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
+	"afterglow-judge-sandbox/internal/storage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,9 +32,9 @@ func newE2EHandler(t *testing.T) *Handler {
 
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCache(cacheDir, 100)
+	cacheStorage, err := storage.NewCacheStorage(cacheDir, 100)
 	require.NoError(t, err)
-	compiler := service.NewCompiler(sb, compileCache)
+	compiler := service.NewCompiler(sb, cacheStorage)
 	runner := service.NewRunner(sb)
 	judge := service.NewJudgeEngine(runner, compiler)
 

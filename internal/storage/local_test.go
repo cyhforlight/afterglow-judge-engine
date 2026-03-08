@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -45,9 +44,8 @@ func TestLocalStorage_Store(t *testing.T) {
 			require.NoError(t, err)
 
 			ctx := context.Background()
-			reader := bytes.NewReader([]byte(tt.content))
 
-			key, err := storage.Store(ctx, tt.filename, reader)
+			key, err := storage.Store(ctx, tt.filename, []byte(tt.content))
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -80,25 +78,13 @@ func TestLocalStorage_Get(t *testing.T) {
 	content := "test content"
 
 	// Store a file first
-	key, err := storage.Store(ctx, "test.txt", bytes.NewReader([]byte(content)))
+	key, err := storage.Store(ctx, "test.txt", []byte(content))
 	require.NoError(t, err)
 
 	// Get the file
-	path, cleanup, err := storage.Get(ctx, key)
-	require.NoError(t, err)
-	require.NotEmpty(t, path)
-	require.NotNil(t, cleanup)
-	defer cleanup()
-
-	// Verify content
-	data, err := os.ReadFile(path)
+	data, err := storage.Get(ctx, key)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(data))
-
-	// Verify cleanup works
-	cleanup()
-	_, err = os.Stat(path)
-	assert.True(t, os.IsNotExist(err))
 }
 
 func TestLocalStorage_Get_NotFound(t *testing.T) {
@@ -108,7 +94,7 @@ func TestLocalStorage_Get_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 	// Use a valid hex key that doesn't exist
-	_, _, err = storage.Get(ctx, "0123456789abcdef0123456789abcdef")
+	_, err = storage.Get(ctx, "0123456789abcdef0123456789abcdef")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -121,7 +107,7 @@ func TestLocalStorage_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	// Store a file
-	key, err := storage.Store(ctx, "test.txt", bytes.NewReader([]byte("content")))
+	key, err := storage.Store(ctx, "test.txt", []byte("content"))
 	require.NoError(t, err)
 
 	// Delete it
@@ -129,8 +115,33 @@ func TestLocalStorage_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify it's gone
-	_, _, err = storage.Get(ctx, key)
+	_, err = storage.Get(ctx, key)
 	assert.Error(t, err)
+}
+
+func TestLocalStorage_StoreWithKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := NewLocalStorage(tmpDir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	key := "0123456789abcdef0123456789abcdef"
+	content := []byte("test content")
+
+	// Store with specific key
+	err = storage.StoreWithKey(ctx, key, content)
+	require.NoError(t, err)
+
+	// Verify file exists with exact key
+	filePath := filepath.Join(tmpDir, key)
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, content, data)
+
+	// Get should work
+	retrieved, err := storage.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, content, retrieved)
 }
 
 func TestSanitizeFilename(t *testing.T) {

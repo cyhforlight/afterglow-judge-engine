@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +32,7 @@ func NewLocalStorage(baseDir string) (*LocalStorage, error) {
 }
 
 // Store saves content to a temporary file and returns its key.
-func (s *LocalStorage) Store(_ context.Context, name string, content io.Reader) (string, error) {
+func (s *LocalStorage) Store(_ context.Context, name string, content []byte) (string, error) {
 	// Generate unique key
 	key, err := generateKey()
 	if err != nil {
@@ -49,61 +48,75 @@ func (s *LocalStorage) Store(_ context.Context, name string, content io.Reader) 
 	// Create file path: baseDir/key_safeName
 	filePath := filepath.Join(s.baseDir, fmt.Sprintf("%s_%s", key, safeName))
 
-	// Create file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	// Copy content
-	if _, err := io.Copy(file, content); err != nil {
-		_ = os.Remove(filePath)
-		return "", fmt.Errorf("failed to write content: %w", err)
+	// Write content
+	if err := os.WriteFile(filePath, content, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	return key, nil
 }
 
-// Get retrieves a file by key and returns its path with a cleanup function.
-func (s *LocalStorage) Get(_ context.Context, key string) (string, func(), error) {
-	// Validate key format
+// StoreWithKey saves content with a specific key (deterministic).
+func (s *LocalStorage) StoreWithKey(_ context.Context, key string, content []byte) error {
 	if err := validateKey(key); err != nil {
-		return "", nil, err
+		return err
 	}
 
-	// Find file with this key prefix
+	filePath := filepath.Join(s.baseDir, key)
+
+	if err := os.WriteFile(filePath, content, 0o644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+// Get retrieves content by key.
+// Handles both Store() files (key_filename) and StoreWithKey() files (just key).
+func (s *LocalStorage) Get(_ context.Context, key string) ([]byte, error) {
+	if err := validateKey(key); err != nil {
+		return nil, err
+	}
+
+	// First try exact key match (from StoreWithKey)
+	exactPath := filepath.Join(s.baseDir, key)
+	if data, err := os.ReadFile(exactPath); err == nil {
+		return data, nil
+	}
+
+	// Then try key_* pattern (from Store)
 	pattern := filepath.Join(s.baseDir, key+"_*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to search for file: %w", err)
+		return nil, fmt.Errorf("failed to search for file: %w", err)
 	}
 
 	if len(matches) == 0 {
-		return "", nil, fmt.Errorf("file not found: %s", key)
+		return nil, fmt.Errorf("file not found: %s", key)
 	}
 
-	filePath := matches[0]
-
-	// Verify file exists and is readable
-	if _, err := os.Stat(filePath); err != nil {
-		return "", nil, fmt.Errorf("file not accessible: %w", err)
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Cleanup function deletes the file
-	cleanup := func() {
-		_ = os.Remove(filePath)
-	}
-
-	return filePath, cleanup, nil
+	return data, nil
 }
 
 // Delete removes a file by key.
+// Handles both Store() files (key_filename) and StoreWithKey() files (just key).
 func (s *LocalStorage) Delete(_ context.Context, key string) error {
 	if err := validateKey(key); err != nil {
 		return err
 	}
 
+	// Try exact key match first (from StoreWithKey)
+	exactPath := filepath.Join(s.baseDir, key)
+	if err := os.Remove(exactPath); err == nil {
+		return nil
+	}
+
+	// Then try key_* pattern (from Store)
 	pattern := filepath.Join(s.baseDir, key+"_*")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {

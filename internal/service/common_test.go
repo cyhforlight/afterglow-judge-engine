@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/sandbox"
+	"afterglow-judge-sandbox/internal/storage"
 
 	"github.com/stretchr/testify/require"
 )
@@ -95,9 +95,9 @@ func newCompilerForTest(t *testing.T) Compiler {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCache(cacheDir, 100)
+	cacheStorage, err := storage.NewCacheStorage(cacheDir, 100)
 	require.NoError(t, err)
-	return NewCompiler(sb, compileCache)
+	return NewCompiler(sb, cacheStorage)
 }
 
 func newRunnerForTest(t *testing.T) Runner {

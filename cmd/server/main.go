@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/concurrency"
 	"afterglow-judge-sandbox/internal/config"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
+	"afterglow-judge-sandbox/internal/storage"
 	"afterglow-judge-sandbox/internal/transport/httptransport"
 )
 
@@ -58,17 +58,17 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	// 1. Create shared Sandbox instance
 	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 
-	// 2. Create CompileCache instance (not a global singleton)
+	// 2. Create CacheStorage instance (not a global singleton)
 	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
-	compileCache, err := cache.NewCompileCache(cacheDir, 500)
+	cacheStorage, err := storage.NewCacheStorage(cacheDir, 500)
 	if err != nil {
-		slog.Warn("failed to initialize compile cache", "error", err)
-		compileCache = nil // Allow running without cache
+		slog.Warn("failed to initialize cache storage", "error", err)
+		cacheStorage = nil // Allow running without cache
 	}
 
 	// 3. Inject dependencies into Runner and Compiler
 	runner := service.NewRunner(sb)
-	compiler := service.NewCompiler(sb, compileCache)
+	compiler := service.NewCompiler(sb, cacheStorage)
 	baseJudge := service.NewJudgeEngine(runner, compiler)
 
 	judge := &limitedJudgeService{

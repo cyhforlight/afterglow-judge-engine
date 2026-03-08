@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
+	"afterglow-judge-sandbox/internal/storage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,10 +33,10 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	sb := sandbox.NewContainerdSandbox("", "")
 
 	cacheDir := t.TempDir()
-	compileCache, err := cache.NewCompileCache(cacheDir, 10)
+	cacheStorage, err := storage.NewCacheStorage(cacheDir, 10)
 	require.NoError(t, err)
 
-	compiler := NewCompiler(sb, compileCache)
+	compiler := NewCompiler(sb, cacheStorage)
 
 	req := CompileRequest{
 		Language:   model.LanguageC,
@@ -44,7 +44,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	}
 
 	// Verify cache starts empty
-	initialStats := compileCache.Stats()
+	initialStats := cacheStorage.Stats()
 	initialEntries := initialStats.Entries
 
 	// First compilation (cache miss) — artifact stored in cache
@@ -55,7 +55,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	artifact1Data := append([]byte(nil), out1.Artifact.Data...)
 
 	// Verify cache now has one more entry
-	afterMissStats := compileCache.Stats()
+	afterMissStats := cacheStorage.Stats()
 	assert.Equal(t, initialEntries+1, afterMissStats.Entries, "cache should have one new entry after miss")
 
 	// Second compilation (cache hit) — returns same cache path
@@ -65,7 +65,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	require.NotNil(t, out2.Artifact)
 
 	// Verify cache entries unchanged (hit, not new entry)
-	afterHitStats := compileCache.Stats()
+	afterHitStats := cacheStorage.Stats()
 	assert.Equal(t, afterMissStats.Entries, afterHitStats.Entries, "cache hit should not add new entry")
 
 	assert.Equal(t, out1.Artifact.Name, out2.Artifact.Name, "cache hit should preserve artifact name")
@@ -81,7 +81,7 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 
 	// Create cache with very small capacity (2 entries)
 	tmpCacheDir := t.TempDir()
-	smallCache, err := cache.NewCompileCache(tmpCacheDir, 2)
+	smallCache, err := storage.NewCacheStorage(tmpCacheDir, 2)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -146,7 +146,7 @@ func TestContainerCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	}
 
 	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCache(tmpCacheDir, 100)
+	testCache, err := storage.NewCacheStorage(tmpCacheDir, 100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -198,7 +198,7 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 
 	// Create isolated cache for this test
 	tmpCacheDir := t.TempDir()
-	testCache, err := cache.NewCompileCache(tmpCacheDir, 100)
+	testCache, err := storage.NewCacheStorage(tmpCacheDir, 100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")

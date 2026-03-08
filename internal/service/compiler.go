@@ -2,15 +2,18 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
+	"afterglow-judge-sandbox/internal/storage"
 	"afterglow-judge-sandbox/internal/workspace"
 )
 
@@ -35,15 +38,25 @@ type Compiler interface {
 // compiler compiles user source code inside containers.
 type compiler struct {
 	sandbox sandbox.Sandbox
-	cache   *cache.CompileCache
+	cache   storage.Storage
 }
 
 // NewCompiler creates a compiler.
-func NewCompiler(sb sandbox.Sandbox, compileCache *cache.CompileCache) Compiler {
+func NewCompiler(sb sandbox.Sandbox, cacheStorage storage.Storage) Compiler {
 	return &compiler{
 		sandbox: sb,
-		cache:   compileCache,
+		cache:   cacheStorage,
 	}
+}
+
+// compileKey generates a cache key for compilation.
+func compileKey(sourceCode string, lang model.Language, imageRef string, buildCommand []string) string {
+	h := sha256.New()
+	h.Write([]byte(sourceCode))
+	h.Write([]byte(lang.String()))
+	h.Write([]byte(imageRef))
+	h.Write([]byte(strings.Join(buildCommand, "\x00")))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Compile compiles source code in an isolated container.
@@ -56,26 +69,37 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 	}
 
 	out.RuntimeLanguage = req.Language
-	cacheKey := cache.CompileKey(req.SourceCode, req.Language, cache.CompileProfile{
-		ImageRef:     profile.Compile.ImageRef,
-		BuildCommand: profile.Compile.BuildCommand("/work", profile.Compile.SourceFiles),
-	})
+	cacheKey := compileKey(
+		req.SourceCode,
+		req.Language,
+		profile.Compile.ImageRef,
+		profile.Compile.BuildCommand("/work", profile.Compile.SourceFiles),
+	)
 
-	// 1. Try to get from cache
+	// Try cache - Get() returns content directly ([]byte)
 	if c.cache != nil {
-		if cachedOut, ok := c.tryGetFromCache(ctx, cacheKey); ok {
-			return cachedOut, nil
+		if data, err := c.cache.Get(ctx, cacheKey); err == nil {
+			slog.InfoContext(ctx, "compilation cache hit", "key", cacheKey[:16])
+			return CompileOutput{
+				Result: model.CompileResult{Succeeded: true, Log: ""},
+				Artifact: &model.CompiledArtifact{
+					Name: profile.Compile.ArtifactName,
+					Data: data,
+					Mode: 0o755,
+				},
+				RuntimeLanguage: req.Language,
+			}, nil
 		}
 		slog.InfoContext(ctx, "compilation cache miss", "key", cacheKey[:16])
 	}
 
-	// 2. Cache miss, compile in container
+	// Cache miss, compile in container
 	out, err = c.compileInContainer(ctx, req, profile)
 	if err != nil {
 		return out, err
 	}
 
-	// 3. Compilation failed, return immediately
+	// Compilation failed, return immediately
 	if !out.Result.Succeeded {
 		return out, nil
 	}
@@ -83,43 +107,15 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 	if out.Artifact == nil {
 		return out, errors.New("compile succeeded but artifact is missing")
 	}
-	if c.cache == nil {
-		return out, nil
-	}
 
-	if err := c.cache.Put(cacheKey, *out.Artifact, out.Result.Log, out.RuntimeLanguage); err != nil {
-		slog.WarnContext(ctx, "failed to cache compilation artifact", "error", err)
-		return out, nil
+	// Store in cache - StoreWithKey() accepts []byte directly
+	if c.cache != nil {
+		if err := c.cache.StoreWithKey(ctx, cacheKey, out.Artifact.Data); err != nil {
+			slog.WarnContext(ctx, "failed to cache compilation artifact", "error", err)
+		}
 	}
-
-	cached, ok := c.cache.Get(cacheKey)
-	if !ok {
-		slog.WarnContext(ctx, "failed to read just-cached artifact", "key", cacheKey[:16])
-		return out, nil
-	}
-	out.Artifact = &cached.Artifact
 
 	return out, nil
-}
-
-// tryGetFromCache attempts to retrieve a cached artifact.
-// Returns (output, true) on success, (empty, false) on cache miss or error.
-func (c *compiler) tryGetFromCache(
-	ctx context.Context,
-	cacheKey string,
-) (CompileOutput, bool) {
-	cached, ok := c.cache.Get(cacheKey)
-	if !ok {
-		return CompileOutput{}, false
-	}
-
-	slog.InfoContext(ctx, "compilation cache hit", "key", cacheKey[:16])
-
-	return CompileOutput{
-		Result:          model.CompileResult{Succeeded: true, Log: cached.CompileLog},
-		Artifact:        &cached.Artifact,
-		RuntimeLanguage: cached.Language,
-	}, true
 }
 
 //nolint:funlen // Compilation requires setup, execution, and artifact handling
