@@ -17,31 +17,48 @@ import (
 	"afterglow-judge-sandbox/internal/workspace"
 )
 
-// CompileRequest contains source data for compilation.
+const compileMountDir = "/work"
+
+// CompileFile is a single source or support file written into the compile workspace.
+type CompileFile struct {
+	Name    string
+	Content []byte
+	Mode    os.FileMode
+}
+
+// ArtifactLoader resolves the compiled artifact from the workspace.
+type ArtifactLoader func(workDir string) (model.CompiledArtifact, error)
+
+// CompileRequest contains a generic compilation job definition.
 type CompileRequest struct {
-	Language   model.Language
-	SourceCode string
+	Files          []CompileFile
+	ImageRef       string
+	Command        []string
+	ArtifactName   string
+	ArtifactMode   os.FileMode
+	ArtifactPath   string
+	ArtifactLoader ArtifactLoader
+	Limits         sandbox.ResourceLimits
 }
 
-// CompileOutput is the compiler output consumed by the judge service.
+// CompileOutput is the generic compiler output.
 type CompileOutput struct {
-	Result          model.CompileResult
-	Artifact        *model.CompiledArtifact
-	RuntimeLanguage model.Language
+	Result   model.CompileResult
+	Artifact *model.CompiledArtifact
 }
 
-// Compiler compiles source code to a runnable artifact.
+// Compiler compiles a file set into an artifact.
 type Compiler interface {
 	Compile(ctx context.Context, req CompileRequest) (CompileOutput, error)
 }
 
-// compiler compiles user source code inside containers.
+// compiler compiles files inside containers.
 type compiler struct {
 	sandbox sandbox.Sandbox
 	cache   storage.Storage
 }
 
-// NewCompiler creates a compiler.
+// NewCompiler creates a generic compiler primitive.
 func NewCompiler(sb sandbox.Sandbox, cacheStorage storage.Storage) Compiler {
 	return &compiler{
 		sandbox: sb,
@@ -49,66 +66,58 @@ func NewCompiler(sb sandbox.Sandbox, cacheStorage storage.Storage) Compiler {
 	}
 }
 
-// compileKey generates a cache key for compilation.
-func compileKey(sourceCode string, lang model.Language, imageRef string, buildCommand []string) string {
+func compileKey(req CompileRequest) string {
 	h := sha256.New()
-	h.Write([]byte(sourceCode))
-	h.Write([]byte(lang.String()))
-	h.Write([]byte(imageRef))
-	h.Write([]byte(strings.Join(buildCommand, "\x00")))
+	h.Write([]byte(req.ImageRef))
+	h.Write([]byte(req.ArtifactName))
+	h.Write([]byte(req.ArtifactPath))
+	h.Write([]byte(req.ArtifactMode.String()))
+	h.Write([]byte(strings.Join(req.Command, "\x00")))
+
+	for _, file := range req.Files {
+		h.Write([]byte(file.Name))
+		h.Write([]byte(file.Mode.String()))
+		h.Write(file.Content)
+	}
+
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Compile compiles source code in an isolated container.
+// Compile compiles files in an isolated container.
 func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutput, error) {
 	var out CompileOutput
 
-	profile, err := ProfileForLanguage(req.Language)
-	if err != nil {
-		return out, fmt.Errorf("get language profile: %w", err)
+	if err := validateCompileRequest(req); err != nil {
+		return out, err
 	}
 
-	out.RuntimeLanguage = req.Language
-	cacheKey := compileKey(
-		req.SourceCode,
-		req.Language,
-		profile.Compile.ImageRef,
-		profile.Compile.BuildCommand("/work", profile.Compile.SourceFiles),
-	)
-
-	// Try cache - Get() returns content directly ([]byte)
+	cacheKey := compileKey(req)
 	if c.cache != nil {
 		if data, err := c.cache.Get(ctx, cacheKey); err == nil {
 			slog.InfoContext(ctx, "compilation cache hit", "key", cacheKey[:16])
 			return CompileOutput{
-				Result: model.CompileResult{Succeeded: true, Log: ""},
+				Result: model.CompileResult{Succeeded: true},
 				Artifact: &model.CompiledArtifact{
-					Name: profile.Compile.ArtifactName,
+					Name: req.ArtifactName,
 					Data: data,
-					Mode: 0o755,
+					Mode: req.ArtifactMode,
 				},
-				RuntimeLanguage: req.Language,
 			}, nil
 		}
 		slog.InfoContext(ctx, "compilation cache miss", "key", cacheKey[:16])
 	}
 
-	// Cache miss, compile in container
-	out, err = c.compileInContainer(ctx, req, profile)
+	out, err := c.compileInContainer(ctx, req)
 	if err != nil {
 		return out, err
 	}
-
-	// Compilation failed, return immediately
 	if !out.Result.Succeeded {
 		return out, nil
 	}
-
 	if out.Artifact == nil {
 		return out, errors.New("compile succeeded but artifact is missing")
 	}
 
-	// Store in cache - StoreWithKey() accepts []byte directly
 	if c.cache != nil {
 		if err := c.cache.StoreWithKey(ctx, cacheKey, out.Artifact.Data); err != nil {
 			slog.WarnContext(ctx, "failed to cache compilation artifact", "error", err)
@@ -118,14 +127,28 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 	return out, nil
 }
 
-//nolint:funlen // Compilation requires setup, execution, and artifact handling
-func (c *compiler) compileInContainer(
-	ctx context.Context,
-	req CompileRequest,
-	profile LanguageProfile,
-) (CompileOutput, error) {
+func validateCompileRequest(req CompileRequest) error {
+	if strings.TrimSpace(req.ImageRef) == "" {
+		return errors.New("compile image is required")
+	}
+	if len(req.Command) == 0 {
+		return errors.New("compile command is required")
+	}
+	if len(req.Files) == 0 {
+		return errors.New("at least one compile file is required")
+	}
+	if strings.TrimSpace(req.ArtifactName) == "" {
+		return errors.New("artifact name is required")
+	}
+	if strings.TrimSpace(req.ArtifactPath) == "" && req.ArtifactLoader == nil {
+		return errors.New("artifact path or loader is required")
+	}
+	return nil
+}
+
+//nolint:funlen // Compilation requires setup, execution, and artifact handling.
+func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (CompileOutput, error) {
 	var out CompileOutput
-	out.RuntimeLanguage = req.Language
 
 	ws, err := workspace.New()
 	if err != nil {
@@ -133,27 +156,26 @@ func (c *compiler) compileInContainer(
 	}
 	defer func() { _ = ws.Cleanup() }()
 
-	if err := ws.WriteFile(profile.Compile.SourceFiles[0], []byte(req.SourceCode), 0644); err != nil {
-		return out, fmt.Errorf("write source file: %w", err)
+	for _, file := range req.Files {
+		fileMode := file.Mode
+		if fileMode == 0 {
+			fileMode = 0644
+		}
+		if err := ws.WriteFile(file.Name, file.Content, fileMode); err != nil {
+			return out, fmt.Errorf("write compile file %q: %w", file.Name, err)
+		}
 	}
 
-	compileReq := sandbox.ExecuteRequest{
-		ImageRef: profile.Compile.ImageRef,
-		Command:  profile.Compile.BuildCommand(ws.Dir(), profile.Compile.SourceFiles),
+	result, err := c.sandbox.Execute(ctx, sandbox.ExecuteRequest{
+		ImageRef: req.ImageRef,
+		Command:  req.Command,
 		MountDir: &sandbox.Mount{
 			HostPath:      ws.Dir(),
-			ContainerPath: "/work",
+			ContainerPath: compileMountDir,
 			ReadOnly:      false,
 		},
-		Limits: sandbox.ResourceLimits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
-		},
-	}
-
-	result, err := c.sandbox.Execute(ctx, compileReq)
+		Limits: req.Limits,
+	})
 	if err != nil {
 		return out, fmt.Errorf("execute compilation: %w", err)
 	}
@@ -179,31 +201,40 @@ func (c *compiler) compileInContainer(
 		Log:       compileLog,
 	}
 
-	// For Python, py_compile creates __pycache__/solution.cpython-311.pyc
-	// We need to find and use the actual .pyc file
-	artifactPath := filepath.Join(ws.Dir(), profile.Compile.ArtifactName)
-	if req.Language == model.LanguagePython {
-		// Python bytecode is in __pycache__/
-		pycachePath := filepath.Join(ws.Dir(), "__pycache__")
-		entries, err := os.ReadDir(pycachePath)
-		if err == nil && len(entries) > 0 {
-			// Use the first .pyc file found
-			for _, entry := range entries {
-				if filepath.Ext(entry.Name()) == ".pyc" {
-					artifactPath = filepath.Join(pycachePath, entry.Name())
-					break
-				}
-			}
-		}
-	}
-
-	artifact, err := loadCompiledArtifact(artifactPath)
+	artifact, err := loadCompiledArtifactFromRequest(ws.Dir(), req)
 	if err != nil {
 		return out, fmt.Errorf("read compiled artifact: %w", err)
 	}
-
 	out.Artifact = &artifact
 	return out, nil
+}
+
+func loadCompiledArtifactFromRequest(workDir string, req CompileRequest) (model.CompiledArtifact, error) {
+	if req.ArtifactLoader != nil {
+		artifact, err := req.ArtifactLoader(workDir)
+		if err != nil {
+			return model.CompiledArtifact{}, err
+		}
+		if artifact.Name == "" {
+			artifact.Name = req.ArtifactName
+		}
+		if artifact.Mode == 0 {
+			artifact.Mode = req.ArtifactMode
+		}
+		return artifact, nil
+	}
+
+	artifact, err := loadCompiledArtifact(filepath.Join(workDir, req.ArtifactPath))
+	if err != nil {
+		return model.CompiledArtifact{}, err
+	}
+	if artifact.Name == "" {
+		artifact.Name = req.ArtifactName
+	}
+	if artifact.Mode == 0 {
+		artifact.Mode = req.ArtifactMode
+	}
+	return artifact, nil
 }
 
 func loadCompiledArtifact(path string) (model.CompiledArtifact, error) {

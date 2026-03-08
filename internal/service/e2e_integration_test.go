@@ -82,7 +82,7 @@ public class Main {
 				sourceCode = readFixture(t, tt.sourceFixture...)
 			}
 
-			compileOut := compileProgram(t, env, CompileRequest{
+			compileOut := compileProgram(t, env, UserCodeCompileRequest{
 				Language:   tt.language,
 				SourceCode: sourceCode,
 			})
@@ -113,7 +113,7 @@ func TestE2E_AllTestData(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
 	env := newServiceIntegrationEnv(t, 120*time.Second)
-	compileOut := compileProgram(t, env, CompileRequest{
+	compileOut := compileProgram(t, env, UserCodeCompileRequest{
 		Language:   model.LanguageCPP,
 		SourceCode: readFixture(t, "cpp", "ac.cpp"),
 	})
@@ -177,7 +177,7 @@ func TestE2E_WrongAnswerPrograms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newServiceIntegrationEnv(t, 90*time.Second)
 
-			compileOut := compileProgram(t, env, CompileRequest{
+			compileOut := compileProgram(t, env, UserCodeCompileRequest{
 				Language:   tt.language,
 				SourceCode: readFixture(t, tt.sourceFixture...),
 			})
@@ -204,7 +204,7 @@ func TestE2E_CompileError(t *testing.T) {
 
 	env := newServiceIntegrationEnv(t, 30*time.Second)
 
-	compileOut := compileProgram(t, env, CompileRequest{
+	compileOut := compileProgram(t, env, UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { int x = 10 return 0; }", // Missing semicolon
 	})

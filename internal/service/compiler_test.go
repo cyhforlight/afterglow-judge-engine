@@ -36,9 +36,9 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	cacheStorage, err := storage.NewCacheStorage(cacheDir, 10)
 	require.NoError(t, err)
 
-	compiler := NewCompiler(sb, cacheStorage)
+	compiler := NewUserCodeCompiler(NewCompiler(sb, cacheStorage))
 
-	req := CompileRequest{
+	req := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 42; }",
 	}
@@ -85,10 +85,10 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb, smallCache)
+	compiler := NewUserCodeCompiler(NewCompiler(sb, smallCache))
 
 	// Compile program 1
-	req1 := CompileRequest{
+	req1 := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 1; }",
 	}
@@ -99,14 +99,14 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 	heldArtifact := *out1.Artifact
 
 	// Compile two more programs to trigger eviction of program 1
-	req2 := CompileRequest{
+	req2 := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 2; }",
 	}
 	_, err = compiler.Compile(context.Background(), req2)
 	require.NoError(t, err)
 
-	req3 := CompileRequest{
+	req3 := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 3; }",
 	}
@@ -125,9 +125,9 @@ func TestContainerCompiler_NilCacheStillCompiles(t *testing.T) {
 	}
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb, nil)
+	compiler := NewUserCodeCompiler(NewCompiler(sb, nil))
 
-	req := CompileRequest{
+	req := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 0; }",
 	}
@@ -150,9 +150,9 @@ func TestContainerCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb, testCache)
+	compiler := NewUserCodeCompiler(NewCompiler(sb, testCache))
 
-	req := CompileRequest{
+	req := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main() { return 1; }",
 	}
@@ -202,9 +202,9 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb, testCache)
+	compiler := NewUserCodeCompiler(NewCompiler(sb, testCache))
 
-	req := CompileRequest{
+	req := UserCodeCompileRequest{
 		Language:   model.LanguageC,
 		SourceCode: "int main( { return 0; }", // Syntax error
 	}

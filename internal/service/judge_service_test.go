@@ -12,11 +12,11 @@ import (
 )
 
 type fakeCompiler struct {
-	output CompileOutput
+	output UserCodeCompileOutput
 	err    error
 }
 
-func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+func (c *fakeCompiler) Compile(_ context.Context, _ UserCodeCompileRequest) (UserCodeCompileOutput, error) {
 	return c.output, c.err
 }
 
@@ -56,7 +56,7 @@ func testCompiledArtifact() *model.CompiledArtifact {
 }
 
 func TestJudgeEngine_CompileError(t *testing.T) {
-	engine := NewJudgeEngine(&fakeRunner{}, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(&fakeRunner{}, &fakeCompiler{output: UserCodeCompileOutput{
 		Result: model.CompileResult{Succeeded: false, Log: "compile failed"},
 	}})
 
@@ -78,7 +78,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 }
 
 func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
-	engine := NewJudgeEngine(&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "41\n"}}, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "41\n"}}, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguageCPP,
@@ -101,7 +101,7 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 }
 
 func TestJudgeEngine_TrimTrailingSpaceCompare(t *testing.T) {
-	engine := NewJudgeEngine(&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "42\n\n"}}, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "42\n\n"}}, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguageCPP,
@@ -130,7 +130,7 @@ func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
 		{Verdict: model.VerdictMLE},
 		{Verdict: model.VerdictOLE},
 	}}
-	engine := NewJudgeEngine(runner, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(runner, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguageCPP,
@@ -179,7 +179,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 		{Verdict: model.VerdictOK, Stdout: "5\n", ExitCode: 0}, // Wrong answer
 		{Verdict: model.VerdictTLE, Stdout: "", ExitCode: 124},
 	}}
-	engine := NewJudgeEngine(runner, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(runner, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguageCPP,
@@ -228,7 +228,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 		{Verdict: model.VerdictOK, Stdout: "4\n", ExitCode: 0},
 		{Verdict: model.VerdictOK, Stdout: "6\n", ExitCode: 0},
 	}}
-	engine := NewJudgeEngine(runner, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(runner, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguageCPP,
@@ -273,7 +273,7 @@ func TestJudgeEngine_SingleTestCase(t *testing.T) {
 	runner := &fakeRunner{result: model.ExecuteResult{
 		Verdict: model.VerdictOK, Stdout: "42\n", ExitCode: 0,
 	}}
-	engine := NewJudgeEngine(runner, &fakeCompiler{output: CompileOutput{
+	engine := NewJudgeEngine(runner, &fakeCompiler{output: UserCodeCompileOutput{
 		Result:          model.CompileResult{Succeeded: true},
 		Artifact:        testCompiledArtifact(),
 		RuntimeLanguage: model.LanguagePython,

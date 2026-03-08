@@ -65,8 +65,8 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	// 4. Inject dependencies into Runner and Compiler
-	runner := service.NewRunner(sb)
-	compiler := service.NewCompiler(sb, cacheStorage)
+	runner := service.NewUserCodeRunner(service.NewRunner(sb))
+	compiler := service.NewUserCodeCompiler(service.NewCompiler(sb, cacheStorage))
 	judge := service.NewJudgeEngine(runner, compiler)
 
 	ctx := context.Background()

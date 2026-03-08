@@ -19,13 +19,13 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	runner   Runner
-	compiler Compiler
+	runner   UserCodeRunner
+	compiler UserCodeCompiler
 	log      *slog.Logger
 }
 
 // NewJudgeEngine creates a judge engine.
-func NewJudgeEngine(runner Runner, compiler Compiler) *JudgeEngine {
+func NewJudgeEngine(runner UserCodeRunner, compiler UserCodeCompiler) *JudgeEngine {
 	return &JudgeEngine{
 		runner:   runner,
 		compiler: compiler,
@@ -51,7 +51,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	compileOut, err := s.compiler.Compile(ctx, CompileRequest{
+	compileOut, err := s.compiler.Compile(ctx, UserCodeCompileRequest{
 		Language:   req.Language,
 		SourceCode: req.SourceCode,
 	})
@@ -118,7 +118,7 @@ func validateJudgeRequest(req model.JudgeRequest) error {
 func (s *JudgeEngine) runSingleCase(
 	ctx context.Context,
 	req model.JudgeRequest,
-	compileOut CompileOutput,
+	compileOut UserCodeCompileOutput,
 	testCase model.JudgeTestCase,
 ) model.JudgeCaseResult {
 	if compileOut.Artifact == nil {
