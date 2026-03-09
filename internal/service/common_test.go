@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
 
 	"github.com/stretchr/testify/require"
@@ -67,21 +69,6 @@ func projectRoot(t *testing.T) string {
 	return cachedProjectRoot
 }
 
-func fixturePath(t *testing.T, elems ...string) string {
-	t.Helper()
-
-	parts := append([]string{projectRoot(t), "testprograms"}, elems...)
-	return filepath.Join(parts...)
-}
-
-func readFixture(t *testing.T, elems ...string) string {
-	t.Helper()
-
-	content, err := os.ReadFile(fixturePath(t, elems...))
-	require.NoError(t, err)
-	return string(content)
-}
-
 func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
 
@@ -119,4 +106,102 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, req UserCodeCompile
 	out, err := env.compiler.Compile(env.ctx, req)
 	require.NoError(t, err)
 	return out
+}
+
+// testdataPath constructs absolute path to testdata files.
+func testdataPath(t *testing.T, elems ...string) string {
+	t.Helper()
+
+	parts := append([]string{projectRoot(t), "testdata"}, elems...)
+	return filepath.Join(parts...)
+}
+
+// readTestdata reads testdata file content.
+func readTestdata(t *testing.T, elems ...string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(testdataPath(t, elems...))
+	require.NoError(t, err)
+	return string(content)
+}
+
+// detectLanguageFromFile detects language from file extension.
+func detectLanguageFromFile(filename string) model.Language {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".c":
+		return model.LanguageC
+	case ".cpp":
+		return model.LanguageCPP
+	case ".java":
+		return model.LanguageJava
+	case ".py":
+		return model.LanguagePython
+	default:
+		return 0
+	}
+}
+
+// findSourceFile locates source file in testcase directory.
+func findSourceFile(t *testing.T, testcaseDir string) (string, model.Language) {
+	t.Helper()
+
+	// Try common source file names
+	candidates := []string{"main.c", "main.cpp", "main.py", "Main.java"}
+
+	for _, candidate := range candidates {
+		path := filepath.Join(testcaseDir, candidate)
+		if _, err := os.Stat(path); err == nil {
+			lang := detectLanguageFromFile(candidate)
+			require.NotEmpty(t, lang, "failed to detect language for %s", candidate)
+			return path, lang
+		}
+	}
+
+	t.Fatalf("no source file found in %s", testcaseDir)
+	return "", 0
+}
+
+// checkerNameMap maps testcase number to checker filename.
+var checkerNameMap = map[int]string{
+	1:  "default.cpp",
+	2:  "rcmp6.cpp",
+	3:  "ncmp.cpp",
+	4:  "wcmp.cpp",
+	5:  "lcmp.cpp",
+	6:  "nyesno.cpp",
+	7:  "rcmp6.cpp",
+	8:  "lcmp.cpp",
+	9:  "default.cpp",
+	10: "rcmp6.cpp",
+	11: "ncmp.cpp",
+	12: "wcmp.cpp",
+	13: "lcmp.cpp",
+	14: "nyesno.cpp",
+	17: "ncmp.cpp",
+	18: "rcmp6.cpp",
+	19: "default.cpp",
+	20: "lcmp.cpp",
+}
+
+// expectedVerdictMap maps testcase number to expected verdict.
+var expectedVerdictMap = map[int]model.Verdict{
+	1:  model.VerdictOK,
+	2:  model.VerdictOK,
+	3:  model.VerdictOK,
+	4:  model.VerdictOK,
+	5:  model.VerdictOK,
+	6:  model.VerdictOK,
+	7:  model.VerdictOK,
+	8:  model.VerdictOK,
+	9:  model.VerdictWA,
+	10: model.VerdictWA,
+	11: model.VerdictWA,
+	12: model.VerdictWA,
+	13: model.VerdictWA,
+	14: model.VerdictWA,
+	17: model.VerdictWA,
+	18: model.VerdictWA,
+	19: model.VerdictWA,
+	20: model.VerdictWA,
 }

@@ -41,7 +41,7 @@
 |--------|------|----------|----------|
 | `ce_syntax_error.c` | C | 缺少分号 | 编译失败 |
 | `ce_syntax_error.cpp` | C++ | 使用未声明标识符 | 编译失败 |
-| `ce_wrong_class_name.java` | Java | 类名不是 `Main` | 编译失败 |
+| `ce_wrong_class_name.java` | Java | 缺少分号（语法错误） | 编译失败 |
 | `ce_syntax_error.py` | Python | `if` 语句缺少冒号 | 解释失败 |
 
 ### TLE (Time Limit Exceeded) - 超时
@@ -71,7 +71,7 @@
 | `re_null_pointer.java` | Java | 空指针解引用 | `NullPointerException` |
 | `re_index_error.py` | Python | 列表索引越界 | `IndexError` |
 | `re_segfault.cpp` | C++ | 空指针解引用 | 段错误 |
-| `re_infinite_recursion.cpp` | C++ | 无限递归导致栈溢出 | 运行时错误 |
+| `re_null_dereference.cpp` | C++ | 空指针解引用（nullptr） | 段错误 |
 
 ### OLE (Output Limit Exceeded) - 输出超限
 
@@ -82,7 +82,11 @@
 
 ### POLICY - Sandbox 策略测试
 
-| 文件名 | 语言 | 触发机制 | 预期结果 |
-|--------|------|----------|----------|
-| `policy_fork_bomb.c` | C | 持续调用 `fork()` | 被策略拦截、资源限制终止或拒绝执行 |
-| `policy_system_call.py` | Python | 调用 `os.system()` | 被策略拦截、拒绝执行或按策略审计 |
+**注意**: 这些测试当前被跳过，因为需要 seccomp 系统调用过滤配置。
+
+| 文件名 | 语言 | 触发机制 | 当前行为 | 预期结果（需要 seccomp） |
+|--------|------|----------|----------|--------------------------|
+| `policy_fork_bomb.c` | C | 持续调用 `fork()` | TLE（达到 PID 限制后超时） | 被策略拦截或 RE |
+| `policy_system_call.py` | Python | 调用 `os.system()` | OK（命令失败但程序正常结束） | 被策略拦截或 RE |
+
+这些测试需要在 `sandboxSecurityOpts()` 中添加 seccomp 配置才能正确工作。

@@ -58,10 +58,11 @@ func cProfile() LanguageProfile {
 			ArtifactName: "program",
 			BuildCommand: func(_ string, sources []string) []string {
 				args := make([]string, 0, 9+len(sources))
-				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-lm", "-o", "/work/program")
+				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
 				for _, src := range sources {
 					args = append(args, "/work/"+src)
 				}
+				args = append(args, "-lm")
 				return args
 			},
 			TimeoutMs: 30000,
@@ -85,10 +86,11 @@ func cppProfile() LanguageProfile {
 			ArtifactName: "program",
 			BuildCommand: func(_ string, sources []string) []string {
 				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-lm", "-o", "/work/program")
+				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
 				for _, src := range sources {
 					args = append(args, "/work/"+src)
 				}
+				args = append(args, "-lm")
 				return args
 			},
 			TimeoutMs: 30000,

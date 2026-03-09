@@ -15,30 +15,6 @@
 /bin/
 /dist/
 
-# Compiled test programs - all binaries without extensions
-testprograms/c/ac
-testprograms/c/ce
-testprograms/c/mle
-testprograms/c/ole
-testprograms/c/re
-testprograms/c/tle
-testprograms/c/wa
-testprograms/cpp/ac
-testprograms/cpp/ce
-testprograms/cpp/mle
-testprograms/cpp/ole
-testprograms/cpp/re
-testprograms/cpp/tle
-testprograms/cpp/wa
-
-# Compiled Java artifacts
-testprograms/java/*/classes/
-testprograms/java/*/*.jar
-
-# Compiled Python bytecode
-testprograms/python/*.pyc
-testprograms/python/__pycache__/
-
 # Go workspace file
 go.work
 
