@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/storage"
@@ -33,11 +34,10 @@ func newCheckerCompilerForTest(t *testing.T) CheckerCompiler {
 	t.Helper()
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	cacheDir := t.TempDir()
-	cacheStorage, err := storage.NewCacheStorage(cacheDir, 100)
+	compileCache, err := cache.New(100)
 	require.NoError(t, err)
 
-	return NewCheckerCompiler(NewCachedCompiler(NewCompiler(sb), cacheStorage))
+	return NewCheckerCompiler(NewCachedCompiler(NewCompiler(sb), compileCache))
 }
 
 func newCheckerRunnerForTest(t *testing.T) CheckerRunner {

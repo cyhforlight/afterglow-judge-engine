@@ -7,20 +7,20 @@ import (
 	"log/slog"
 	"strings"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
-	"afterglow-judge-sandbox/internal/storage"
 )
 
 // CachedCompiler wraps a Compiler with caching capability.
 // It checks cache before compilation and stores artifacts after successful compilation.
 type CachedCompiler struct {
 	compiler Compiler
-	cache    storage.Storage
+	cache    *cache.Cache
 }
 
 // NewCachedCompiler creates a compiler with caching.
 // If cache is nil, returns the underlying compiler without caching (graceful degradation).
-func NewCachedCompiler(compiler Compiler, cache storage.Storage) Compiler {
+func NewCachedCompiler(compiler Compiler, cache *cache.Cache) Compiler {
 	if cache == nil {
 		return compiler
 	}
@@ -35,7 +35,7 @@ func (c *CachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 	cacheKey := compileCacheKey(req)
 
 	// Try cache first
-	if data, err := c.cache.Get(ctx, cacheKey); err == nil {
+	if data, ok := c.cache.Get(cacheKey); ok {
 		slog.InfoContext(ctx, "compilation cache hit", "key", cacheKey[:16])
 		return CompileOutput{
 			Result: model.CompileResult{Succeeded: true},
@@ -61,9 +61,7 @@ func (c *CachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 	}
 
 	// Store in cache
-	if err := c.cache.StoreWithKey(ctx, cacheKey, out.Artifact.Data); err != nil {
-		slog.WarnContext(ctx, "failed to cache compilation artifact", "error", err)
-	}
+	c.cache.Set(cacheKey, out.Artifact.Data)
 
 	return out, nil
 }

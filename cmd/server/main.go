@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/config"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
@@ -57,12 +57,11 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		return nil, fmt.Errorf("initialize internal storage: %w", err)
 	}
 
-	// 3. Create CacheStorage instance (not a global singleton)
-	cacheDir := filepath.Join(os.TempDir(), "afterglow-compile-cache")
-	cacheStorage, err := storage.NewCacheStorage(cacheDir, 500)
+	// 3. Create Cache instance (not a global singleton)
+	compileCache, err := cache.New(500)
 	if err != nil {
-		slog.Warn("failed to initialize cache storage", "error", err)
-		cacheStorage = nil // Allow running without cache
+		slog.Warn("failed to initialize cache", "error", err)
+		compileCache = nil // Allow running without cache
 	}
 
 	// 4. Create base compiler and runner primitives.
@@ -72,7 +71,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	// 5. Create semantic-layer services.
 	userCodeCompiler := service.NewUserCodeCompiler(baseCompiler)
 	userCodeRunner := service.NewUserCodeRunner(baseRunner)
-	checkerCompiler := service.NewCheckerCompiler(service.NewCachedCompiler(baseCompiler, cacheStorage))
+	checkerCompiler := service.NewCheckerCompiler(service.NewCachedCompiler(baseCompiler, compileCache))
 	checkerRunner := service.NewCheckerRunner(baseRunner)
 	checkerPolicy, err := service.NewCheckerPolicy(cfg.DefaultChecker, cfg.AllowedCheckers)
 	if err != nil {

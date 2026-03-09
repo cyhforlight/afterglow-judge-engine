@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
-	"afterglow-judge-sandbox/internal/storage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,8 +32,7 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 
 	sb := sandbox.NewContainerdSandbox("", "")
 
-	cacheDir := t.TempDir()
-	cacheStorage, err := storage.NewCacheStorage(cacheDir, 10)
+	cacheStorage, err := cache.New(10)
 	require.NoError(t, err)
 
 	compiler := NewUserCodeCompiler(NewCachedCompiler(NewCompiler(sb), cacheStorage))
@@ -44,8 +43,8 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	}
 
 	// Verify cache starts empty
-	initialStats := cacheStorage.Stats()
-	initialEntries := initialStats.Entries
+	initialStats := cacheStorage.Len()
+	initialEntries := initialStats
 
 	// First compilation (cache miss) — artifact stored in cache
 	out1, err := compiler.Compile(context.Background(), req)
@@ -55,8 +54,8 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	artifact1Data := append([]byte(nil), out1.Artifact.Data...)
 
 	// Verify cache now has one more entry
-	afterMissStats := cacheStorage.Stats()
-	assert.Equal(t, initialEntries+1, afterMissStats.Entries, "cache should have one new entry after miss")
+	afterMissStats := cacheStorage.Len()
+	assert.Equal(t, initialEntries+1, afterMissStats, "cache should have one new entry after miss")
 
 	// Second compilation (cache hit) — returns same cache path
 	out2, err := compiler.Compile(context.Background(), req)
@@ -65,8 +64,8 @@ func TestContainerCompiler_RealCacheHit(t *testing.T) {
 	require.NotNil(t, out2.Artifact)
 
 	// Verify cache entries unchanged (hit, not new entry)
-	afterHitStats := cacheStorage.Stats()
-	assert.Equal(t, afterMissStats.Entries, afterHitStats.Entries, "cache hit should not add new entry")
+	afterHitStats := cacheStorage.Len()
+	assert.Equal(t, afterMissStats, afterHitStats, "cache hit should not add new entry")
 
 	assert.Equal(t, out1.Artifact.Name, out2.Artifact.Name, "cache hit should preserve artifact name")
 	assert.Equal(t, out1.Artifact.Mode, out2.Artifact.Mode, "cache hit should preserve artifact mode")
@@ -80,8 +79,7 @@ func TestContainerCompiler_CacheEvictionDoesNotBreakHeldArtifact(t *testing.T) {
 	}
 
 	// Create cache with very small capacity (2 entries)
-	tmpCacheDir := t.TempDir()
-	smallCache, err := storage.NewCacheStorage(tmpCacheDir, 2)
+	smallCache, err := cache.New(2)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -145,8 +143,7 @@ func TestContainerCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 		t.Skip("containerd not available")
 	}
 
-	tmpCacheDir := t.TempDir()
-	testCache, err := storage.NewCacheStorage(tmpCacheDir, 100)
+	testCache, err := cache.New(100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -197,8 +194,7 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	}
 
 	// Create isolated cache for this test
-	tmpCacheDir := t.TempDir()
-	testCache, err := storage.NewCacheStorage(tmpCacheDir, 100)
+	testCache, err := cache.New(100)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -218,6 +214,6 @@ func TestContainerCompiler_CompilationFailure(t *testing.T) {
 	// Verify no workspace leak (Cleanup should be safe to call)
 
 	// Verify cache is empty (failed compilations not cached)
-	stats := testCache.Stats()
-	assert.Equal(t, 0, stats.Entries, "failed compilations should not be cached")
+	stats := testCache.Len()
+	assert.Equal(t, 0, stats, "failed compilations should not be cached")
 }

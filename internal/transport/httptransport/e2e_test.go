@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/service"
 	"afterglow-judge-sandbox/internal/storage"
@@ -53,15 +54,14 @@ func newE2EHandler(t *testing.T) *Handler {
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
 	internalStorage, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
 	require.NoError(t, err)
-	cacheDir := t.TempDir()
-	cacheStorage, err := storage.NewCacheStorage(cacheDir, 100)
+	compileCache, err := cache.New(100)
 	require.NoError(t, err)
 
 	baseCompiler := service.NewCompiler(sb)
 	baseRunner := service.NewRunner(sb)
 	compiler := service.NewUserCodeCompiler(baseCompiler)
 	runner := service.NewUserCodeRunner(baseRunner)
-	checkerCompiler := service.NewCheckerCompiler(service.NewCachedCompiler(baseCompiler, cacheStorage))
+	checkerCompiler := service.NewCheckerCompiler(service.NewCachedCompiler(baseCompiler, compileCache))
 	checkerRunner := service.NewCheckerRunner(baseRunner)
 	checkerPolicy, err := service.NewCheckerPolicy("default", service.BuiltinCheckerNames())
 	require.NoError(t, err)
