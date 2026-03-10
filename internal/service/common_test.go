@@ -178,6 +178,8 @@ var checkerNameMap = map[int]string{
 	12: "wcmp.cpp",
 	13: "lcmp.cpp",
 	14: "nyesno.cpp",
+	15: "testcase-15/checker.cpp", // External custom checker
+	16: "testcase-16/checker.cpp", // External custom checker
 	17: "ncmp.cpp",
 	18: "rcmp6.cpp",
 	19: "default.cpp",
@@ -200,6 +202,8 @@ var expectedVerdictMap = map[int]model.Verdict{
 	12: model.VerdictWA,
 	13: model.VerdictWA,
 	14: model.VerdictWA,
+	15: model.VerdictOK, // Custom multiset checker - output is sorted
+	16: model.VerdictWA, // Custom sorted checker - output is unsorted
 	17: model.VerdictWA,
 	18: model.VerdictWA,
 	19: model.VerdictWA,

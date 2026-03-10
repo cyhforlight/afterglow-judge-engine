@@ -28,7 +28,7 @@ type Config struct {
 	MaxConcurrentExecutions int
 	MaxInputSizeMB          int
 	DefaultChecker          string
-	AllowedCheckers         []string
+	AllowedCheckers         []string // Supports builtin names (e.g., "ncmp") and external checkers (e.g., "external:path/to/checker.cpp", "external:*")
 
 	// Security
 	EnableAuth     bool

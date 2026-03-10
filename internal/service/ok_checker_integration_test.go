@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,14 +18,13 @@ import (
 )
 
 // TestOKAndChecker_AllTestcases tests all testcases in testdata/ok-and-checker-cases.
-// Skips testcase-15 and testcase-16 (custom SPJ).
 //
-//nolint:funlen // Table-driven integration test with 18 testcases
+//nolint:funlen // Table-driven integration test with 20 testcases
 func TestOKAndChecker_AllTestcases(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	// Define testcases to run (skip 15, 16 which use custom SPJ)
-	testcases := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17, 18, 19, 20}
+	// Define testcases to run (now includes 15, 16 with custom checkers)
+	testcases := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 
 	for _, tcNum := range testcases {
 		t.Run(fmt.Sprintf("testcase-%d", tcNum), func(t *testing.T) {
@@ -101,10 +101,27 @@ func newCheckerRunnerForTestOK(t *testing.T) CheckerRunner {
 func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName string) model.CompiledArtifact {
 	t.Helper()
 
-	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
-	require.NoError(t, err)
+	var checkerSource []byte
+	var err error
 
-	checkerSource, err := resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
+	// Check if this is an external checker (has path separator)
+	if filepath.Base(checkerName) != checkerName {
+		// External checker - load from testdata
+		testdataRoot := filepath.Join(projectRoot(t), "testdata", "ok-and-checker-cases")
+		checkerPath := filepath.Join(testdataRoot, checkerName)
+		checkerSource, err = os.ReadFile(checkerPath)
+		require.NoError(t, err, "failed to read external checker: %s", checkerPath)
+	} else {
+		// Builtin checker - load from internal storage
+		resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
+		require.NoError(t, err)
+
+		checkerSource, err = resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
+		require.NoError(t, err)
+	}
+
+	// Load testlib.h from internal storage
+	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
 	require.NoError(t, err)
 
 	testlibHeader, err := resourceStore.Get(ctx, "testlib.h")

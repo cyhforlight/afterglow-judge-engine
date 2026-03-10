@@ -6,9 +6,14 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"afterglow-judge-sandbox/internal/storage"
 )
 
-const defaultCheckerName = "default"
+const (
+	defaultCheckerName = "default"
+	externalPrefix     = "external:"
+)
 
 var builtinCheckers = []string{
 	defaultCheckerName,
@@ -24,6 +29,12 @@ var builtinCheckers = []string{
 	"rcmp9",
 }
 
+// CheckerLocation describes where a checker is stored.
+type CheckerLocation struct {
+	IsExternal bool   // true if "external:" prefix, false if builtin
+	Path       string // For external: normalized path; for builtin: short name
+}
+
 // BuiltinCheckerNames returns the bundled checker short names.
 func BuiltinCheckerNames() []string {
 	return slices.Clone(builtinCheckers)
@@ -31,9 +42,11 @@ func BuiltinCheckerNames() []string {
 
 // CheckerPolicy resolves request checker names into bundled storage keys.
 type CheckerPolicy struct {
-	defaultChecker string
-	allowed        []string
-	allowedSet     map[string]struct{}
+	defaultChecker      string
+	allowed             []string
+	allowedSet          map[string]struct{} // exact matches
+	allowExternalAll    bool                // true if "external:*" present
+	allowExternalPrefix []string            // prefixes like "external:contest-2024/"
 }
 
 // NewCheckerPolicy creates a validated checker policy.
@@ -49,11 +62,35 @@ func NewCheckerPolicy(defaultChecker string, allowedCheckers []string) (*Checker
 
 	allowed := make([]string, 0, len(allowedCheckers))
 	allowedSet := make(map[string]struct{}, len(allowedCheckers))
+	allowExternalAll := false
+	allowExternalPrefix := []string{}
+
 	for _, raw := range allowedCheckers {
 		name := strings.TrimSpace(raw)
-		if err := validateCheckerShortName(name); err != nil {
-			return nil, fmt.Errorf("allowed checker %q: %w", raw, err)
+		if name == "" {
+			continue
 		}
+
+		// Handle wildcard patterns
+		if name == "external:*" {
+			allowExternalAll = true
+			allowed = append(allowed, name)
+			continue
+		}
+		if strings.HasPrefix(name, externalPrefix) && strings.HasSuffix(name, "/*") {
+			prefix := strings.TrimSuffix(name, "*")
+			allowExternalPrefix = append(allowExternalPrefix, prefix)
+			allowed = append(allowed, name)
+			continue
+		}
+
+		// Validate builtin checker names
+		if !strings.HasPrefix(name, externalPrefix) {
+			if err := validateCheckerShortName(name); err != nil {
+				return nil, fmt.Errorf("allowed checker %q: %w", raw, err)
+			}
+		}
+
 		if _, exists := allowedSet[name]; exists {
 			continue
 		}
@@ -62,9 +99,11 @@ func NewCheckerPolicy(defaultChecker string, allowedCheckers []string) (*Checker
 	}
 
 	policy := &CheckerPolicy{
-		defaultChecker: defaultChecker,
-		allowed:        allowed,
-		allowedSet:     allowedSet,
+		defaultChecker:      defaultChecker,
+		allowed:             allowed,
+		allowedSet:          allowedSet,
+		allowExternalAll:    allowExternalAll,
+		allowExternalPrefix: allowExternalPrefix,
 	}
 	if err := policy.ValidateConfig(); err != nil {
 		return nil, err
@@ -91,29 +130,63 @@ func (p *CheckerPolicy) ValidateConfig() error {
 	return nil
 }
 
-// Resolve converts a request checker into a validated bundled checker short name.
-func (p *CheckerPolicy) Resolve(raw string) (string, error) {
+// Resolve converts a request checker into a validated CheckerLocation.
+func (p *CheckerPolicy) Resolve(raw string) (CheckerLocation, error) {
 	if p == nil {
-		return "", errors.New("checker policy is required")
+		return CheckerLocation{}, errors.New("checker policy is required")
 	}
 
 	name := strings.TrimSpace(raw)
 	if name == "" {
-		return p.defaultChecker, nil
+		return CheckerLocation{IsExternal: false, Path: p.defaultChecker}, nil
 	}
+
+	// Handle external checkers
+	if checkerPath, ok := strings.CutPrefix(name, externalPrefix); ok {
+		normalizedPath, err := validateExternalCheckerPath(checkerPath)
+		if err != nil {
+			return CheckerLocation{}, err
+		}
+
+		// Check if external checkers are allowed
+		if !p.isExternalCheckerAllowed(name) {
+			return CheckerLocation{}, fmt.Errorf("checker %q is not allowed (allowed: %v)", name, p.allowed)
+		}
+
+		return CheckerLocation{IsExternal: true, Path: normalizedPath}, nil
+	}
+
+	// Handle builtin checkers
 	if err := validateCheckerShortName(name); err != nil {
-		return "", err
+		return CheckerLocation{}, err
 	}
 	if _, ok := p.allowedSet[name]; !ok {
-		return "", fmt.Errorf("checker %q is not allowed (allowed: %v)", name, p.allowed)
+		return CheckerLocation{}, fmt.Errorf("checker %q is not allowed (allowed: %v)", name, p.allowed)
 	}
 
-	return name, nil
+	return CheckerLocation{IsExternal: false, Path: name}, nil
 }
 
-// StorageKey returns the internal storage key for a checker short name.
-func (p *CheckerPolicy) StorageKey(shortName string) string {
-	return fmt.Sprintf("checkers/%s.cpp", shortName)
+// isExternalCheckerAllowed checks if an external checker is allowed by policy.
+func (p *CheckerPolicy) isExternalCheckerAllowed(fullName string) bool {
+	// Check exact match
+	if _, ok := p.allowedSet[fullName]; ok {
+		return true
+	}
+
+	// Check wildcard
+	if p.allowExternalAll {
+		return true
+	}
+
+	// Check prefix patterns
+	for _, prefix := range p.allowExternalPrefix {
+		if strings.HasPrefix(fullName, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validateCheckerShortName(name string) error {
@@ -130,4 +203,20 @@ func validateCheckerShortName(name string) error {
 	}
 
 	return nil
+}
+
+// validateExternalCheckerPath validates and normalizes an external checker path.
+func validateExternalCheckerPath(checkerPath string) (string, error) {
+	// Reuse storage.normalizeResourceKey for path validation
+	normalizedPath, err := storage.NormalizeResourceKey(checkerPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid external checker path: %w", err)
+	}
+
+	// Additional check: must end with .cpp
+	if !strings.HasSuffix(normalizedPath, ".cpp") {
+		return "", fmt.Errorf("external checker must be a .cpp file: %q", checkerPath)
+	}
+
+	return normalizedPath, nil
 }

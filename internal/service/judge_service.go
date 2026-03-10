@@ -98,7 +98,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	}
 
 	// Resolve inside the service as well so direct callers cannot bypass checker policy.
-	checkerName, err := s.resolveChecker(req.Checker)
+	checkerLoc, err := s.resolveChecker(req.Checker)
 	if err != nil {
 		return model.JudgeResult{
 			Verdict: model.VerdictUKE,
@@ -135,7 +135,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	checkerOut, err := s.compileChecker(ctx, checkerName)
+	checkerOut, err := s.compileChecker(ctx, checkerLoc)
 	if err != nil {
 		s.log.ErrorContext(ctx, "checker setup failed", "error", err)
 		return s.unknownJudgeResult(req.TestCases, compileOut.Result, fmt.Sprintf("checker setup failed: %v", err))
@@ -224,10 +224,7 @@ func validateJudgeRequest(req model.JudgeRequest) error {
 	return nil
 }
 
-func (s *JudgeEngine) compileChecker(ctx context.Context, checkerName string) (CheckerCompileOutput, error) {
-	if s.resources == nil {
-		return CheckerCompileOutput{}, errors.New("resource store is required")
-	}
+func (s *JudgeEngine) compileChecker(ctx context.Context, loc CheckerLocation) (CheckerCompileOutput, error) {
 	if s.checkerCompiler == nil {
 		return CheckerCompileOutput{}, errors.New("checker compiler is required")
 	}
@@ -235,11 +232,26 @@ func (s *JudgeEngine) compileChecker(ctx context.Context, checkerName string) (C
 		return CheckerCompileOutput{}, errors.New("checker policy is required")
 	}
 
-	storageKey := s.checkerPolicy.StorageKey(checkerName)
+	var checkerSource []byte
+	var err error
 
-	checkerSource, err := s.resources.Get(ctx, storageKey)
-	if err != nil {
-		return CheckerCompileOutput{}, fmt.Errorf("load checker %q from %q: %w", checkerName, storageKey, err)
+	if loc.IsExternal {
+		if s.externalStorage == nil {
+			return CheckerCompileOutput{}, errors.New("external storage not configured")
+		}
+		checkerSource, err = s.externalStorage.Get(ctx, loc.Path)
+		if err != nil {
+			return CheckerCompileOutput{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
+		}
+	} else {
+		if s.resources == nil {
+			return CheckerCompileOutput{}, errors.New("resource store is required")
+		}
+		storageKey := fmt.Sprintf("checkers/%s.cpp", loc.Path)
+		checkerSource, err = s.resources.Get(ctx, storageKey)
+		if err != nil {
+			return CheckerCompileOutput{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, storageKey, err)
+		}
 	}
 
 	testlibHeader, err := s.resources.Get(ctx, testlibHeaderKey)
@@ -257,9 +269,9 @@ func (s *JudgeEngine) compileChecker(ctx context.Context, checkerName string) (C
 	})
 }
 
-func (s *JudgeEngine) resolveChecker(raw string) (string, error) {
+func (s *JudgeEngine) resolveChecker(raw string) (CheckerLocation, error) {
 	if s.checkerPolicy == nil {
-		return "", errors.New("checker policy is required")
+		return CheckerLocation{}, errors.New("checker policy is required")
 	}
 
 	return s.checkerPolicy.Resolve(raw)

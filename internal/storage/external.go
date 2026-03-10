@@ -43,7 +43,7 @@ func NewExternalStorage(mountPoint string, cache *cache.Cache) (*ExternalStorage
 // The path is relative to the mount point (e.g., "testdata/input.txt").
 func (s *ExternalStorage) Get(_ context.Context, relPath string) ([]byte, error) {
 	// Normalize and validate path (prevent path traversal)
-	normalized, err := normalizeResourceKey(relPath)
+	normalized, err := NormalizeResourceKey(relPath)
 	if err != nil {
 		return nil, err
 	}

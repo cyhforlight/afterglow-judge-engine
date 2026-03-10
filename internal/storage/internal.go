@@ -47,7 +47,7 @@ func NewBundledInternalStorage() (*InternalStorage, error) {
 
 // Get retrieves resource content by key (key = relative path like "checkers/ncmp").
 func (s *InternalStorage) Get(_ context.Context, key string) ([]byte, error) {
-	normalizedKey, err := normalizeResourceKey(key)
+	normalizedKey, err := NormalizeResourceKey(key)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func loadSnapshot(baseDir string) (map[string][]byte, error) {
 			return fmt.Errorf("resolve relative path for %q: %w", filePath, err)
 		}
 
-		key, err := normalizeResourceKey(relativePath)
+		key, err := NormalizeResourceKey(relativePath)
 		if err != nil {
 			return fmt.Errorf("normalize internal resource key for %q: %w", filePath, err)
 		}
@@ -134,7 +134,8 @@ func supportDirFromExecutable(executablePath string) (string, error) {
 	return filepath.Join(filepath.Dir(resolvedPath), bundledSupportDirName), nil
 }
 
-func normalizeResourceKey(key string) (string, error) {
+// NormalizeResourceKey validates and normalizes a resource key.
+func NormalizeResourceKey(key string) (string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", errors.New("resource key is required")
 	}
