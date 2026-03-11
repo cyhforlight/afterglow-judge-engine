@@ -1,4 +1,4 @@
-// Package main provides the HTTP server entry point for afterglow-judge-sandbox.
+// Package main provides the HTTP server entry point for afterglow-judge-engine.
 package main
 
 import (
@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"afterglow-judge-sandbox/internal/cache"
-	"afterglow-judge-sandbox/internal/config"
-	"afterglow-judge-sandbox/internal/sandbox"
-	"afterglow-judge-sandbox/internal/service"
-	"afterglow-judge-sandbox/internal/storage"
-	"afterglow-judge-sandbox/internal/transport/httptransport"
+	"afterglow-judge-engine/internal/cache"
+	"afterglow-judge-engine/internal/config"
+	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/service"
+	"afterglow-judge-engine/internal/storage"
+	"afterglow-judge-engine/internal/transport/httptransport"
 )
 
 func main() {

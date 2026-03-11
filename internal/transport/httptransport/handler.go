@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"afterglow-judge-sandbox/internal/service"
+	"afterglow-judge-engine/internal/service"
 )
 
 // Handler handles HTTP requests for judging.

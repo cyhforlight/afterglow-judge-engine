@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"afterglow-judge-sandbox/internal/config"
-	"afterglow-judge-sandbox/internal/service"
+	"afterglow-judge-engine/internal/config"
+	"afterglow-judge-engine/internal/service"
 )
 
 // Server implements the HTTP transport layer.

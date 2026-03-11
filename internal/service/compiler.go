@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"afterglow-judge-sandbox/internal/model"
-	"afterglow-judge-sandbox/internal/sandbox"
-	"afterglow-judge-sandbox/internal/workspace"
+	"afterglow-judge-engine/internal/model"
+	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 )
 
 const compileMountDir = "/work"

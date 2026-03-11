@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-engine/internal/model"
 )
 
 // JudgeTestCaseDTO represents one testcase in HTTP request.

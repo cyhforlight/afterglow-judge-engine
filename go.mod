@@ -1,4 +1,4 @@
-module afterglow-judge-sandbox
+module afterglow-judge-engine
 
 go 1.24.3
 

@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-sandbox/internal/config"
+	"afterglow-judge-engine/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

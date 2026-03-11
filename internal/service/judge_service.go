@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"afterglow-judge-sandbox/internal/cache"
-	"afterglow-judge-sandbox/internal/model"
-	"afterglow-judge-sandbox/internal/sandbox"
-	"afterglow-judge-sandbox/internal/storage"
+	"afterglow-judge-engine/internal/cache"
+	"afterglow-judge-engine/internal/model"
+	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/storage"
 )
 
 // JudgeService handles full judge orchestration.

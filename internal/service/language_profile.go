@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-engine/internal/model"
 )
 
 // LanguageProfile defines compilation and execution configuration for a language.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"afterglow-judge-sandbox/internal/storage"
+	"afterglow-judge-engine/internal/storage"
 )
 
 const (

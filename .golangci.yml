@@ -11,7 +11,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - afterglow-judge-sandbox
+        - afterglow-judge-engine
 
 linters:
   enable:

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"afterglow-judge-sandbox/internal/cache"
+	"afterglow-judge-engine/internal/cache"
 )
 
 // ExternalStorage provides read-only access to external files with optional caching.

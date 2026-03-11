@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"afterglow-judge-sandbox/internal/cache"
-	"afterglow-judge-sandbox/internal/sandbox"
-	"afterglow-judge-sandbox/internal/service"
-	"afterglow-judge-sandbox/internal/storage"
+	"afterglow-judge-engine/internal/cache"
+	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/service"
+	"afterglow-judge-engine/internal/storage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

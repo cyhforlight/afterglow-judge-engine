@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-engine/internal/model"
 )
 
 func TestProfileForLanguage_AllLanguages(t *testing.T) {

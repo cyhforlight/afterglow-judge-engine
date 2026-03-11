@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"afterglow-judge-sandbox/internal/model"
-	"afterglow-judge-sandbox/internal/sandbox"
+	"afterglow-judge-engine/internal/model"
+	"afterglow-judge-engine/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

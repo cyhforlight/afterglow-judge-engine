@@ -1,6 +1,6 @@
 package service
 
-import "afterglow-judge-sandbox/internal/model"
+import "afterglow-judge-engine/internal/model"
 
 // selectWorstVerdict aggregates test case verdicts using priority:
 // OLE > MLE > TLE > RE > UKE > WA > OK.
