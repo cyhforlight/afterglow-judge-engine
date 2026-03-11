@@ -68,14 +68,7 @@ func (s *JudgeEngine) ValidateCheckerPolicy(_ context.Context, req model.JudgeRe
 // Judge compiles source code and evaluates all test cases.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
 	if err := validateJudgeRequest(req); err != nil {
-		return model.JudgeResult{
-			Verdict: model.VerdictUKE,
-			Compile: model.CompileResult{
-				Succeeded: false,
-				Log:       err.Error(),
-			},
-			TotalCount: len(req.TestCases),
-		}
+		return failedBeforeRun(req.TestCases, err.Error())
 	}
 
 	// Deep copy TestCases to avoid mutating caller's data
@@ -88,41 +81,20 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		if err := s.loadTestCaseData(ctx, &req.TestCases[i]); err != nil {
 			s.log.ErrorContext(ctx, "failed to load test case data",
 				"testCase", req.TestCases[i].Name, "error", err)
-			return model.JudgeResult{
-				Verdict: model.VerdictUKE,
-				Compile: model.CompileResult{
-					Succeeded: false,
-					Log:       fmt.Sprintf("test data loading failed: %v", err),
-				},
-				TotalCount: len(req.TestCases),
-			}
+			return failedBeforeRun(req.TestCases, fmt.Sprintf("test data loading failed: %v", err))
 		}
 	}
 
 	// Resolve inside the service as well so direct callers cannot bypass checker policy.
 	checkerLoc, err := s.resolveChecker(req.Checker)
 	if err != nil {
-		return model.JudgeResult{
-			Verdict: model.VerdictUKE,
-			Compile: model.CompileResult{
-				Succeeded: false,
-				Log:       err.Error(),
-			},
-			TotalCount: len(req.TestCases),
-		}
+		return failedBeforeRun(req.TestCases, err.Error())
 	}
 
 	compileOut, compileResult, err := s.compileUserCode(ctx, req.Language, req.SourceCode)
 	if err != nil {
 		s.log.ErrorContext(ctx, "compile step failed", "error", err)
-		return model.JudgeResult{
-			Verdict: model.VerdictUKE,
-			Compile: model.CompileResult{
-				Succeeded: false,
-				Log:       fmt.Sprintf("compile infrastructure error: %v", err),
-			},
-			TotalCount: len(req.TestCases),
-		}
+		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
 	}
 
 	if !compileResult.Succeeded {
@@ -625,6 +597,14 @@ func (s *JudgeEngine) unknownJudgeResult(
 		Verdict:    model.VerdictUKE,
 		Compile:    compileResult,
 		Cases:      caseResults,
+		TotalCount: len(testCases),
+	}
+}
+
+func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeResult {
+	return model.JudgeResult{
+		Verdict:    model.VerdictUKE,
+		Compile:    model.CompileResult{Succeeded: false, Log: log},
 		TotalCount: len(testCases),
 	}
 }
