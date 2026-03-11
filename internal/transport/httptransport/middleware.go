@@ -24,7 +24,6 @@ func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 				"path", r.URL.Path,
 				"status", wrapped.statusCode,
 				"duration_ms", time.Since(start).Milliseconds(),
-				"remote_addr", r.RemoteAddr,
 			)
 		})
 	}

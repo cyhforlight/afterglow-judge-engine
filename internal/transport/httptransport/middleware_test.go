@@ -51,7 +51,6 @@ func TestLoggingMiddleware(t *testing.T) {
 			wrapped := LoggingMiddleware(logger)(handler)
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
-			req.RemoteAddr = "127.0.0.1:12345"
 			w := httptest.NewRecorder()
 
 			wrapped.ServeHTTP(w, req)
@@ -62,7 +61,6 @@ func TestLoggingMiddleware(t *testing.T) {
 			assert.Contains(t, logOutput, "http request")
 			assert.Contains(t, logOutput, tt.method)
 			assert.Contains(t, logOutput, tt.path)
-			assert.Contains(t, logOutput, "127.0.0.1:12345")
 
 			if tt.checkDuration {
 				assert.Contains(t, logOutput, "duration_ms")
