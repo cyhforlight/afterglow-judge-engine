@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/storage"
 )
 
@@ -20,34 +25,31 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	runner          UserCodeRunner
-	compiler        UserCodeCompiler
-	checkerCompiler CheckerCompiler
-	checkerRunner   CheckerRunner
+	compiler        Compiler
+	runner          Runner
 	resources       ResourceStore
 	externalStorage ResourceStore
 	checkerPolicy   *CheckerPolicy
+	cache           *cache.Cache
 	log             *slog.Logger
 }
 
 // NewJudgeEngine creates a judge engine.
 func NewJudgeEngine(
-	runner UserCodeRunner,
-	compiler UserCodeCompiler,
-	checkerCompiler CheckerCompiler,
-	checkerRunner CheckerRunner,
+	compiler Compiler,
+	runner Runner,
 	resources ResourceStore,
 	externalStorage *storage.ExternalStorage,
 	checkerPolicy *CheckerPolicy,
+	cache *cache.Cache,
 ) *JudgeEngine {
 	return &JudgeEngine{
-		runner:          runner,
 		compiler:        compiler,
-		checkerCompiler: checkerCompiler,
-		checkerRunner:   checkerRunner,
+		runner:          runner,
 		resources:       resources,
 		externalStorage: externalStorage,
 		checkerPolicy:   checkerPolicy,
+		cache:           cache,
 		log:             slog.Default(),
 	}
 }
@@ -110,10 +112,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	compileOut, err := s.compiler.Compile(ctx, UserCodeCompileRequest{
-		Language:   req.Language,
-		SourceCode: req.SourceCode,
-	})
+	compileOut, compileResult, err := s.compileUserCode(ctx, req.Language, req.SourceCode)
 	if err != nil {
 		s.log.ErrorContext(ctx, "compile step failed", "error", err)
 		return model.JudgeResult{
@@ -126,38 +125,38 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	if !compileOut.Result.Succeeded {
+	if !compileResult.Succeeded {
 		return model.JudgeResult{
 			Verdict:    model.VerdictCE,
-			Compile:    compileOut.Result,
+			Compile:    compileResult,
 			TotalCount: len(req.TestCases),
 			Cases:      make([]model.JudgeCaseResult, 0, len(req.TestCases)),
 		}
 	}
 
-	checkerOut, err := s.compileChecker(ctx, checkerLoc)
+	checkerArtifact, checkerResult, err := s.prepareChecker(ctx, checkerLoc)
 	if err != nil {
 		s.log.ErrorContext(ctx, "checker setup failed", "error", err)
-		return s.unknownJudgeResult(req.TestCases, compileOut.Result, fmt.Sprintf("checker setup failed: %v", err))
+		return s.unknownJudgeResult(req.TestCases, compileResult, fmt.Sprintf("checker setup failed: %v", err))
 	}
-	if !checkerOut.Result.Succeeded {
-		message := strings.TrimSpace(checkerOut.Result.Log)
+	if !checkerResult.Succeeded {
+		message := strings.TrimSpace(checkerResult.Log)
 		if message == "" {
 			message = "checker compilation failed"
 		}
 		s.log.ErrorContext(ctx, "checker compilation failed", "log", message)
-		return s.unknownJudgeResult(req.TestCases, compileOut.Result, "checker compilation failed: "+message)
+		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation failed: "+message)
 	}
-	if checkerOut.Artifact == nil {
+	if checkerArtifact == nil {
 		s.log.ErrorContext(ctx, "checker compilation succeeded without artifact")
-		return s.unknownJudgeResult(req.TestCases, compileOut.Result, "checker compilation succeeded without artifact")
+		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation succeeded without artifact")
 	}
 
 	caseResults := make([]model.JudgeCaseResult, 0, len(req.TestCases))
 	passedCount := 0
 
 	for _, testCase := range req.TestCases {
-		caseResult := s.runSingleCase(ctx, req, compileOut, *checkerOut.Artifact, testCase)
+		caseResult := s.runSingleCase(ctx, req, compileOut, checkerArtifact, testCase)
 		if caseResult.Verdict == model.VerdictOK {
 			passedCount++
 		}
@@ -165,8 +164,8 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	}
 
 	return model.JudgeResult{
-		Verdict:     aggregateJudgeVerdict(caseResults),
-		Compile:     compileOut.Result,
+		Verdict:     selectWorstVerdict(caseResults),
+		Compile:     compileResult,
 		Cases:       caseResults,
 		PassedCount: passedCount,
 		TotalCount:  len(req.TestCases),
@@ -224,51 +223,6 @@ func validateJudgeRequest(req model.JudgeRequest) error {
 	return nil
 }
 
-func (s *JudgeEngine) compileChecker(ctx context.Context, loc CheckerLocation) (CheckerCompileOutput, error) {
-	if s.checkerCompiler == nil {
-		return CheckerCompileOutput{}, errors.New("checker compiler is required")
-	}
-	if s.checkerPolicy == nil {
-		return CheckerCompileOutput{}, errors.New("checker policy is required")
-	}
-
-	var checkerSource []byte
-	var err error
-
-	if loc.IsExternal {
-		if s.externalStorage == nil {
-			return CheckerCompileOutput{}, errors.New("external storage not configured")
-		}
-		checkerSource, err = s.externalStorage.Get(ctx, loc.Path)
-		if err != nil {
-			return CheckerCompileOutput{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
-		}
-	} else {
-		if s.resources == nil {
-			return CheckerCompileOutput{}, errors.New("resource store is required")
-		}
-		storageKey := fmt.Sprintf("checkers/%s.cpp", loc.Path)
-		checkerSource, err = s.resources.Get(ctx, storageKey)
-		if err != nil {
-			return CheckerCompileOutput{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, storageKey, err)
-		}
-	}
-
-	testlibHeader, err := s.resources.Get(ctx, testlibHeaderKey)
-	if err != nil {
-		return CheckerCompileOutput{}, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
-	}
-
-	return s.checkerCompiler.Compile(ctx, CheckerCompileRequest{
-		SourceCode: checkerSource,
-		SupportFiles: []CompileFile{{
-			Name:    testlibHeaderKey,
-			Content: testlibHeader,
-			Mode:    0o644,
-		}},
-	})
-}
-
 func (s *JudgeEngine) resolveChecker(raw string) (CheckerLocation, error) {
 	if s.checkerPolicy == nil {
 		return CheckerLocation{}, errors.New("checker policy is required")
@@ -277,14 +231,338 @@ func (s *JudgeEngine) resolveChecker(raw string) (CheckerLocation, error) {
 	return s.checkerPolicy.Resolve(raw)
 }
 
+// compileUserCode compiles user source code to a runnable artifact.
+func (s *JudgeEngine) compileUserCode(
+	ctx context.Context,
+	lang model.Language,
+	sourceCode string,
+) (*model.CompiledArtifact, model.CompileResult, error) {
+	profile, err := ProfileForLanguage(lang)
+	if err != nil {
+		return nil, model.CompileResult{}, fmt.Errorf("get language profile: %w", err)
+	}
+
+	compileReq := CompileRequest{
+		Files: []CompileFile{{
+			Name:    profile.Compile.SourceFiles[0],
+			Content: []byte(sourceCode),
+			Mode:    0644,
+		}},
+		ImageRef:     profile.Compile.ImageRef,
+		Command:      profile.Compile.BuildCommand(compileMountDir, profile.Compile.SourceFiles),
+		ArtifactName: profile.Compile.ArtifactName,
+		ArtifactMode: profile.Run.FileMode,
+		ArtifactPath: profile.Compile.ArtifactName,
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   profile.Compile.TimeoutMs,
+			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			MemoryMB:    profile.Compile.MemoryMB,
+			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+		},
+	}
+
+	// Python bytecode requires special artifact loading
+	if lang == model.LanguagePython {
+		compileReq.ArtifactLoader = loadPythonBytecodeArtifact(profile.Compile.ArtifactName, profile.Run.FileMode)
+	}
+
+	compileOut, err := s.compiler.Compile(ctx, compileReq)
+	if err != nil {
+		return nil, model.CompileResult{}, err
+	}
+
+	return compileOut.Artifact, compileOut.Result, nil
+}
+
+func loadPythonBytecodeArtifact(artifactName string, artifactMode os.FileMode) ArtifactLoader {
+	return func(workDir string) (model.CompiledArtifact, error) {
+		pycachePath := filepath.Join(workDir, "__pycache__")
+		entries, err := os.ReadDir(pycachePath)
+		if err != nil {
+			return model.CompiledArtifact{}, fmt.Errorf("read python cache directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			if filepath.Ext(entry.Name()) != ".pyc" {
+				continue
+			}
+
+			artifact, err := loadCompiledArtifact(filepath.Join(pycachePath, entry.Name()))
+			if err != nil {
+				return model.CompiledArtifact{}, err
+			}
+			artifact.Name = artifactName
+			if artifact.Mode == 0 {
+				artifact.Mode = artifactMode
+			}
+			return artifact, nil
+		}
+
+		return model.CompiledArtifact{}, fmt.Errorf("python bytecode artifact not found in %q", pycachePath)
+	}
+}
+
+// prepareChecker loads, compiles, and caches a checker.
+func (s *JudgeEngine) prepareChecker(
+	ctx context.Context,
+	loc CheckerLocation,
+) (*model.CompiledArtifact, model.CompileResult, error) {
+	// Load checker source
+	var checkerSource []byte
+	var err error
+
+	if loc.IsExternal {
+		if s.externalStorage == nil {
+			return nil, model.CompileResult{}, errors.New("external storage not configured")
+		}
+		checkerSource, err = s.externalStorage.Get(ctx, loc.Path)
+		if err != nil {
+			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
+		}
+	} else {
+		if s.resources == nil {
+			return nil, model.CompileResult{}, errors.New("resource store is required")
+		}
+		storageKey := fmt.Sprintf("checkers/%s.cpp", loc.Path)
+		checkerSource, err = s.resources.Get(ctx, storageKey)
+		if err != nil {
+			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, storageKey, err)
+		}
+	}
+
+	// Check cache
+	if s.cache != nil {
+		cacheKey := computeCheckerCacheKey(checkerSource)
+		if cached, ok := s.cache.Get(cacheKey); ok {
+			s.log.InfoContext(ctx, "checker cache hit", "key", cacheKey[:16])
+			return &model.CompiledArtifact{
+				Name: checkerArtifactFileName,
+				Data: cached,
+				Mode: 0755,
+			}, model.CompileResult{Succeeded: true}, nil
+		}
+		s.log.InfoContext(ctx, "checker cache miss", "key", cacheKey[:16])
+	}
+
+	// Load testlib.h
+	testlibHeader, err := s.resources.Get(ctx, testlibHeaderKey)
+	if err != nil {
+		return nil, model.CompileResult{}, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
+	}
+
+	// Compile checker
+	profile := cppProfile()
+	compileReq := CompileRequest{
+		Files: []CompileFile{
+			{
+				Name:    checkerSourceFileName,
+				Content: checkerSource,
+				Mode:    0644,
+			},
+			{
+				Name:    testlibHeaderKey,
+				Content: testlibHeader,
+				Mode:    0644,
+			},
+		},
+		ImageRef:     profile.Compile.ImageRef,
+		Command:      profile.Compile.BuildCommand(compileMountDir, []string{checkerSourceFileName}),
+		ArtifactName: checkerArtifactFileName,
+		ArtifactMode: profile.Run.FileMode,
+		ArtifactPath: profile.Compile.ArtifactName,
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   profile.Compile.TimeoutMs,
+			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			MemoryMB:    profile.Compile.MemoryMB,
+			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+		},
+	}
+
+	compileOut, err := s.compiler.Compile(ctx, compileReq)
+	if err != nil {
+		return nil, model.CompileResult{}, err
+	}
+
+	// Ensure artifact has correct name
+	if compileOut.Artifact != nil {
+		compileOut.Artifact.Name = checkerArtifactFileName
+	}
+
+	// Cache successful compilation
+	if s.cache != nil && compileOut.Result.Succeeded && compileOut.Artifact != nil {
+		cacheKey := computeCheckerCacheKey(checkerSource)
+		s.cache.Set(cacheKey, compileOut.Artifact.Data)
+	}
+
+	return compileOut.Artifact, compileOut.Result, nil
+}
+
+func computeCheckerCacheKey(source []byte) string {
+	hash := sha256.Sum256(source)
+	return fmt.Sprintf("checker:%x", hash)
+}
+
+// executeUserCode runs compiled user code with given input and limits.
+func (s *JudgeEngine) executeUserCode(
+	ctx context.Context,
+	artifact *model.CompiledArtifact,
+	lang model.Language,
+	input string,
+	timeLimit int,
+	memoryLimit int,
+) (model.ExecuteResult, error) {
+	profile, err := ProfileForLanguage(lang)
+	if err != nil {
+		return model.ExecuteResult{}, fmt.Errorf("get language profile: %w", err)
+	}
+
+	if artifact == nil || len(artifact.Data) == 0 {
+		return model.ExecuteResult{}, errors.New("program artifact is required")
+	}
+
+	programMode := artifact.Mode
+	if programMode == 0 {
+		programMode = profile.Run.FileMode
+	}
+
+	containerPath := runMountDir + "/" + profile.Run.ArtifactName
+	runOut, err := s.runner.Run(ctx, RunRequest{
+		Files: []RunFile{{
+			Name:    profile.Run.ArtifactName,
+			Content: artifact.Data,
+			Mode:    programMode,
+		}},
+		ImageRef: profile.Run.ImageRef,
+		Command:  profile.Run.RuntimeCommand(containerPath),
+		Cwd:      runMountDir,
+		Stdin:    strings.NewReader(input),
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   timeLimit,
+			WallTimeMs:  timeLimit * sandbox.WallTimeMultiplier,
+			MemoryMB:    memoryLimit,
+			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+		},
+	})
+	if err != nil {
+		return model.ExecuteResult{}, err
+	}
+
+	return convertRunResult(runOut), nil
+}
+
+func convertRunResult(runOut RunResult) model.ExecuteResult {
+	return model.ExecuteResult{
+		Verdict:    convertVerdict(runOut.Verdict),
+		Stdout:     runOut.Stdout,
+		TimeUsed:   runOut.CPUTimeMs,
+		MemoryUsed: runOut.MemoryMB,
+		ExitCode:   runOut.ExitCode,
+		ExtraInfo:  runOut.ExtraInfo,
+	}
+}
+
+func convertVerdict(v sandbox.Verdict) model.Verdict {
+	switch v {
+	case sandbox.VerdictOK:
+		return model.VerdictOK
+	case sandbox.VerdictTLE:
+		return model.VerdictTLE
+	case sandbox.VerdictMLE:
+		return model.VerdictMLE
+	case sandbox.VerdictOLE:
+		return model.VerdictOLE
+	case sandbox.VerdictRE:
+		return model.VerdictRE
+	default:
+		return model.VerdictUKE
+	}
+}
+
+// runChecker executes the checker to validate user output.
+func (s *JudgeEngine) runChecker(
+	ctx context.Context,
+	checkerArtifact *model.CompiledArtifact,
+	inputText string,
+	actualOutput string,
+	expectedOutput string,
+) (model.Verdict, string, error) {
+	if checkerArtifact == nil || len(checkerArtifact.Data) == 0 {
+		return model.VerdictUKE, "", errors.New("checker artifact is required")
+	}
+
+	profile := cppProfile().Run
+	checkerMode := checkerArtifact.Mode
+	if checkerMode == 0 {
+		checkerMode = profile.FileMode
+	}
+
+	runOut, err := s.runner.Run(ctx, RunRequest{
+		Files: []RunFile{
+			{Name: checkerArtifactFileName, Content: checkerArtifact.Data, Mode: checkerMode},
+			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0644},
+			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0644},
+			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0644},
+		},
+		ImageRef: profile.ImageRef,
+		Command: []string{
+			runMountDir + "/" + checkerArtifactFileName,
+			runMountDir + "/" + checkerInputFileName,
+			runMountDir + "/" + checkerOutputFileName,
+			runMountDir + "/" + checkerAnswerFileName,
+		},
+		Cwd:    runMountDir,
+		Limits: checkerRunLimits(),
+	})
+	if err != nil {
+		return model.VerdictUKE, "", err
+	}
+
+	// Extract message
+	message := strings.TrimSpace(runOut.Stderr)
+	if message == "" {
+		message = strings.TrimSpace(runOut.Stdout)
+	}
+	if message == "" {
+		message = strings.TrimSpace(runOut.ExtraInfo)
+	}
+
+	// Check for sandbox failures
+	switch runOut.Verdict {
+	case sandbox.VerdictTLE, sandbox.VerdictMLE, sandbox.VerdictOLE:
+		return model.VerdictUKE, message, nil
+	}
+
+	// Parse exit code
+	switch runOut.ExitCode {
+	case 0:
+		if runOut.Verdict != sandbox.VerdictOK {
+			return model.VerdictUKE, message, nil
+		}
+		return model.VerdictOK, message, nil
+	case 1, 2:
+		return model.VerdictWA, message, nil
+	default:
+		return model.VerdictUKE, message, nil
+	}
+}
+
+func checkerRunLimits() sandbox.ResourceLimits {
+	return sandbox.ResourceLimits{
+		CPUTimeMs:   checkerCPUTimeLimitMs,
+		WallTimeMs:  checkerCPUTimeLimitMs * sandbox.WallTimeMultiplier,
+		MemoryMB:    checkerMemoryLimitMB,
+		OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+	}
+}
+
 func (s *JudgeEngine) runSingleCase(
 	ctx context.Context,
 	req model.JudgeRequest,
-	compileOut UserCodeCompileOutput,
-	checkerArtifact model.CompiledArtifact,
+	userArtifact *model.CompiledArtifact,
+	checkerArtifact *model.CompiledArtifact,
 	testCase model.JudgeTestCase,
 ) model.JudgeCaseResult {
-	if compileOut.Artifact == nil {
+	if userArtifact == nil {
 		return model.JudgeCaseResult{
 			Name:      testCase.Name,
 			Verdict:   model.VerdictUKE,
@@ -292,13 +570,7 @@ func (s *JudgeEngine) runSingleCase(
 		}
 	}
 
-	runResult, err := s.runner.Execute(ctx, model.ExecuteRequest{
-		Program:     *compileOut.Artifact,
-		Input:       testCase.InputText,
-		Language:    compileOut.RuntimeLanguage,
-		TimeLimit:   req.TimeLimit,
-		MemoryLimit: req.MemoryLimit,
-	})
+	runResult, err := s.executeUserCode(ctx, userArtifact, req.Language, testCase.InputText, req.TimeLimit, req.MemoryLimit)
 	if err != nil {
 		s.log.ErrorContext(ctx, "program execution failed", "testCase", testCase.Name, "error", err)
 		return model.JudgeCaseResult{
@@ -311,16 +583,8 @@ func (s *JudgeEngine) runSingleCase(
 	if runResult.Verdict != model.VerdictOK {
 		return judgeCaseResultFromExecution(testCase.Name, runResult, runResult.Verdict, runResult.ExtraInfo)
 	}
-	if s.checkerRunner == nil {
-		return judgeCaseResultFromExecution(testCase.Name, runResult, model.VerdictUKE, "checker runner is required")
-	}
 
-	checkerResult, err := s.checkerRunner.Run(ctx, CheckerRunRequest{
-		Checker:        checkerArtifact,
-		InputText:      testCase.InputText,
-		ActualOutput:   runResult.Stdout,
-		ExpectedOutput: testCase.ExpectedOutput,
-	})
+	checkerVerdict, checkerMessage, err := s.runChecker(ctx, checkerArtifact, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
 	if err != nil {
 		s.log.ErrorContext(ctx, "checker execution failed", "testCase", testCase.Name, "error", err)
 		return judgeCaseResultFromExecution(
@@ -331,12 +595,17 @@ func (s *JudgeEngine) runSingleCase(
 		)
 	}
 
-	return judgeCaseResultFromExecution(
-		testCase.Name,
-		runResult,
-		checkerResult.Verdict,
-		checkerMessageOrDefault(checkerResult),
-	)
+	message := checkerMessage
+	if message == "" {
+		switch checkerVerdict {
+		case model.VerdictWA:
+			message = "checker reported wrong answer"
+		case model.VerdictUKE:
+			message = "checker reported infrastructure failure"
+		}
+	}
+
+	return judgeCaseResultFromExecution(testCase.Name, runResult, checkerVerdict, message)
 }
 
 func (s *JudgeEngine) unknownJudgeResult(
@@ -361,19 +630,6 @@ func (s *JudgeEngine) unknownJudgeResult(
 	}
 }
 
-func checkerMessageOrDefault(result CheckerRunResult) string {
-	if result.Message != "" {
-		return result.Message
-	}
-	if result.Verdict == model.VerdictWA {
-		return "checker reported wrong answer"
-	}
-	if result.Verdict == model.VerdictUKE {
-		return "checker reported infrastructure failure"
-	}
-	return ""
-}
-
 func judgeCaseResultFromExecution(
 	caseName string,
 	runResult model.ExecuteResult,
@@ -388,61 +644,5 @@ func judgeCaseResultFromExecution(
 		MemoryUsed: runResult.MemoryUsed,
 		ExitCode:   runResult.ExitCode,
 		ExtraInfo:  extraInfo,
-	}
-}
-
-func aggregateJudgeVerdict(cases []model.JudgeCaseResult) model.Verdict {
-	if len(cases) == 0 {
-		return model.VerdictUKE
-	}
-
-	highestRuntime := model.VerdictUnknown
-	hasWA := false
-
-	for _, caseResult := range cases {
-		if isRuntimeVerdict(caseResult.Verdict) {
-			if runtimeSeverity(caseResult.Verdict) > runtimeSeverity(highestRuntime) {
-				highestRuntime = caseResult.Verdict
-			}
-			continue
-		}
-
-		if caseResult.Verdict == model.VerdictWA {
-			hasWA = true
-		}
-	}
-
-	if highestRuntime != model.VerdictUnknown {
-		return highestRuntime
-	}
-	if hasWA {
-		return model.VerdictWA
-	}
-	return model.VerdictOK
-}
-
-func isRuntimeVerdict(verdict model.Verdict) bool {
-	switch verdict {
-	case model.VerdictOLE, model.VerdictMLE, model.VerdictTLE, model.VerdictRE, model.VerdictUKE:
-		return true
-	default:
-		return false
-	}
-}
-
-func runtimeSeverity(verdict model.Verdict) int {
-	switch verdict {
-	case model.VerdictOLE:
-		return 5
-	case model.VerdictMLE:
-		return 4
-	case model.VerdictTLE:
-		return 3
-	case model.VerdictRE:
-		return 2
-	case model.VerdictUKE:
-		return 1
-	default:
-		return 0
 	}
 }

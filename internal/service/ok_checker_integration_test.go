@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-sandbox/internal/cache"
 	"afterglow-judge-sandbox/internal/model"
 	"afterglow-judge-sandbox/internal/sandbox"
 	"afterglow-judge-sandbox/internal/storage"
@@ -28,7 +27,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 
 	for _, tcNum := range testcases {
 		t.Run(fmt.Sprintf("testcase-%d", tcNum), func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 
 			// Locate testcase directory
 			testcaseDir := testdataPath(t, "ok-and-checker-cases", fmt.Sprintf("testcase-%d", tcNum))
@@ -38,49 +37,30 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			sourceCode := readTestdata(t, "ok-and-checker-cases", fmt.Sprintf("testcase-%d", tcNum), filepath.Base(sourcePath))
 
 			// Compile user program
-			compiler := newCompilerForTest(t)
-			compileReq := UserCodeCompileRequest{
-				Language:   lang,
-				SourceCode: sourceCode,
-			}
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, compileReq)
-
-			require.True(t, compileOut.Result.Succeeded, "compilation failed: %s", compileOut.Result.Log)
+			artifact, result := compileProgram(t, env, lang, sourceCode)
+			require.True(t, result.Succeeded, "compilation failed: %s", result.Log)
 
 			// Read test data
 			inputData := readTestdata(t, "ok-and-checker-cases", fmt.Sprintf("testcase-%d", tcNum), "data.in")
 			expectedOutput := readTestdata(t, "ok-and-checker-cases", fmt.Sprintf("testcase-%d", tcNum), "data.out")
 
 			// Execute user program
-			runner := newRunnerForTest(t)
-			execReq := model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       inputData,
-				Language:    lang,
-				TimeLimit:   2000,
-				MemoryLimit: 256,
-			}
-			execResult, err := runner.Execute(ctx, execReq)
-			require.NoError(t, err)
-			require.Equal(t, model.VerdictOK, execResult.Verdict, "execution failed: %v", execResult.Verdict)
+			runOut := runUserProgram(t, env, artifact, lang, inputData, 2000, 256)
+			require.Equal(t, sandbox.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
 			// Compile checker
 			checkerName := checkerNameMap[tcNum]
-			checker := compileCheckerForTestOK(ctx, t, checkerName)
+			checker := compileCheckerForTestOK(env.ctx, t, checkerName)
 
 			// Run checker
 			checkerRunner := newCheckerRunnerForTestOK(t)
 			checkerReq := CheckerRunRequest{
 				Checker:        checker,
 				InputText:      inputData,
-				ActualOutput:   execResult.Stdout,
+				ActualOutput:   runOut.Stdout,
 				ExpectedOutput: expectedOutput,
 			}
-			checkerResult, err := checkerRunner.Run(ctx, checkerReq)
+			checkerResult, err := checkerRunner.Run(env.ctx, checkerReq)
 			require.NoError(t, err)
 
 			// Assert expected verdict
@@ -128,10 +108,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compileCache, err := cache.New(100)
-	require.NoError(t, err)
-
-	compiler := NewCheckerCompiler(NewCachedCompiler(NewCompiler(sb), compileCache))
+	compiler := NewCheckerCompiler(NewCompiler(sb))
 
 	compileReq := CheckerCompileRequest{
 		SourceCode: checkerSource,

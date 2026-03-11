@@ -8,25 +8,49 @@ import (
 	"testing"
 
 	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-sandbox/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// fakeCompiler supports sequential compile results.
+// If compileResults is set, each call returns the next result in order.
+// Otherwise, it returns the single artifact/result/err.
 type fakeCompiler struct {
-	output UserCodeCompileOutput
-	err    error
+	artifact       *model.CompiledArtifact
+	result         model.CompileResult
+	err            error
+	compileResults []CompileOutput
+	calls          int
 }
 
-func (c *fakeCompiler) Compile(_ context.Context, _ UserCodeCompileRequest) (UserCodeCompileOutput, error) {
-	return c.output, c.err
+func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+	if c.err != nil {
+		return CompileOutput{}, c.err
+	}
+	if len(c.compileResults) > 0 {
+		idx := c.calls
+		if idx >= len(c.compileResults) {
+			idx = len(c.compileResults) - 1
+		}
+		c.calls++
+		return c.compileResults[idx], nil
+	}
+	c.calls++
+	return CompileOutput{
+		Result:   c.result,
+		Artifact: c.artifact,
+	}, nil
 }
 
+// fakeRunner supports sequential run results.
+// For JudgeEngine tests, calls alternate: user execution, checker execution, user execution, checker execution...
 type fakeRunner struct {
 	preflightErr error
-	executeErr   error
-	result       model.ExecuteResult
-	results      []model.ExecuteResult
+	runErr       error
+	runResult    RunResult
+	runResults   []RunResult
 	calls        int
 }
 
@@ -34,54 +58,20 @@ func (r *fakeRunner) PreflightCheck(_ context.Context) error {
 	return r.preflightErr
 }
 
-func (r *fakeRunner) Execute(_ context.Context, _ model.ExecuteRequest) (model.ExecuteResult, error) {
-	if r.executeErr != nil {
-		return model.ExecuteResult{}, r.executeErr
+func (r *fakeRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
+	if r.runErr != nil {
+		return RunResult{}, r.runErr
 	}
-	if len(r.results) == 0 {
-		return r.result, nil
-	}
-
-	idx := r.calls
-	if idx >= len(r.results) {
-		idx = len(r.results) - 1
+	if len(r.runResults) > 0 {
+		idx := r.calls
+		if idx >= len(r.runResults) {
+			idx = len(r.runResults) - 1
+		}
+		r.calls++
+		return r.runResults[idx], nil
 	}
 	r.calls++
-	return r.results[idx], nil
-}
-
-type fakeCheckerCompiler struct {
-	output CheckerCompileOutput
-	err    error
-	calls  int
-}
-
-func (c *fakeCheckerCompiler) Compile(_ context.Context, _ CheckerCompileRequest) (CheckerCompileOutput, error) {
-	c.calls++
-	return c.output, c.err
-}
-
-type fakeCheckerRunner struct {
-	result  CheckerRunResult
-	results []CheckerRunResult
-	err     error
-	calls   int
-}
-
-func (r *fakeCheckerRunner) Run(_ context.Context, _ CheckerRunRequest) (CheckerRunResult, error) {
-	r.calls++
-	if r.err != nil {
-		return CheckerRunResult{}, r.err
-	}
-	if len(r.results) == 0 {
-		return r.result, nil
-	}
-
-	idx := r.calls - 1
-	if idx >= len(r.results) {
-		idx = len(r.results) - 1
-	}
-	return r.results[idx], nil
+	return r.runResult, nil
 }
 
 type fakeResourceStore struct {
@@ -115,32 +105,58 @@ func testCompiledArtifact() *model.CompiledArtifact {
 func testCheckerArtifact() *model.CompiledArtifact {
 	return &model.CompiledArtifact{
 		Name: checkerArtifactFileName,
-		Data: []byte("checker"),
+		Data: []byte("checker-binary"),
 		Mode: 0o755,
+	}
+}
+
+// successCompileResults returns compile results for: 1st call = user code success, 2nd call = checker success.
+func successCompileResults() []CompileOutput {
+	return []CompileOutput{
+		{Result: model.CompileResult{Succeeded: true}, Artifact: testCompiledArtifact()},
+		{Result: model.CompileResult{Succeeded: true}, Artifact: testCheckerArtifact()},
+	}
+}
+
+// userOKRunResult returns a RunResult simulating successful user code execution with given stdout.
+func userOKRunResult(stdout string) RunResult {
+	return RunResult{
+		ExitCode: 0,
+		Stdout:   stdout,
+		Verdict:  sandbox.VerdictOK,
+	}
+}
+
+// checkerOKRunResult returns a RunResult simulating checker exit code 0 (accepted).
+func checkerOKRunResult() RunResult {
+	return RunResult{
+		ExitCode: 0,
+		Verdict:  sandbox.VerdictOK,
+		Stderr:   "ok",
+	}
+}
+
+// checkerWARunResult returns a RunResult simulating checker exit code 1 (wrong answer).
+func checkerWARunResult(message string) RunResult {
+	return RunResult{
+		ExitCode: 1,
+		Verdict:  sandbox.VerdictOK,
+		Stderr:   message,
 	}
 }
 
 func newTestJudgeEngine(
 	runner *fakeRunner,
 	compiler *fakeCompiler,
-	checkerCompiler *fakeCheckerCompiler,
-	checkerRunner *fakeCheckerRunner,
 	resources *fakeResourceStore,
 ) *JudgeEngine {
 	if runner == nil {
 		runner = &fakeRunner{}
 	}
 	if compiler == nil {
-		compiler = &fakeCompiler{}
-	}
-	if checkerCompiler == nil {
-		checkerCompiler = &fakeCheckerCompiler{output: CheckerCompileOutput{
-			Result:   model.CompileResult{Succeeded: true},
-			Artifact: testCheckerArtifact(),
-		}}
-	}
-	if checkerRunner == nil {
-		checkerRunner = &fakeCheckerRunner{}
+		compiler = &fakeCompiler{
+			compileResults: successCompileResults(),
+		}
 	}
 	if resources == nil {
 		resources = &fakeResourceStore{files: map[string][]byte{
@@ -153,161 +169,108 @@ func newTestJudgeEngine(
 		panic(err)
 	}
 
-	return NewJudgeEngine(runner, compiler, checkerCompiler, checkerRunner, resources, nil, checkerPolicy)
+	return NewJudgeEngine(compiler, runner, resources, nil, checkerPolicy, nil)
 }
 
-func successfulCompileOutput(language model.Language) UserCodeCompileOutput {
-	return UserCodeCompileOutput{
-		Result:          model.CompileResult{Succeeded: true},
-		Artifact:        testCompiledArtifact(),
-		RuntimeLanguage: language,
+func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
+	if len(testCases) == 0 {
+		testCases = []model.JudgeTestCase{{Name: "case1", InputText: "", ExpectedOutput: ""}}
+	}
+	return model.JudgeRequest{
+		SourceCode:  "code",
+		Language:    model.LanguageCPP,
+		TimeLimit:   1000,
+		MemoryLimit: 128,
+		TestCases:   testCases,
 	}
 }
 
 func TestJudgeEngine_CompileError(t *testing.T) {
-	checkerCompiler := &fakeCheckerCompiler{output: CheckerCompileOutput{
-		Result:   model.CompileResult{Succeeded: true},
-		Artifact: testCheckerArtifact(),
-	}}
-	engine := newTestJudgeEngine(nil, &fakeCompiler{output: UserCodeCompileOutput{
-		Result: model.CompileResult{Succeeded: false, Log: "compile failed"},
-	}}, checkerCompiler, nil, nil)
-
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "int main(){",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case1", InputText: "", ExpectedOutput: ""},
+	compiler := &fakeCompiler{
+		compileResults: []CompileOutput{
+			// User code compile fails — checker compile should never be called
+			{Result: model.CompileResult{Succeeded: false, Log: "compile failed"}},
 		},
-	})
+	}
+	engine := newTestJudgeEngine(nil, compiler, nil)
+
+	result := engine.Judge(context.Background(), baseJudgeRequest())
 
 	assert.Equal(t, model.VerdictCE, result.Verdict)
 	assert.False(t, result.Compile.Succeeded)
 	assert.Equal(t, "compile failed", result.Compile.Log)
 	assert.Empty(t, result.Cases)
-	assert.Equal(t, 0, checkerCompiler.calls)
+	assert.Equal(t, 1, compiler.calls, "only user code compile should be called")
 	assert.Equal(t, 1, result.TotalCount)
 }
 
 func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
-	checkerRunner := &fakeCheckerRunner{result: CheckerRunResult{
-		Verdict: model.VerdictWA,
-		Message: "1st lines differ - expected: '42', found: '41'",
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("41\n"), // user execution
+		checkerWARunResult("1st lines differ - expected: '42', found: '41'"), // checker
 	}}
-	engine := newTestJudgeEngine(
-		&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "41\n"}},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case1", InputText: "", ExpectedOutput: "42\n"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case1", InputText: "", ExpectedOutput: "42\n"},
+	))
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictWA, result.Cases[0].Verdict)
 	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
 	assert.Equal(t, model.VerdictWA, result.Verdict)
 	assert.Equal(t, 0, result.PassedCount)
-	assert.Equal(t, 1, checkerRunner.calls)
+	assert.Equal(t, 2, runner.calls, "one user run + one checker run")
 }
 
 func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T) {
-	runner := &fakeRunner{results: []model.ExecuteResult{
-		{Verdict: model.VerdictOK, Stdout: "2\n", ExitCode: 0},
-		{Verdict: model.VerdictOK, Stdout: "4\n", ExitCode: 0},
-		{Verdict: model.VerdictOK, Stdout: "6\n", ExitCode: 0},
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("2\n"), checkerOKRunResult(), // case-1: OK
+		userOKRunResult("4\n"), {ExitCode: 0, Verdict: sandbox.VerdictTLE, Stderr: "checker timed out"}, // case-2: checker UKE
+		userOKRunResult("6\n"), checkerOKRunResult(), // case-3: OK
 	}}
-	checkerRunner := &fakeCheckerRunner{results: []CheckerRunResult{
-		{Verdict: model.VerdictOK},
-		{Verdict: model.VerdictUKE, Message: "checker timed out"},
-		{Verdict: model.VerdictOK},
-	}}
-	engine := newTestJudgeEngine(
-		runner,
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1", ExpectedOutput: "2\n"},
-			{Name: "case-2", ExpectedOutput: "4\n"},
-			{Name: "case-3", ExpectedOutput: "6\n"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{Name: "case-2", ExpectedOutput: "4\n"},
+		model.JudgeTestCase{Name: "case-3", ExpectedOutput: "6\n"},
+	))
 
 	require.Len(t, result.Cases, 3)
 	assert.Equal(t, model.VerdictOK, result.Cases[0].Verdict)
 	assert.Equal(t, model.VerdictUKE, result.Cases[1].Verdict)
-	assert.Equal(t, "checker timed out", result.Cases[1].ExtraInfo)
+	assert.Contains(t, result.Cases[1].ExtraInfo, "checker timed out")
 	assert.Equal(t, model.VerdictOK, result.Cases[2].Verdict)
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
 	assert.Equal(t, 2, result.PassedCount)
-	assert.Equal(t, 3, checkerRunner.calls)
 }
 
 func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
-	runner := &fakeRunner{results: []model.ExecuteResult{
-		{Verdict: model.VerdictRE},
-		{Verdict: model.VerdictTLE},
-		{Verdict: model.VerdictMLE},
-		{Verdict: model.VerdictOLE},
+	// All user executions hit runtime errors — checker never runs
+	runner := &fakeRunner{runResults: []RunResult{
+		{Verdict: sandbox.VerdictRE, ExitCode: 1},
+		{Verdict: sandbox.VerdictTLE, ExitCode: 124},
+		{Verdict: sandbox.VerdictMLE, ExitCode: 137},
+		{Verdict: sandbox.VerdictOLE, ExitCode: 1},
 	}}
-	checkerRunner := &fakeCheckerRunner{}
-	engine := newTestJudgeEngine(
-		runner,
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "1"},
-			{Name: "2"},
-			{Name: "3"},
-			{Name: "4"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "1"},
+		model.JudgeTestCase{Name: "2"},
+		model.JudgeTestCase{Name: "3"},
+		model.JudgeTestCase{Name: "4"},
+	))
 
 	assert.Equal(t, model.VerdictOLE, result.Verdict)
-	assert.Equal(t, 0, checkerRunner.calls)
+	assert.Equal(t, 4, runner.calls, "only user runs, no checker runs for runtime errors")
 }
 
 func TestJudgeEngine_CompilerInfraError(t *testing.T) {
-	engine := newTestJudgeEngine(nil, &fakeCompiler{err: errors.New("boom")}, nil, nil, nil)
+	engine := newTestJudgeEngine(nil, &fakeCompiler{err: errors.New("boom")}, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case1"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest())
 
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
 	assert.False(t, result.Compile.Succeeded)
@@ -315,34 +278,18 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 }
 
 func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
-	runner := &fakeRunner{results: []model.ExecuteResult{
-		{Verdict: model.VerdictOK, Stdout: "2\n", ExitCode: 0},
-		{Verdict: model.VerdictOK, Stdout: "4\n", ExitCode: 0},
-		{Verdict: model.VerdictTLE, Stdout: "", ExitCode: 124},
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("2\n"), checkerOKRunResult(), // case-1: OK
+		userOKRunResult("4\n"), checkerWARunResult("2nd lines differ"), // case-2: WA
+		{Verdict: sandbox.VerdictTLE, ExitCode: 124}, // case-3: TLE (no checker)
 	}}
-	checkerRunner := &fakeCheckerRunner{results: []CheckerRunResult{
-		{Verdict: model.VerdictOK},
-		{Verdict: model.VerdictWA, Message: "2nd lines differ"},
-	}}
-	engine := newTestJudgeEngine(
-		runner,
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
-			{Name: "case-2", InputText: "2\n", ExpectedOutput: "8\n"},
-			{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{Name: "case-2", InputText: "2\n", ExpectedOutput: "8\n"},
+		model.JudgeTestCase{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
+	))
 
 	require.Len(t, result.Cases, 3)
 	assert.Equal(t, model.VerdictOK, result.Cases[0].Verdict)
@@ -354,35 +301,18 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 }
 
 func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
-	runner := &fakeRunner{results: []model.ExecuteResult{
-		{Verdict: model.VerdictOK, Stdout: "2\n", ExitCode: 0},
-		{Verdict: model.VerdictOK, Stdout: "4\n", ExitCode: 0},
-		{Verdict: model.VerdictOK, Stdout: "6\n", ExitCode: 0},
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("2\n"), checkerOKRunResult(),
+		userOKRunResult("4\n"), checkerOKRunResult(),
+		userOKRunResult("6\n"), checkerOKRunResult(),
 	}}
-	checkerRunner := &fakeCheckerRunner{results: []CheckerRunResult{
-		{Verdict: model.VerdictOK},
-		{Verdict: model.VerdictOK},
-		{Verdict: model.VerdictOK},
-	}}
-	engine := newTestJudgeEngine(
-		runner,
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
-			{Name: "case-2", InputText: "2\n", ExpectedOutput: "4\n"},
-			{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{Name: "case-2", InputText: "2\n", ExpectedOutput: "4\n"},
+		model.JudgeTestCase{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
+	))
 
 	assert.Equal(t, model.VerdictOK, result.Verdict)
 	assert.Equal(t, 3, result.PassedCount)
@@ -390,7 +320,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 }
 
 func TestJudgeEngine_EmptyTestCases(t *testing.T) {
-	engine := newTestJudgeEngine(nil, nil, nil, nil, nil)
+	engine := newTestJudgeEngine(nil, nil, nil)
 
 	result := engine.Judge(context.Background(), model.JudgeRequest{
 		SourceCode:  "code",
@@ -406,17 +336,10 @@ func TestJudgeEngine_EmptyTestCases(t *testing.T) {
 }
 
 func TestJudgeEngine_SingleTestCase(t *testing.T) {
-	runner := &fakeRunner{result: model.ExecuteResult{
-		Verdict: model.VerdictOK, Stdout: "42\n", ExitCode: 0,
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("42\n"), checkerOKRunResult(),
 	}}
-	checkerRunner := &fakeCheckerRunner{result: CheckerRunResult{Verdict: model.VerdictOK}}
-	engine := newTestJudgeEngine(
-		runner,
-		&fakeCompiler{output: successfulCompileOutput(model.LanguagePython)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), model.JudgeRequest{
 		SourceCode:  "print(42)",
@@ -435,7 +358,7 @@ func TestJudgeEngine_SingleTestCase(t *testing.T) {
 }
 
 func TestJudgeEngine_InvalidRequest(t *testing.T) {
-	engine := newTestJudgeEngine(nil, nil, nil, nil, nil)
+	engine := newTestJudgeEngine(nil, nil, nil)
 
 	tests := []struct {
 		name   string
@@ -499,26 +422,16 @@ func TestJudgeEngine_InvalidRequest(t *testing.T) {
 }
 
 func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
-	engine := newTestJudgeEngine(
-		&fakeRunner{},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		&fakeCheckerCompiler{output: CheckerCompileOutput{
-			Result: model.CompileResult{Succeeded: false, Log: "fatal error: testlib.h missing"},
-		}},
-		nil,
-		nil,
-	)
+	compiler := &fakeCompiler{compileResults: []CompileOutput{
+		{Result: model.CompileResult{Succeeded: true}, Artifact: testCompiledArtifact()},
+		{Result: model.CompileResult{Succeeded: false, Log: "fatal error: testlib.h missing"}},
+	}}
+	engine := newTestJudgeEngine(nil, compiler, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1"},
-			{Name: "case-2"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1"},
+		model.JudgeTestCase{Name: "case-2"},
+	))
 
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
 	assert.True(t, result.Compile.Succeeded)
@@ -528,25 +441,15 @@ func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 }
 
 func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
-	engine := newTestJudgeEngine(
-		&fakeRunner{},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		nil,
-		&fakeResourceStore{files: map[string][]byte{
-			defaultCheckerSourceKey: []byte("checker source"),
-		}},
-	)
+	// Only checker source, no testlib.h — prepareChecker will fail loading testlib.h
+	resources := &fakeResourceStore{files: map[string][]byte{
+		defaultCheckerSourceKey: []byte("checker source"),
+	}}
+	engine := newTestJudgeEngine(nil, nil, resources)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1"},
+	))
 
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
 	assert.True(t, result.Compile.Succeeded)
@@ -559,13 +462,12 @@ func TestJudgeEngine_ValidateCheckerPolicy_RejectsDisallowedChecker(t *testing.T
 	require.NoError(t, err)
 
 	engine := NewJudgeEngine(
-		&fakeRunner{},
 		&fakeCompiler{},
-		&fakeCheckerCompiler{},
-		&fakeCheckerRunner{},
+		&fakeRunner{},
 		&fakeResourceStore{},
 		nil,
 		checkerPolicy,
+		nil,
 	)
 
 	err = engine.ValidateCheckerPolicy(context.Background(), model.JudgeRequest{Checker: "ncmp"})
@@ -579,13 +481,10 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 		"checkers/yesno.cpp":    []byte("yesno checker source"),
 		testlibHeaderKey:        []byte("header"),
 	}}
-	engine := newTestJudgeEngine(
-		&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "YES\n"}},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		&fakeCheckerRunner{result: CheckerRunResult{Verdict: model.VerdictOK}},
-		resources,
-	)
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("YES\n"), checkerOKRunResult(),
+	}}
+	engine := newTestJudgeEngine(runner, nil, resources)
 
 	result := engine.Judge(context.Background(), model.JudgeRequest{
 		SourceCode:  "code",
@@ -604,60 +503,67 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
-	checkerRunner := &fakeCheckerRunner{}
-	engine := newTestJudgeEngine(
-		&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictTLE}},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
+	runner := &fakeRunner{runResults: []RunResult{
+		{Verdict: sandbox.VerdictTLE, ExitCode: 124}, // user TLE — no checker call
+	}}
+	engine := newTestJudgeEngine(runner, nil, nil)
 
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1"},
-		},
-	})
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1"},
+	))
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictTLE, result.Cases[0].Verdict)
-	assert.Equal(t, 0, checkerRunner.calls)
+	assert.Equal(t, 1, runner.calls, "only user run, no checker run")
 }
 
 func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
-	checkerRunner := &fakeCheckerRunner{err: errors.New("sandbox boom")}
-	engine := newTestJudgeEngine(
-		&fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "42\n"}},
-		&fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)},
-		nil,
-		checkerRunner,
-		nil,
-	)
-
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{Name: "case-1", ExpectedOutput: "42\n"},
-			{Name: "case-2", ExpectedOutput: "42\n"},
+	customRunner := &sequentialErrRunner{
+		results: []runCallResult{
+			{result: userOKRunResult("42\n")},
+			{err: errors.New("sandbox boom")},
+			{result: userOKRunResult("42\n")},
+			{err: errors.New("sandbox boom")},
 		},
-	})
+	}
+	engine := newTestJudgeEngine(nil, nil, nil)
+	engine.runner = customRunner
+
+	result := engine.Judge(context.Background(), baseJudgeRequest(
+		model.JudgeTestCase{Name: "case-1", ExpectedOutput: "42\n"},
+		model.JudgeTestCase{Name: "case-2", ExpectedOutput: "42\n"},
+	))
 
 	require.Len(t, result.Cases, 2)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "checker infrastructure error")
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
-	assert.Equal(t, 2, checkerRunner.calls)
+	assert.Equal(t, 4, customRunner.calls)
+}
+
+// sequentialErrRunner allows per-call error control.
+type runCallResult struct {
+	result RunResult
+	err    error
+}
+
+type sequentialErrRunner struct {
+	results []runCallResult
+	calls   int
+}
+
+func (r *sequentialErrRunner) PreflightCheck(_ context.Context) error { return nil }
+
+func (r *sequentialErrRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
+	idx := r.calls
+	if idx >= len(r.results) {
+		idx = len(r.results) - 1
+	}
+	r.calls++
+	return r.results[idx].result, r.results[idx].err
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
-	// Create a fake external storage that returns test data
 	fakeStorage := &fakeExternalStorage{
 		files: map[string][]byte{
 			"test.in":  []byte("input data"),
@@ -665,32 +571,28 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		},
 	}
 
-	runner := &fakeRunner{result: model.ExecuteResult{Verdict: model.VerdictOK, Stdout: "expected output"}}
-	compiler := &fakeCompiler{output: successfulCompileOutput(model.LanguageCPP)}
-	checkerCompiler := &fakeCheckerCompiler{
-		output: CheckerCompileOutput{
-			Result:   model.CompileResult{Succeeded: true},
-			Artifact: &model.CompiledArtifact{Name: "checker", Data: []byte("checker"), Mode: 0o755},
-		},
-	}
-	checkerRunner := &fakeCheckerRunner{result: CheckerRunResult{Verdict: model.VerdictOK}}
-	resources := &fakeResourceStore{files: map[string][]byte{defaultCheckerSourceKey: []byte("checker"), testlibHeaderKey: []byte("header")}}
+	runner := &fakeRunner{runResults: []RunResult{
+		userOKRunResult("expected output"), checkerOKRunResult(),
+		userOKRunResult("expected output"), checkerOKRunResult(),
+	}}
+	compiler := &fakeCompiler{compileResults: successCompileResults()}
+	resources := &fakeResourceStore{files: map[string][]byte{
+		defaultCheckerSourceKey: []byte("checker source"),
+		testlibHeaderKey:        []byte("header"),
+	}}
 
 	checkerPolicy, err := NewCheckerPolicy("default", BuiltinCheckerNames())
 	require.NoError(t, err)
 
 	engine := &JudgeEngine{
-		runner:          runner,
 		compiler:        compiler,
-		checkerCompiler: checkerCompiler,
-		checkerRunner:   checkerRunner,
+		runner:          runner,
 		resources:       resources,
 		externalStorage: fakeStorage,
 		checkerPolicy:   checkerPolicy,
 		log:             slog.Default(),
 	}
 
-	// Create original request with file paths
 	originalReq := model.JudgeRequest{
 		SourceCode:  "code",
 		Language:    model.LanguageCPP,
@@ -705,10 +607,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		},
 	}
 
-	// Call Judge
 	result := engine.Judge(context.Background(), originalReq)
-
-	// Verify result is OK
 	assert.Equal(t, model.VerdictOK, result.Verdict)
 
 	// Verify original request was NOT mutated
@@ -720,10 +619,10 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	// Call Judge again with the same request to verify it still works
 	result2 := engine.Judge(context.Background(), originalReq)
 	assert.Equal(t, model.VerdictOK, result2.Verdict, "Second call should also succeed")
-	assert.Equal(t, 4, fakeStorage.getCalls, "Should load files 4 times (2 files × 2 calls)")
+	assert.Equal(t, 4, fakeStorage.getCalls, "Should load files 4 times (2 files x 2 calls)")
 }
 
-// fakeExternalStorage implements a simple in-memory external storage for testing
+// fakeExternalStorage implements a simple in-memory external storage for testing.
 type fakeExternalStorage struct {
 	files    map[string][]byte
 	getCalls int

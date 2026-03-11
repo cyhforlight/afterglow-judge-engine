@@ -1,10 +1,12 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-sandbox/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,22 +33,33 @@ int main() {
 }
 `
 
-	compileOut := compileProgram(t, env, UserCodeCompileRequest{
-		Language:   model.LanguageC,
-		SourceCode: sourceCode,
-	})
-	require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+	artifact, result := compileProgram(t, env, model.LanguageC, sourceCode)
+	require.True(t, result.Succeeded, "compilation should succeed")
 
-	execResult, err := env.runner.Execute(env.ctx, model.ExecuteRequest{
-		Program:     *compileOut.Artifact,
-		Input:       "10 20\n",
-		Language:    model.LanguageC,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
+	profile, err := ProfileForLanguage(model.LanguageC)
+	require.NoError(t, err)
+
+	containerPath := runMountDir + "/" + profile.Run.ArtifactName
+	runOut, err := env.runner.Run(env.ctx, RunRequest{
+		Files: []RunFile{{
+			Name:    profile.Run.ArtifactName,
+			Content: artifact.Data,
+			Mode:    artifact.Mode,
+		}},
+		ImageRef: profile.Run.ImageRef,
+		Command:  profile.Run.RuntimeCommand(containerPath),
+		Cwd:      runMountDir,
+		Stdin:    strings.NewReader("10 20\n"),
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   1000,
+			WallTimeMs:  1000 * sandbox.WallTimeMultiplier,
+			MemoryMB:    128,
+			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+		},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, model.VerdictOK, execResult.Verdict)
-	assert.Equal(t, 0, execResult.ExitCode)
-	assert.Contains(t, execResult.Stdout, "30")
+	assert.Equal(t, sandbox.VerdictOK, runOut.Verdict)
+	assert.Equal(t, 0, runOut.ExitCode)
+	assert.Contains(t, runOut.Stdout, "30")
 }

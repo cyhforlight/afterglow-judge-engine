@@ -17,8 +17,8 @@ import (
 
 type serviceIntegrationEnv struct {
 	ctx      context.Context
-	compiler UserCodeCompiler
-	runner   UserCodeRunner
+	compiler Compiler
+	runner   Runner
 }
 
 var (
@@ -77,17 +77,16 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 	return ctx
 }
 
-func newCompilerForTest(t *testing.T) UserCodeCompiler {
+func newCompilerForTest(t *testing.T) Compiler {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
-	// User code compiler should not use cache (matches production config)
-	return NewUserCodeCompiler(NewCompiler(sb))
+	return NewCompiler(sb)
 }
 
-func newRunnerForTest(t *testing.T) UserCodeRunner {
+func newRunnerForTest(t *testing.T) Runner {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
-	return NewUserCodeRunner(NewRunner(sb))
+	return NewRunner(sb)
 }
 
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {
@@ -100,12 +99,38 @@ func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegr
 	}
 }
 
-func compileProgram(t *testing.T, env serviceIntegrationEnv, req UserCodeCompileRequest) UserCodeCompileOutput {
+func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language, sourceCode string) (*model.CompiledArtifact, model.CompileResult) {
 	t.Helper()
+
+	profile, err := ProfileForLanguage(lang)
+	require.NoError(t, err)
+
+	req := CompileRequest{
+		Files: []CompileFile{{
+			Name:    profile.Compile.SourceFiles[0],
+			Content: []byte(sourceCode),
+			Mode:    0644,
+		}},
+		ImageRef:     profile.Compile.ImageRef,
+		Command:      profile.Compile.BuildCommand(compileMountDir, profile.Compile.SourceFiles),
+		ArtifactName: profile.Compile.ArtifactName,
+		ArtifactMode: profile.Run.FileMode,
+		ArtifactPath: profile.Compile.ArtifactName,
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   profile.Compile.TimeoutMs,
+			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			MemoryMB:    profile.Compile.MemoryMB,
+			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+		},
+	}
+
+	if lang == model.LanguagePython {
+		req.ArtifactLoader = loadPythonBytecodeArtifact(profile.Compile.ArtifactName, profile.Run.FileMode)
+	}
 
 	out, err := env.compiler.Compile(env.ctx, req)
 	require.NoError(t, err)
-	return out
+	return out.Artifact, out.Result
 }
 
 // testdataPath constructs absolute path to testdata files.

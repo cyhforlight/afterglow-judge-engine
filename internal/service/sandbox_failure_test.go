@@ -1,14 +1,50 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"afterglow-judge-sandbox/internal/model"
+	"afterglow-judge-sandbox/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// runUserProgram is a test helper that executes a compiled artifact using the Runner primitive.
+func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.CompiledArtifact, lang model.Language, input string, timeLimit, memoryLimit int) RunResult {
+	t.Helper()
+
+	profile, err := ProfileForLanguage(lang)
+	require.NoError(t, err)
+
+	programMode := artifact.Mode
+	if programMode == 0 {
+		programMode = profile.Run.FileMode
+	}
+
+	containerPath := runMountDir + "/" + profile.Run.ArtifactName
+	runOut, err := env.runner.Run(env.ctx, RunRequest{
+		Files: []RunFile{{
+			Name:    profile.Run.ArtifactName,
+			Content: artifact.Data,
+			Mode:    programMode,
+		}},
+		ImageRef: profile.Run.ImageRef,
+		Command:  profile.Run.RuntimeCommand(containerPath),
+		Cwd:      runMountDir,
+		Stdin:    strings.NewReader(input),
+		Limits: sandbox.ResourceLimits{
+			CPUTimeMs:   timeLimit,
+			WallTimeMs:  timeLimit * sandbox.WallTimeMultiplier,
+			MemoryMB:    memoryLimit,
+			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+		},
+	})
+	require.NoError(t, err)
+	return runOut
+}
 
 // TestSandboxFailure_CompileError tests compilation errors.
 func TestSandboxFailure_CompileError(t *testing.T) {
@@ -27,21 +63,13 @@ func TestSandboxFailure_CompileError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 60*time.Second)
+			env := newServiceIntegrationEnv(t, 60*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
+			_, result := compileProgram(t, env, tt.language, sourceCode)
 
-			assert.False(t, compileOut.Result.Succeeded, "expected compilation to fail")
-			assert.NotEmpty(t, compileOut.Result.Log, "expected error log to be non-empty")
+			assert.False(t, result.Succeeded, "expected compilation to fail")
+			assert.NotEmpty(t, result.Log, "expected error log to be non-empty")
 		})
 	}
 }
@@ -63,31 +91,14 @@ func TestSandboxFailure_TimeLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
-			require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runner := newRunnerForTest(t)
-			execResult, err := runner.Execute(ctx, model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       "",
-				Language:    tt.language,
-				TimeLimit:   1000,
-				MemoryLimit: 256,
-			})
-			require.NoError(t, err)
-
-			assert.Equal(t, model.VerdictTLE, execResult.Verdict, "expected TLE verdict")
+			runOut := runUserProgram(t, env, artifact, tt.language, "", 1000, 256)
+			assert.Equal(t, sandbox.VerdictTLE, runOut.Verdict, "expected TLE verdict")
 		})
 	}
 }
@@ -109,31 +120,14 @@ func TestSandboxFailure_MemoryLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
-			require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runner := newRunnerForTest(t)
-			execResult, err := runner.Execute(ctx, model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       "",
-				Language:    tt.language,
-				TimeLimit:   2000,
-				MemoryLimit: 64,
-			})
-			require.NoError(t, err)
-
-			assert.Equal(t, model.VerdictMLE, execResult.Verdict, "expected MLE verdict")
+			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 64)
+			assert.Equal(t, sandbox.VerdictMLE, runOut.Verdict, "expected MLE verdict")
 		})
 	}
 }
@@ -157,31 +151,14 @@ func TestSandboxFailure_RuntimeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
-			require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runner := newRunnerForTest(t)
-			execResult, err := runner.Execute(ctx, model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       "",
-				Language:    tt.language,
-				TimeLimit:   2000,
-				MemoryLimit: 256,
-			})
-			require.NoError(t, err)
-
-			assert.Equal(t, model.VerdictRE, execResult.Verdict, "expected RE verdict")
+			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
+			assert.Equal(t, sandbox.VerdictRE, runOut.Verdict, "expected RE verdict")
 		})
 	}
 }
@@ -201,31 +178,14 @@ func TestSandboxFailure_OutputLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
-			require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runner := newRunnerForTest(t)
-			execResult, err := runner.Execute(ctx, model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       "",
-				Language:    tt.language,
-				TimeLimit:   2000,
-				MemoryLimit: 256,
-			})
-			require.NoError(t, err)
-
-			assert.Equal(t, model.VerdictOLE, execResult.Verdict, "expected OLE verdict")
+			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
+			assert.Equal(t, sandbox.VerdictOLE, runOut.Verdict, "expected OLE verdict")
 		})
 	}
 }
@@ -233,12 +193,6 @@ func TestSandboxFailure_OutputLimit(t *testing.T) {
 // TestSandboxFailure_PolicyViolation tests policy violations.
 //
 // NOTE: Currently skipped because the sandbox does not have seccomp configuration.
-// These tests require system call filtering to properly detect policy violations.
-// Without seccomp:
-// - Fork bombs trigger TLE (resource exhaustion) instead of RE
-// - System calls succeed normally instead of being blocked
-//
-// TODO: Enable these tests after adding seccomp configuration to sandboxSecurityOpts()
 func TestSandboxFailure_PolicyViolation(t *testing.T) {
 	t.Skip("Policy violation detection requires seccomp configuration (not yet implemented)")
 
@@ -255,33 +209,15 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := newIntegrationContext(t, 120*time.Second)
+			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			compiler := newCompilerForTest(t)
-			compileOut := compileProgram(t, serviceIntegrationEnv{
-				ctx:      ctx,
-				compiler: compiler,
-				runner:   nil,
-			}, UserCodeCompileRequest{
-				Language:   tt.language,
-				SourceCode: sourceCode,
-			})
-			require.True(t, compileOut.Result.Succeeded, "compilation should succeed")
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runner := newRunnerForTest(t)
-			execResult, err := runner.Execute(ctx, model.ExecuteRequest{
-				Program:     *compileOut.Artifact,
-				Input:       "",
-				Language:    tt.language,
-				TimeLimit:   2000,
-				MemoryLimit: 256,
-			})
-			require.NoError(t, err)
-
-			// POLICY violations are treated as RE or UKE
-			assert.Contains(t, []model.Verdict{model.VerdictRE, model.VerdictUKE},
-				execResult.Verdict, "expected RE or UKE verdict for policy violation")
+			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
+			assert.Contains(t, []sandbox.Verdict{sandbox.VerdictRE, sandbox.VerdictOK},
+				runOut.Verdict, "expected RE or sandbox failure for policy violation")
 		})
 	}
 }

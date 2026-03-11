@@ -174,15 +174,6 @@ func (r *checkerRunner) Run(ctx context.Context, req CheckerRunRequest) (Checker
 	return convertCheckerRunResult(runOut), nil
 }
 
-func checkerRunLimits() sandbox.ResourceLimits {
-	return sandbox.ResourceLimits{
-		CPUTimeMs:   checkerCPUTimeLimitMs,
-		WallTimeMs:  checkerCPUTimeLimitMs * sandbox.WallTimeMultiplier,
-		MemoryMB:    checkerMemoryLimitMB,
-		OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
-	}
-}
-
 func convertCheckerRunResult(runOut RunResult) CheckerRunResult {
 	message := strings.TrimSpace(runOut.Stderr)
 	if message == "" {
