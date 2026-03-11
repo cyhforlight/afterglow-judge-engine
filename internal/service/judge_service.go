@@ -88,7 +88,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	for i := range req.TestCases {
 		if err := s.loadTestCaseData(ctx, &req.TestCases[i]); err != nil {
 			s.log.ErrorContext(ctx, "failed to load test case data",
-				"testCase", req.TestCases[i].Name, "error", err)
+				"index", i, "error", err)
 			return failedBeforeRun(req.TestCases, fmt.Sprintf("test data loading failed: %v", err))
 		}
 	}
@@ -135,8 +135,8 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	caseResults := make([]model.JudgeCaseResult, 0, len(req.TestCases))
 	passedCount := 0
 
-	for _, testCase := range req.TestCases {
-		caseResult := s.runSingleCase(ctx, req, compileOut, checkerArtifact, testCase)
+	for i, testCase := range req.TestCases {
+		caseResult := s.runSingleCase(ctx, req, compileOut, checkerArtifact, testCase, i)
 		if caseResult.Verdict == model.VerdictOK {
 			passedCount++
 		}
@@ -532,10 +532,10 @@ func (s *JudgeEngine) runSingleCase(
 	userArtifact *model.CompiledArtifact,
 	checkerArtifact *model.CompiledArtifact,
 	testCase model.JudgeTestCase,
+	index int,
 ) model.JudgeCaseResult {
 	if userArtifact == nil {
 		return model.JudgeCaseResult{
-			Name:      testCase.Name,
 			Verdict:   model.VerdictUKE,
 			ExtraInfo: "compiled artifact is missing",
 		}
@@ -543,23 +543,21 @@ func (s *JudgeEngine) runSingleCase(
 
 	runResult, err := s.executeUserCode(ctx, userArtifact, req.Language, testCase.InputText, req.TimeLimit, req.MemoryLimit)
 	if err != nil {
-		s.log.ErrorContext(ctx, "program execution failed", "testCase", testCase.Name, "error", err)
+		s.log.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
 		return model.JudgeCaseResult{
-			Name:      testCase.Name,
 			Verdict:   model.VerdictUKE,
 			ExtraInfo: fmt.Sprintf("infrastructure error: %v", err),
 		}
 	}
 
 	if runResult.Verdict != model.VerdictOK {
-		return judgeCaseResultFromExecution(testCase.Name, runResult, runResult.Verdict, runResult.ExtraInfo)
+		return judgeCaseResultFromExecution(runResult, runResult.Verdict, runResult.ExtraInfo)
 	}
 
 	checkerVerdict, checkerMessage, err := s.runChecker(ctx, checkerArtifact, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
 	if err != nil {
-		s.log.ErrorContext(ctx, "checker execution failed", "testCase", testCase.Name, "error", err)
+		s.log.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
 		return judgeCaseResultFromExecution(
-			testCase.Name,
 			runResult,
 			model.VerdictUKE,
 			fmt.Sprintf("checker infrastructure error: %v", err),
@@ -576,7 +574,7 @@ func (s *JudgeEngine) runSingleCase(
 		}
 	}
 
-	return judgeCaseResultFromExecution(testCase.Name, runResult, checkerVerdict, message)
+	return judgeCaseResultFromExecution(runResult, checkerVerdict, message)
 }
 
 func (s *JudgeEngine) unknownJudgeResult(
@@ -585,9 +583,8 @@ func (s *JudgeEngine) unknownJudgeResult(
 	message string,
 ) model.JudgeResult {
 	caseResults := make([]model.JudgeCaseResult, 0, len(testCases))
-	for _, testCase := range testCases {
+	for range testCases {
 		caseResults = append(caseResults, model.JudgeCaseResult{
-			Name:      testCase.Name,
 			Verdict:   model.VerdictUKE,
 			ExtraInfo: message,
 		})
@@ -610,13 +607,11 @@ func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeRes
 }
 
 func judgeCaseResultFromExecution(
-	caseName string,
 	runResult model.ExecuteResult,
 	verdict model.Verdict,
 	extraInfo string,
 ) model.JudgeCaseResult {
 	return model.JudgeCaseResult{
-		Name:       caseName,
 		Verdict:    verdict,
 		Stdout:     runResult.Stdout,
 		TimeUsed:   runResult.TimeUsed,

@@ -96,7 +96,6 @@ func (s *fakeResourceStore) Get(_ context.Context, key string) ([]byte, error) {
 
 func testCompiledArtifact() *model.CompiledArtifact {
 	return &model.CompiledArtifact{
-		Name: "program",
 		Data: []byte("binary"),
 		Mode: 0o755,
 	}
@@ -173,7 +172,7 @@ func newTestJudgeEngine(
 
 func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
 	if len(testCases) == 0 {
-		testCases = []model.JudgeTestCase{{Name: "case1", InputText: "", ExpectedOutput: ""}}
+		testCases = []model.JudgeTestCase{{InputText: "", ExpectedOutput: ""}}
 	}
 	return model.JudgeRequest{
 		SourceCode:  "code",
@@ -211,7 +210,7 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case1", InputText: "", ExpectedOutput: "42\n"},
+		model.JudgeTestCase{InputText: "", ExpectedOutput: "42\n"},
 	))
 
 	require.Len(t, result.Cases, 1)
@@ -231,9 +230,9 @@ func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1", ExpectedOutput: "2\n"},
-		model.JudgeTestCase{Name: "case-2", ExpectedOutput: "4\n"},
-		model.JudgeTestCase{Name: "case-3", ExpectedOutput: "6\n"},
+		model.JudgeTestCase{ExpectedOutput: "2\n"},
+		model.JudgeTestCase{ExpectedOutput: "4\n"},
+		model.JudgeTestCase{ExpectedOutput: "6\n"},
 	))
 
 	require.Len(t, result.Cases, 3)
@@ -256,10 +255,10 @@ func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "1"},
-		model.JudgeTestCase{Name: "2"},
-		model.JudgeTestCase{Name: "3"},
-		model.JudgeTestCase{Name: "4"},
+		model.JudgeTestCase{},
+		model.JudgeTestCase{},
+		model.JudgeTestCase{},
+		model.JudgeTestCase{},
 	))
 
 	assert.Equal(t, model.VerdictOLE, result.Verdict)
@@ -285,9 +284,9 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
-		model.JudgeTestCase{Name: "case-2", InputText: "2\n", ExpectedOutput: "8\n"},
-		model.JudgeTestCase{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
+		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "8\n"},
+		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
 	))
 
 	require.Len(t, result.Cases, 3)
@@ -308,9 +307,9 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1", InputText: "1\n", ExpectedOutput: "2\n"},
-		model.JudgeTestCase{Name: "case-2", InputText: "2\n", ExpectedOutput: "4\n"},
-		model.JudgeTestCase{Name: "case-3", InputText: "3\n", ExpectedOutput: "6\n"},
+		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "4\n"},
+		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
 	))
 
 	assert.Equal(t, model.VerdictOK, result.Verdict)
@@ -346,7 +345,7 @@ func TestJudgeEngine_SingleTestCase(t *testing.T) {
 		TimeLimit:   1000,
 		MemoryLimit: 128,
 		TestCases: []model.JudgeTestCase{
-			{Name: "only-case", InputText: "", ExpectedOutput: "42\n"},
+			{InputText: "", ExpectedOutput: "42\n"},
 		},
 	})
 
@@ -371,7 +370,7 @@ func TestJudgeEngine_InvalidRequest(t *testing.T) {
 				Language:    model.LanguagePython,
 				TimeLimit:   1000,
 				MemoryLimit: 128,
-				TestCases:   []model.JudgeTestCase{{Name: "case1"}},
+				TestCases:   []model.JudgeTestCase{{}},
 			},
 			errMsg: "source code is required",
 		},
@@ -382,7 +381,7 @@ func TestJudgeEngine_InvalidRequest(t *testing.T) {
 				Language:    model.LanguageUnknown,
 				TimeLimit:   1000,
 				MemoryLimit: 128,
-				TestCases:   []model.JudgeTestCase{{Name: "case1"}},
+				TestCases:   []model.JudgeTestCase{{}},
 			},
 			errMsg: "language is required",
 		},
@@ -393,7 +392,7 @@ func TestJudgeEngine_InvalidRequest(t *testing.T) {
 				Language:    model.LanguagePython,
 				TimeLimit:   0,
 				MemoryLimit: 128,
-				TestCases:   []model.JudgeTestCase{{Name: "case1"}},
+				TestCases:   []model.JudgeTestCase{{}},
 			},
 			errMsg: "time limit must be positive",
 		},
@@ -404,7 +403,7 @@ func TestJudgeEngine_InvalidRequest(t *testing.T) {
 				Language:    model.LanguagePython,
 				TimeLimit:   1000,
 				MemoryLimit: -1,
-				TestCases:   []model.JudgeTestCase{{Name: "case1"}},
+				TestCases:   []model.JudgeTestCase{{}},
 			},
 			errMsg: "memory limit must be positive",
 		},
@@ -428,8 +427,8 @@ func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 	engine := newTestJudgeEngine(nil, compiler, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1"},
-		model.JudgeTestCase{Name: "case-2"},
+		model.JudgeTestCase{},
+		model.JudgeTestCase{},
 	))
 
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
@@ -447,7 +446,7 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 	engine := newTestJudgeEngine(nil, nil, resources)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1"},
+		model.JudgeTestCase{},
 	))
 
 	assert.Equal(t, model.VerdictUKE, result.Verdict)
@@ -490,7 +489,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 		TimeLimit:   1000,
 		MemoryLimit: 128,
 		TestCases: []model.JudgeTestCase{
-			{Name: "case-1", ExpectedOutput: "YES\n"},
+			{ExpectedOutput: "YES\n"},
 		},
 	})
 
@@ -506,7 +505,7 @@ func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1"},
+		model.JudgeTestCase{},
 	))
 
 	require.Len(t, result.Cases, 1)
@@ -527,8 +526,8 @@ func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
 	engine.runner = customRunner
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{Name: "case-1", ExpectedOutput: "42\n"},
-		model.JudgeTestCase{Name: "case-2", ExpectedOutput: "42\n"},
+		model.JudgeTestCase{ExpectedOutput: "42\n"},
+		model.JudgeTestCase{ExpectedOutput: "42\n"},
 	))
 
 	require.Len(t, result.Cases, 2)
@@ -594,7 +593,6 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		MemoryLimit: 128,
 		TestCases: []model.JudgeTestCase{
 			{
-				Name:               "case-1",
 				InputFile:          "test.in",
 				ExpectedOutputFile: "test.out",
 			},

@@ -250,7 +250,6 @@ func loadProblemTestCases(t *testing.T, problemDir string) []JudgeTestCaseDTO {
 		}
 
 		testCases = append(testCases, JudgeTestCaseDTO{
-			Name:               name,
 			InputFile:          filepath.ToSlash(filepath.Join(problemDir, "data", name+".in")),
 			ExpectedOutputFile: filepath.ToSlash(filepath.Join(problemDir, "data", name+".out")),
 		})
@@ -301,8 +300,7 @@ func assertCaseVerdicts(t *testing.T, expected []e2eVerdictExpectation, actual [
 	t.Helper()
 
 	for i, caseResult := range actual {
-		assert.Equal(t, expected[i].name, caseResult.Name)
 		assert.Contains(t, expected[i].allowed, caseResult.Verdict,
-			"unexpected verdict for %s", caseResult.Name)
+			"case %d verdict mismatch", i)
 	}
 }

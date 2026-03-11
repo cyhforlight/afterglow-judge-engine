@@ -25,7 +25,7 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				TimeLimit:   1000,
 				MemoryLimit: 128,
 				TestCases: []JudgeTestCaseDTO{
-					{Name: "case-1", InputText: "", ExpectedOutputText: "42\n"},
+					{InputText: "", ExpectedOutputText: "42\n"},
 				},
 			},
 		},
@@ -35,7 +35,7 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				Language:    "Python",
 				TimeLimit:   1000,
 				MemoryLimit: 128,
-				TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+				TestCases:   []JudgeTestCaseDTO{{}},
 			},
 			wantErr: true,
 			errMsg:  "sourceCode is required",
@@ -46,7 +46,7 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				SourceCode:  "print(42)",
 				TimeLimit:   1000,
 				MemoryLimit: 128,
-				TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+				TestCases:   []JudgeTestCaseDTO{{}},
 			},
 			wantErr: true,
 			errMsg:  "language is required",
@@ -58,7 +58,7 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				Language:    "Python",
 				TimeLimit:   0,
 				MemoryLimit: 128,
-				TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+				TestCases:   []JudgeTestCaseDTO{{}},
 			},
 			wantErr: true,
 			errMsg:  "timeLimit must be positive",
@@ -84,7 +84,6 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				MemoryLimit: 128,
 				TestCases: []JudgeTestCaseDTO{
 					{
-						Name:               "case-1",
 						InputText:          "test",
 						InputFile:          "file.in",
 						ExpectedOutputText: "42\n",
@@ -103,7 +102,6 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				MemoryLimit: 128,
 				TestCases: []JudgeTestCaseDTO{
 					{
-						Name:               "case-1",
 						InputText:          "test",
 						ExpectedOutputText: "42\n",
 						ExpectedOutputFile: "file.out",
@@ -120,52 +118,10 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 				Language:    "Python",
 				TimeLimit:   1000,
 				MemoryLimit: 0,
-				TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+				TestCases:   []JudgeTestCaseDTO{{}},
 			},
 			wantErr: true,
 			errMsg:  "memoryLimit must be positive",
-		},
-		{
-			name: "multiline test case name",
-			dto: JudgeRequestDTO{
-				SourceCode:  "print(42)",
-				Language:    "Python",
-				TimeLimit:   1000,
-				MemoryLimit: 128,
-				TestCases: []JudgeTestCaseDTO{
-					{Name: "line1\nline2", InputText: "", ExpectedOutputText: "42\n"},
-				},
-			},
-			wantErr: true,
-			errMsg:  "must be single-line",
-		},
-		{
-			name: "test case name with trailing newline",
-			dto: JudgeRequestDTO{
-				SourceCode:  "print(42)",
-				Language:    "Python",
-				TimeLimit:   1000,
-				MemoryLimit: 128,
-				TestCases: []JudgeTestCaseDTO{
-					{Name: "case\n", InputText: "", ExpectedOutputText: "42\n"},
-				},
-			},
-			wantErr: true,
-			errMsg:  "must be single-line",
-		},
-		{
-			name: "test case name with leading newline",
-			dto: JudgeRequestDTO{
-				SourceCode:  "print(42)",
-				Language:    "Python",
-				TimeLimit:   1000,
-				MemoryLimit: 128,
-				TestCases: []JudgeTestCaseDTO{
-					{Name: "\ncase", InputText: "", ExpectedOutputText: "42\n"},
-				},
-			},
-			wantErr: true,
-			errMsg:  "must be single-line",
 		},
 	}
 
@@ -190,8 +146,8 @@ func TestJudgeRequestDTO_ToModel(t *testing.T) {
 		TimeLimit:   1000,
 		MemoryLimit: 128,
 		TestCases: []JudgeTestCaseDTO{
-			{Name: "", InputText: "1\n", ExpectedOutputText: "1\n"},
-			{Name: "case-b", InputText: "2\n", ExpectedOutputText: "2\n"},
+			{InputText: "1\n", ExpectedOutputText: "1\n"},
+			{InputText: "2\n", ExpectedOutputText: "2\n"},
 		},
 	}
 
@@ -201,8 +157,6 @@ func TestJudgeRequestDTO_ToModel(t *testing.T) {
 	assert.Equal(t, model.LanguagePython, got.Language)
 	assert.Equal(t, "ncmp", got.Checker)
 	require.Len(t, got.TestCases, 2)
-	assert.Equal(t, "case-1", got.TestCases[0].Name)
-	assert.Equal(t, "case-b", got.TestCases[1].Name)
 }
 
 func TestJudgeRequestDTO_ToModel_InvalidLanguage(t *testing.T) {
@@ -211,7 +165,7 @@ func TestJudgeRequestDTO_ToModel_InvalidLanguage(t *testing.T) {
 		Language:    "ruby",
 		TimeLimit:   1000,
 		MemoryLimit: 128,
-		TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+		TestCases:   []JudgeTestCaseDTO{{}},
 	}
 
 	_, err := dto.ToModel()
@@ -228,7 +182,6 @@ func TestToJudgeResponse(t *testing.T) {
 		},
 		Cases: []model.JudgeCaseResult{
 			{
-				Name:      "case-1",
 				Verdict:   model.VerdictOK,
 				Stdout:    "42\n",
 				TimeUsed:  10,
@@ -236,7 +189,6 @@ func TestToJudgeResponse(t *testing.T) {
 				ExtraInfo: "",
 			},
 			{
-				Name:      "case-2",
 				Verdict:   model.VerdictWA,
 				Stdout:    "41\n",
 				TimeUsed:  10,

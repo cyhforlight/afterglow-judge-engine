@@ -88,7 +88,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
 	require.NoError(t, err)
 
-	testlibHeader, err := resourceStore.Get(ctx, "testlib.h")
+	_, err = resourceStore.Get(ctx, "testlib.h")
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -98,7 +98,6 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	out, err := compiler.Compile(ctx, CompileRequest{
 		Files: []CompileFile{
 			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
-			{Name: "testlib.h", Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),

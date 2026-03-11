@@ -85,8 +85,8 @@ curl -X POST http://localhost:8080/v1/execute \
     "timeLimit": 1000,
     "memoryLimit": 256,
     "testcases": [
-      {"name": "case-1", "inputText": "21\n", "expectedOutputText": "42\n"},
-      {"name": "case-2", "inputText": "7\n", "expectedOutputText": "14\n"}
+      {"inputText": "21\n", "expectedOutputText": "42\n"},
+      {"inputText": "7\n", "expectedOutputText": "14\n"}
     ]
   }'
 ```
@@ -185,7 +185,6 @@ Authorization: Bearer <token>
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `name` | string | 否 | 测试点名称；为空时自动补成 `case-N` |
 | `inputText` | string | 否 | 直接传入输入文本 |
 | `expectedOutputText` | string | 否 | 直接传入标准输出文本 |
 | `inputFile` | string | 否 | 相对于 `testdata/` 的输入文件路径 |
@@ -209,7 +208,6 @@ Authorization: Bearer <token>
   "checker": "default",
   "testcases": [
     {
-      "name": "sample-1",
       "inputText": "1 2\n",
       "expectedOutputText": "3\n"
     }
@@ -228,7 +226,6 @@ Authorization: Bearer <token>
   "checker": "default",
   "testcases": [
     {
-      "name": "sum1",
       "inputFile": "E2E_cases/P1/data/sum1.in",
       "expectedOutputFile": "E2E_cases/P1/data/sum1.out"
     }
@@ -247,7 +244,6 @@ Authorization: Bearer <token>
   },
   "cases": [
     {
-      "name": "case-1",
       "verdict": "WrongAnswer",
       "stdout": "4\n",
       "timeUsed": 12,

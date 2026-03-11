@@ -75,7 +75,6 @@ func TestCompiler_LoadsArtifactFromWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, out.Result.Succeeded)
 	require.NotNil(t, out.Artifact)
-	assert.Equal(t, "program", out.Artifact.Name)
 	assert.Equal(t, []byte("binary"), out.Artifact.Data)
 }
 

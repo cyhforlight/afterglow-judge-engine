@@ -49,7 +49,6 @@ func TestCompiler_RealCompile(t *testing.T) {
 	require.True(t, out.Result.Succeeded)
 	require.NotNil(t, out.Artifact)
 	assert.NotEmpty(t, out.Artifact.Data)
-	assert.Equal(t, profile.Compile.ArtifactName, out.Artifact.Name)
 }
 
 func TestCompiler_CompilationFailure(t *testing.T) {

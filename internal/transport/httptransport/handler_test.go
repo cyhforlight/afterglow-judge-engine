@@ -55,7 +55,7 @@ func validJudgeRequest() JudgeRequestDTO {
 		TimeLimit:   1000,
 		MemoryLimit: 128,
 		TestCases: []JudgeTestCaseDTO{
-			{Name: "case-1", InputText: "", ExpectedOutputText: "42\n"},
+			{InputText: "", ExpectedOutputText: "42\n"},
 		},
 	}
 }
@@ -86,7 +86,6 @@ func TestHandleExecute_Success(t *testing.T) {
 		Verdict: model.VerdictOK,
 		Compile: model.CompileResult{Succeeded: true, Log: "ok"},
 		Cases: []model.JudgeCaseResult{{
-			Name:      "case-1",
 			Verdict:   model.VerdictOK,
 			Stdout:    "42\n",
 			ExitCode:  0,

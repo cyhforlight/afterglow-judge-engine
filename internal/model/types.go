@@ -119,7 +119,6 @@ type ExecuteResult struct {
 
 // JudgeTestCase represents a single test case for judging.
 type JudgeTestCase struct {
-	Name               string `json:"name"`
 	InputText          string `json:"inputText"`
 	ExpectedOutput     string `json:"expectedOutputText"`
 	InputFile          string `json:"inputFile,omitempty"`
@@ -144,7 +143,6 @@ type CompileResult struct {
 
 // JudgeCaseResult contains one test case execution result.
 type JudgeCaseResult struct {
-	Name       string  `json:"name"`
 	Verdict    Verdict `json:"verdict"`
 	Stdout     string  `json:"stdout"`
 	TimeUsed   int     `json:"timeUsed"`   // milliseconds

@@ -11,7 +11,6 @@ import (
 
 // JudgeTestCaseDTO represents one testcase in HTTP request.
 type JudgeTestCaseDTO struct {
-	Name               string `json:"name"`
 	InputText          string `json:"inputText"`
 	ExpectedOutputText string `json:"expectedOutputText"`
 	InputFile          string `json:"inputFile,omitempty"`
@@ -36,7 +35,6 @@ type CompileResultDTO struct {
 
 // JudgeCaseResultDTO represents one testcase result.
 type JudgeCaseResultDTO struct {
-	Name       string `json:"name"`
 	Verdict    string `json:"verdict"`
 	Stdout     string `json:"stdout"`
 	TimeUsed   int    `json:"timeUsed"`   // milliseconds
@@ -88,7 +86,7 @@ func (dto *JudgeRequestDTO) Validate() error {
 	return nil
 }
 
-// ValidateTestCase checks mutual exclusivity of text vs file fields and name format.
+// ValidateTestCase checks mutual exclusivity of text vs file fields.
 func (tc *JudgeTestCaseDTO) ValidateTestCase(index int) error {
 	hasInputFile := strings.TrimSpace(tc.InputFile) != ""
 	hasOutputFile := strings.TrimSpace(tc.ExpectedOutputFile) != ""
@@ -99,11 +97,6 @@ func (tc *JudgeTestCaseDTO) ValidateTestCase(index int) error {
 	}
 	if hasOutputFile && tc.ExpectedOutputText != "" {
 		return fmt.Errorf("testcases[%d]: cannot provide both expectedOutputText and expectedOutputFile", index)
-	}
-
-	// Validate name format: reject any newlines (including leading/trailing)
-	if strings.TrimSpace(tc.Name) != "" && strings.ContainsRune(tc.Name, '\n') {
-		return fmt.Errorf("testcases[%d].name must be single-line", index)
 	}
 
 	return nil
@@ -117,13 +110,8 @@ func (dto *JudgeRequestDTO) ToModel() (model.JudgeRequest, error) {
 	}
 
 	testCases := make([]model.JudgeTestCase, 0, len(dto.TestCases))
-	for idx, testCase := range dto.TestCases {
-		name := strings.TrimSpace(testCase.Name)
-		if name == "" {
-			name = fmt.Sprintf("case-%d", idx+1)
-		}
+	for _, testCase := range dto.TestCases {
 		testCases = append(testCases, model.JudgeTestCase{
-			Name:               name,
 			InputText:          testCase.InputText,
 			ExpectedOutput:     testCase.ExpectedOutputText,
 			InputFile:          strings.TrimSpace(testCase.InputFile),
@@ -146,7 +134,6 @@ func ToJudgeResponse(result model.JudgeResult) JudgeResponseDTO {
 	cases := make([]JudgeCaseResultDTO, 0, len(result.Cases))
 	for _, caseResult := range result.Cases {
 		cases = append(cases, JudgeCaseResultDTO{
-			Name:       caseResult.Name,
 			Verdict:    caseResult.Verdict.String(),
 			Stdout:     caseResult.Stdout,
 			TimeUsed:   caseResult.TimeUsed,
