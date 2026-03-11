@@ -1,45 +1,119 @@
 # 项目开发指南
 
-> 本项目是一个学习型代码评测沙箱系统，作者具有算法竞赛背景和扎实的计算机基础，但工程经验有限。因此项目追求架构简洁、代码优雅、遵循主流最佳实践，不考虑旧技术栈兼容性。
+## 1. 项目身份与开发上下文
 
-## 权限问题
+### 项目定位
 
-所有任务都拥有最高权限，可以直接 sudo 运行。
+本项目是一个**学习型代码评测沙箱系统**，定位为大型 OJ、命题系统或训练平台中的内部评测微服务，而非公网开放平台。
 
-## 技术栈
+核心目标：
+- 作为 Go 语言工程实践的学习和训练项目
+- **架构的优雅、美观、整洁，码风的明了优雅，与功能实现同等重要**
+- **代码应易读、易学习**：让他人（包括未来的自己）能快速理解设计意图和实现细节
+- 追求主流最佳实践，不考虑旧技术栈兼容性
 
-- **Go 版本**：1.22+（使用现代语法特性）
-- **运行环境**：Ubuntu 22.04 / Debian 12 或更新版本
-- **代码质量工具**：golangci-lint
-- **测试框架**：标准库 testing + testify/assert
+### 开发约束
 
-## 核心原则
+- **开发者背景**：算法竞赛背景，计算机基础和算法能力良好，但缺乏工程开发经验
+- **优先可读性和可维护性**：学习项目，不是生产系统
+- **所有任务拥有最高权限**：可以直接 sudo 运行
 
-### 1. 语义优先
+## 2. 核心价值观与设计哲学
 
-**让代码"读起来就是它做的事"**。优先选择语义最直白的写法，而不是仅仅追求"lint 通过"。代码应该让 Go 新手也能轻松理解，无需额外的心智负担。
+### 2.1 第一性原理：拒绝为了抽象而抽象
 
-### 2. 架构简洁
+- 拆除所有不必要的脚手架，回归业务需求的本质
+- 所有的代码都必须有其存在的绝对理由
+- 贯彻 YAGNI (You Aren't Gonna Need It) 原则
 
-- 清晰的模块划分（cmd/internal 标准布局）
-- 依赖方向单向（transport → service → model）
-- 接口抽象适度（便于测试，但不过度设计）
+### 2.2 工程思维：构建可演进的系统
 
-### 3. 主流最佳实践
+- 关注模块的高内聚低耦合
+- 边界的防御性编程
+- 为了可维护性做出合理的工程折中
+- 重视测试的完整性和诚实性
+- 代码的可读性和架构的清晰度是首要目标
+
+### 2.3 Idiomatic Go：极度克制
+
+- **极简的控制流**：消除不必要的嵌套，保持"视线清晰"（Line of Sight）
+- **直面 Error**：将错误视为一等公民，严禁静默吞咽异常
+- **并发的克制**：Share memory by communicating，避免滥用全局状态和锁
+
+### 2.4 语义优先
+
+让代码"读起来就是它做的事"。优先选择语义最清晰明了的写法，而不是仅仅追求"lint 通过"。
+
+- 代码应该对 Go 初学者友好，避免使用高级技巧和晦涩语法
+- 优先使用基础语法和标准库，而不是炫技式的写法
+- 如果有多种实现方式，选择最容易理解的那种
+- 在算法优雅与代码易读冲突之间进行平衡和兼顾
+
+### 2.5 主流最佳实践
 
 采用 Go 1.22+ 的主流规范写法，但不追逐实验性特性。以"大多数 Go 项目已经在用"为标准。
 
-## 编码规范
+## 3. 技术栈约定
+
+### 语言与运行环境
+
+- **Go 版本**：1.22+（使用现代语法特性）
+- **运行环境**：Ubuntu 22.04 / Debian 12 或更新版本
+
+### 工具链
+
+- **代码质量工具**：golangci-lint（配置见 `.golangci.yml`）
+- **测试框架**：标准库 testing + testify/assert
+- **格式化**：goimports（自动管理 import）
+
+### 现代 Go 特性
+
+优先使用 Go 1.22+ 的现代特性，**避免使用旧模式**。
+
+**审查要点**：
+- ✅ 不仅要用现代特性，还要避免旧模式共存
+- ✅ 代码审查时检查是否有可现代化的旧写法
+- ✅ 优先使用语义清晰的现代 API
+
+## 4. 架构约定
+
+### 分层规则
+
+当前实现采用一条比较克制的分层链路：
+
+- `transport/httptransport`：负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
+- `service`：负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、聚合 verdict
+- `sandbox`：负责通过 containerd 在受限环境中执行编译和运行动作
+- `storage`：负责内部资源和外部文件的只读访问
+- `model`：负责领域对象和枚举类型
+
+### 依赖方向
+
+依赖方向保持单向：
+
+```text
+transport -> service -> model / sandbox / Storage
+```
+
+不能出现反向依赖或循环依赖，保持各模块或层次的低耦合。
+
+### 接口抽象适度
+
+- 便于测试，但不过度设计
+- 不为每个 struct 都定义 interface
+- 只在真正需要多实现或 mock 时才抽象接口
+
+## 5. 编码规范
 
 ### 错误处理
 
 根据**语义**选择对应的方式：
 
-| 场景 | 写法 | 示例 |
-|------|------|------|
-| 静态错误消息 | `errors.New(...)` | `errors.New("missing required flag: --exec")` |
-| 携带动态数据 | `fmt.Errorf("...%d...", val)` | `fmt.Errorf("unsupported language: %q", raw)` |
-| 包装已有错误 | `fmt.Errorf("...%w", err)` | `fmt.Errorf("failed to parse flags: %w", err)` |
+| 场景 | 写法 |
+|------|------|
+| 静态错误消息 | `errors.New(...)` |
+| 携带动态数据 | `fmt.Errorf("...%d...", val)` |
+| 包装已有错误 | `fmt.Errorf("...%w", err)` |
 
 **反例**：不要用 `fmt.Errorf("%s", msg)` 代替 `errors.New(msg)`——语义不清晰。
 
@@ -53,168 +127,69 @@
 
 ### 日志规范
 
-**所有内部代码**使用 `log/slog` 进行结构化日志记录：
+- **所有内部代码**：使用 `log/slog` 进行结构化日志记录
+- **HTTP 响应**：使用 JSON 格式（`json.NewEncoder(w).Encode(response)`）
 
-```go
-// ✅ 推荐（所有内部层）
-slog.InfoContext(ctx, "execution complete",
-    "verdict", result.Verdict.String(),
-    "timeUsed", result.TimeUsed,
-)
-
-// ❌ 避免（所有内部层）
-fmt.Fprintf(os.Stderr, "execution complete: %v\n", result)
-```
-
-**HTTP 响应**使用 JSON 格式：
-
-```go
-// ✅ 推荐（HTTP 传输层）
-json.NewEncoder(w).Encode(response)
-
-// ❌ 避免（HTTP 传输层）
-fmt.Fprintf(w, "result: %v\n", result)
-```
-
-**原则**：
-- 所有内部代码：使用 slog（机器可读、结构化）
-- HTTP 响应：使用 JSON 格式（标准 API 响应）
-
-### 现代 Go 特性
-
-优先使用 Go 1.22+ 的现代特性，**避免使用旧模式**：
-
-| 现代特性 | 替代的旧模式 | 示例 |
-|---------|------------|------|
-| `for range N` | `for i := 0; i < n; i++` | `for range 100 { doSomething() }` |
-| `math/rand/v2` | `math/rand` + `rand.Seed()` | `rand.IntN(n)` 自动加密种子 |
-| 内置 `min`/`max` | 手动 if 比较 | `result := min(a, b)` |
-| `slices.Contains` | 手动 for 循环 | `slices.Contains(slice, value)` |
-| `log/slog` | `log.Printf` | `slog.InfoContext(ctx, "msg", "key", val)` |
-| `os.ReadFile` | `ioutil.ReadFile` | `os.ReadFile(path)` |
-| `clear(map)` | `for k := range m { delete(m, k) }` | `clear(m)` |
-
-**审查要点**：
-- ✅ 不仅要用现代特性，还要避免旧模式共存
-- ✅ 代码审查时检查是否有可现代化的旧写法
-- ✅ 优先使用语义清晰的现代 API
-
-## 测试规范
+## 6. 测试策略
 
 ### 测试风格
 
 1. **表格驱动测试**：使用 `[]struct` 组织测试用例
-2. **testify 断言**：使用 `assert.Equal`、`require.NoError` 等，避免大量 `if got != want`
+2. **testify 断言**：使用 `assert.Equal`、`require.NoError` 等
 3. **测试覆盖率**：核心逻辑应达到 70%+ 覆盖率
 4. **边界测试**：重点测试临界值、零值、负数等边界情况
-
-### 测试示例
-
-```go
-func TestParseLanguage(t *testing.T) {
-    tests := []struct {
-        name    string
-        input   string
-        want    Language
-        wantErr bool
-    }{
-        {"valid C", "C", LanguageC, false},
-        {"valid C++", "C++", LanguageCPP, false},
-        {"invalid", "Ruby", LanguageUnknown, true},
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got, err := ParseLanguage(tt.input)
-            if tt.wantErr {
-                require.Error(t, err)
-                return
-            }
-            require.NoError(t, err)
-            assert.Equal(t, tt.want, got)
-        })
-    }
-}
-```
 
 ### 集成测试与 E2E 策略
 
 - **默认运行全量测试**：本项目是学习项目，优先保证完整性、可读性和行为覆盖。默认测试命令应运行完整测试集，不依赖 `testing.Short()` 跳过集成测试或 E2E 测试。
-- **保留环境前置条件检查**：对于 root 权限、containerd、编译器工具链（如 `gcc`、`g++`、`javac`、`jar`）等真实运行前提，允许在测试中显式 `Skip`。这类 `Skip` 表达的是“环境不具备执行条件”，不是“为了省时间不跑”。
+- **保留环境前置条件检查**：对于 root 权限、containerd、编译器工具链（如 `gcc`、`g++`、`javac`、`jar`）等真实运行前提，允许在测试中显式 `Skip`。这类 `Skip` 表达的是"环境不具备执行条件"，不是"为了省时间不跑"。
 - **区分两类跳过语义**：
   - 不鼓励：`if testing.Short() { t.Skip(...) }`
   - 鼓励：`if !environmentReady { t.Skip(...) }`
 - **测试代码应诚实反映约束**：如果某个测试必须依赖容器、特权或外部二进制，就在测试代码中直接写出前置条件检查，不要隐藏依赖，也不要把环境问题伪装成业务失败。
 
-## 代码质量
+**为什么这样测**：
+- 学习型项目优先完整性，不为了"跑得快"而跳过测试
+- 诚实测试：不隐藏依赖、不伪装失败
+- 真实工程视角：测试应该反映真实的运行约束
 
-### 工具链
+## 7. 质量门禁
 
-- **格式化**：`goimports`（自动管理 import）
-- **Lint**：`golangci-lint run`（配置见 `.golangci.yml`）
-- **测试**：`go test -cover ./...`
+### 最低交付要求
+
+所有代码修改在提交前都应满足：
+
+1. `golangci-lint run` 通过，且不引入新的 lint 问题
+2. 相关测试通过；如果改动影响范围明确且环境允许，优先跑完整测试集
+3. 核心逻辑继续保持足够的测试覆盖，目标仍是 70%+，不能因为重构把关键路径测空
+
+如果因为环境前置条件无法完成某项验证，应在提交说明或沟通中明确写出，而不是省略不提。
 
 ### 提交前检查
 
 ```bash
-# 格式化代码
 goimports -w .
-
-# 运行 lint
 golangci-lint run
-
-# 运行测试
 go test -cover ./...
 ```
 
-## 项目特定约定
+## 8. AI 辅助开发约定
 
-### 资源管理
+本项目默认会使用 AI 工具进行辅助开发，但 AI 只是在加速实现，不应替代工程判断。
 
-使用 cleanup stack 模式确保资源释放：
+### 核心原则
 
-```go
-var cleanups []func()
-succeeded := false
+- AI 是"加速器"，不是"决策者"
+- 所有生成的代码都要回到项目约定和真实需求上重新审视
+- 不接受"看起来像标准模板"但实际脱离项目场景的设计
+- 发现重复抽象、空洞分层或伪通用能力时，应主动收敛
 
-addCleanup := func(fn func()) { cleanups = append(cleanups, fn) }
-defer func() {
-    if !succeeded {
-        for i := len(cleanups) - 1; i >= 0; i-- {
-            cleanups[i]()
-        }
-    }
-}()
+### 识别"AI 臃肿"
 
-// ... 获取资源并 addCleanup ...
+常见特征：
+- 过度抽象：为每个 model 都建 repository，实际只有简单 CRUD
+- 空洞分层：引入 manager/handler/processor 等多层包装，实际逻辑很简单
+- 伪通用能力：设计"可扩展框架"，实际只有一个实现
+- 反向依赖：config 依赖 service、model 依赖 transport 等
 
-succeeded = true
-return resource, rollback, nil
-```
-
-### 常量定义
-
-使用语义化的常量名和注释：
-
-```go
-const (
-    // Wall time is allowed to be this multiple of CPU time limit.
-    // Accounts for I/O waits, scheduling latency, container overhead, etc.
-    wallTimeMultiplier = 3
-
-    // Treat usage >= 99.5% of the limit as hitting memory limit.
-    memoryHitThresholdPermille = 995
-)
-```
-
-### Verdict 优先级
-
-判定优先级：OLE > MLE > TLE > OK > RE
-
-确保在所有代码路径中遵循此优先级。
-
-## 学习资源
-
-- [Effective Go](https://go.dev/doc/effective_go)
-- [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
-- [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
+发现问题时：回到第一性原理，拆除不必要的脚手架，保持依赖方向单向。
