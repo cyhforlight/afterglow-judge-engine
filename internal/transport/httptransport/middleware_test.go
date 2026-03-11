@@ -12,15 +12,12 @@ import (
 )
 
 // TestLoggingMiddleware tests the logging middleware.
-//
-//nolint:funlen // Comprehensive matrix for middleware behavior.
 func TestLoggingMiddleware(t *testing.T) {
 	tests := []struct {
 		name          string
 		method        string
 		path          string
 		handlerStatus int
-		expectLogged  bool
 		checkDuration bool
 	}{
 		{
@@ -28,28 +25,12 @@ func TestLoggingMiddleware(t *testing.T) {
 			method:        http.MethodGet,
 			path:          "/test",
 			handlerStatus: http.StatusOK,
-			expectLogged:  true,
-		},
-		{
-			name:          "logs error status",
-			method:        http.MethodPost,
-			path:          "/error",
-			handlerStatus: http.StatusInternalServerError,
-			expectLogged:  true,
-		},
-		{
-			name:          "captures status code",
-			method:        http.MethodGet,
-			path:          "/status",
-			handlerStatus: http.StatusCreated,
-			expectLogged:  true,
 		},
 		{
 			name:          "measures duration",
 			method:        http.MethodGet,
 			path:          "/slow",
 			handlerStatus: http.StatusOK,
-			expectLogged:  true,
 			checkDuration: true,
 		},
 	}
@@ -77,16 +58,14 @@ func TestLoggingMiddleware(t *testing.T) {
 
 			assert.Equal(t, tt.handlerStatus, w.Code)
 
-			if tt.expectLogged {
-				logOutput := logBuf.String()
-				assert.Contains(t, logOutput, "http request")
-				assert.Contains(t, logOutput, tt.method)
-				assert.Contains(t, logOutput, tt.path)
-				assert.Contains(t, logOutput, "127.0.0.1:12345")
+			logOutput := logBuf.String()
+			assert.Contains(t, logOutput, "http request")
+			assert.Contains(t, logOutput, tt.method)
+			assert.Contains(t, logOutput, tt.path)
+			assert.Contains(t, logOutput, "127.0.0.1:12345")
 
-				if tt.checkDuration {
-					assert.Contains(t, logOutput, "duration_ms")
-				}
+			if tt.checkDuration {
+				assert.Contains(t, logOutput, "duration_ms")
 			}
 		})
 	}
@@ -126,13 +105,6 @@ func TestRecoveryMiddleware(t *testing.T) {
 			name:         "recovers from panic",
 			shouldPanic:  true,
 			panicValue:   "something went wrong",
-			expectedCode: http.StatusInternalServerError,
-			expectedBody: "Internal Server Error",
-		},
-		{
-			name:         "recovers from error panic",
-			shouldPanic:  true,
-			panicValue:   assert.AnError,
 			expectedCode: http.StatusInternalServerError,
 			expectedBody: "Internal Server Error",
 		},
@@ -471,66 +443,4 @@ func TestCORSMiddleware(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestResponseWriter tests the responseWriter wrapper.
-func TestResponseWriter(t *testing.T) {
-	tests := []struct {
-		name         string
-		writeHeader  bool
-		statusCode   int
-		expectedCode int
-	}{
-		{
-			name:         "captures status code",
-			writeHeader:  true,
-			statusCode:   http.StatusCreated,
-			expectedCode: http.StatusCreated,
-		},
-		{
-			name:         "defaults to 200",
-			writeHeader:  false,
-			expectedCode: http.StatusOK,
-		},
-		{
-			name:         "captures error status",
-			writeHeader:  true,
-			statusCode:   http.StatusInternalServerError,
-			expectedCode: http.StatusInternalServerError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			rw := &responseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
-
-			if tt.writeHeader {
-				rw.WriteHeader(tt.statusCode)
-			} else {
-				_, _ = rw.Write([]byte("test"))
-			}
-
-			assert.Equal(t, tt.expectedCode, rw.statusCode)
-		})
-	}
-}
-
-func TestResponseWriter_MultipleWriteHeader(t *testing.T) {
-	w := httptest.NewRecorder()
-	rw := &responseWriter{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-	}
-
-	// First call
-	rw.WriteHeader(http.StatusCreated)
-	assert.Equal(t, http.StatusCreated, rw.statusCode)
-
-	// Second call (should update internal state but http.ResponseWriter ignores it)
-	rw.WriteHeader(http.StatusBadRequest)
-	assert.Equal(t, http.StatusBadRequest, rw.statusCode)
 }

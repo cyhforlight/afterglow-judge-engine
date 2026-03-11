@@ -115,20 +115,30 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 			errMsg:  "cannot provide both expectedOutputText and expectedOutputFile",
 		},
 		{
-			name: "valid with file paths",
+			name: "invalid memory limit",
+			dto: JudgeRequestDTO{
+				SourceCode:  "print(42)",
+				Language:    "Python",
+				TimeLimit:   1000,
+				MemoryLimit: 0,
+				TestCases:   []JudgeTestCaseDTO{{Name: "case-1"}},
+			},
+			wantErr: true,
+			errMsg:  "memoryLimit must be positive",
+		},
+		{
+			name: "multiline test case name",
 			dto: JudgeRequestDTO{
 				SourceCode:  "print(42)",
 				Language:    "Python",
 				TimeLimit:   1000,
 				MemoryLimit: 128,
 				TestCases: []JudgeTestCaseDTO{
-					{
-						Name:               "case-1",
-						InputFile:          "test.in",
-						ExpectedOutputFile: "test.out",
-					},
+					{Name: "line1\nline2", InputText: "", ExpectedOutputText: "42\n"},
 				},
 			},
+			wantErr: true,
+			errMsg:  "must be single-line",
 		},
 	}
 
