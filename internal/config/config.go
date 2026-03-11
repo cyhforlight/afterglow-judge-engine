@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"afterglow-judge-sandbox/internal/service"
 )
 
 // Config holds all server configuration.
@@ -25,9 +23,8 @@ type Config struct {
 	ContainerdNamespace string
 
 	// Execution Limits
-	MaxInputSizeMB  int
-	DefaultChecker  string
-	AllowedCheckers []string // Supports builtin names (e.g., "ncmp") and external checkers (e.g., "external:path/to/checker.cpp", "external:*")
+	MaxInputSizeMB int
+	DefaultChecker string
 
 	// Security
 	EnableAuth     bool
@@ -53,9 +50,8 @@ func Load() *Config {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		MaxInputSizeMB:  getEnvInt("MAX_INPUT_SIZE_MB", 256),
-		DefaultChecker:  getEnv("DEFAULT_CHECKER", "default"),
-		AllowedCheckers: getEnvSlice("ALLOWED_CHECKERS", service.BuiltinCheckerNames()),
+		MaxInputSizeMB: getEnvInt("MAX_INPUT_SIZE_MB", 256),
+		DefaultChecker: getEnv("DEFAULT_CHECKER", "default"),
 
 		// Security
 		EnableAuth:     getEnvBool("ENABLE_AUTH", false),

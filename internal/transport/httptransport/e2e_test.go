@@ -64,10 +64,9 @@ func newE2EHandler(t *testing.T) *Handler {
 
 	baseCompiler := service.NewCompiler(sb)
 	baseRunner := service.NewRunner(sb)
-	checkerPolicy, err := service.NewCheckerPolicy("default", service.BuiltinCheckerNames())
+	judge, err := service.NewJudgeEngine(baseCompiler, baseRunner,
+		internalStorage, externalStorage, "default", compileCache)
 	require.NoError(t, err)
-	judge := service.NewJudgeEngine(baseCompiler, baseRunner,
-		internalStorage, externalStorage, checkerPolicy, compileCache)
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {

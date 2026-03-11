@@ -19,7 +19,7 @@ import (
 // JudgeService handles full judge orchestration.
 type JudgeService interface {
 	PreflightCheck(ctx context.Context) error
-	ValidateCheckerPolicy(ctx context.Context, req model.JudgeRequest) error
+	ValidateChecker(ctx context.Context, req model.JudgeRequest) error
 	Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult
 }
 
@@ -29,7 +29,7 @@ type JudgeEngine struct {
 	runner          Runner
 	resources       ResourceStore
 	externalStorage ResourceStore
-	checkerPolicy   *CheckerPolicy
+	defaultChecker  string
 	cache           *cache.Cache
 	log             *slog.Logger
 }
@@ -40,18 +40,25 @@ func NewJudgeEngine(
 	runner Runner,
 	resources ResourceStore,
 	externalStorage *storage.ExternalStorage,
-	checkerPolicy *CheckerPolicy,
+	defaultChecker string,
 	cache *cache.Cache,
-) *JudgeEngine {
+) (*JudgeEngine, error) {
+	defaultChecker = strings.TrimSpace(defaultChecker)
+	if defaultChecker == "" {
+		defaultChecker = defaultCheckerName
+	}
+	if err := validateCheckerShortName(defaultChecker); err != nil {
+		return nil, fmt.Errorf("default checker: %w", err)
+	}
 	return &JudgeEngine{
 		compiler:        compiler,
 		runner:          runner,
 		resources:       resources,
 		externalStorage: externalStorage,
-		checkerPolicy:   checkerPolicy,
+		defaultChecker:  defaultChecker,
 		cache:           cache,
 		log:             slog.Default(),
-	}
+	}, nil
 }
 
 // PreflightCheck verifies backend runtime readiness.
@@ -59,9 +66,9 @@ func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
 	return s.runner.PreflightCheck(ctx)
 }
 
-// ValidateCheckerPolicy verifies whether the request checker is allowed.
-func (s *JudgeEngine) ValidateCheckerPolicy(_ context.Context, req model.JudgeRequest) error {
-	_, err := s.resolveChecker(req.Checker)
+// ValidateChecker verifies whether the request checker is well-formed.
+func (s *JudgeEngine) ValidateChecker(_ context.Context, req model.JudgeRequest) error {
+	_, err := ResolveChecker(req.Checker, s.defaultChecker)
 	return err
 }
 
@@ -85,8 +92,8 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	// Resolve inside the service as well so direct callers cannot bypass checker policy.
-	checkerLoc, err := s.resolveChecker(req.Checker)
+	// Resolve checker before compilation so direct callers get early validation.
+	checkerLoc, err := ResolveChecker(req.Checker, s.defaultChecker)
 	if err != nil {
 		return failedBeforeRun(req.TestCases, err.Error())
 	}
@@ -193,14 +200,6 @@ func validateJudgeRequest(req model.JudgeRequest) error {
 		return errors.New("at least one testcase is required")
 	}
 	return nil
-}
-
-func (s *JudgeEngine) resolveChecker(raw string) (CheckerLocation, error) {
-	if s.checkerPolicy == nil {
-		return CheckerLocation{}, errors.New("checker policy is required")
-	}
-
-	return s.checkerPolicy.Resolve(raw)
 }
 
 // compileUserCode compiles user source code to a runnable artifact.

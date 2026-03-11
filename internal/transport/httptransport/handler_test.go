@@ -29,7 +29,7 @@ func (m *mockJudgeService) PreflightCheck(_ context.Context) error {
 	return m.preflightErr
 }
 
-func (m *mockJudgeService) ValidateCheckerPolicy(_ context.Context, req model.JudgeRequest) error {
+func (m *mockJudgeService) ValidateChecker(_ context.Context, req model.JudgeRequest) error {
 	m.lastRequest = req
 	return m.validateErr
 }
@@ -160,7 +160,7 @@ func TestHandleExecute_InvalidLanguage(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestHandleExecute_InvalidCheckerPolicy(t *testing.T) {
+func TestHandleExecute_InvalidChecker(t *testing.T) {
 	service := &mockJudgeService{validateErr: errors.New(`checker "ncmp" is not allowed`)}
 	handler := NewHandler(service, slog.Default(), 256)
 

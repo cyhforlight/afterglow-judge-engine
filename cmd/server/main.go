@@ -89,21 +89,18 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	compiler := service.NewCompiler(sb)
 	runner := service.NewRunner(sb)
 
-	// 6. Create checker policy.
-	checkerPolicy, err := service.NewCheckerPolicy(cfg.DefaultChecker, cfg.AllowedCheckers)
-	if err != nil {
-		return nil, fmt.Errorf("initialize checker policy: %w", err)
-	}
-
-	// 7. Create judge engine with internal checker resources.
-	judge := service.NewJudgeEngine(
+	// 6. Create judge engine with internal checker resources.
+	judge, err := service.NewJudgeEngine(
 		compiler,
 		runner,
 		internalStorage,
 		externalStorage,
-		checkerPolicy,
+		cfg.DefaultChecker,
 		compileCache,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize judge engine: %w", err)
+	}
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {

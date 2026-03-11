@@ -164,12 +164,11 @@ func newTestJudgeEngine(
 			testlibHeaderKey:       []byte("header"),
 		}}
 	}
-	checkerPolicy, err := NewCheckerPolicy(defaultCheckerName, BuiltinCheckerNames())
+	engine, err := NewJudgeEngine(compiler, runner, resources, nil, defaultCheckerName, nil)
 	if err != nil {
 		panic(err)
 	}
-
-	return NewJudgeEngine(compiler, runner, resources, nil, checkerPolicy, nil)
+	return engine
 }
 
 func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
@@ -457,22 +456,20 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 	assert.Contains(t, result.Cases[0].ExtraInfo, testlibHeaderKey)
 }
 
-func TestJudgeEngine_ValidateCheckerPolicy_RejectsDisallowedChecker(t *testing.T) {
-	checkerPolicy, err := NewCheckerPolicy(defaultCheckerName, []string{defaultCheckerName})
-	require.NoError(t, err)
-
-	engine := NewJudgeEngine(
+func TestJudgeEngine_ValidateChecker_RejectsInvalidName(t *testing.T) {
+	engine, err := NewJudgeEngine(
 		&fakeCompiler{},
 		&fakeRunner{},
 		&fakeResourceStore{},
 		nil,
-		checkerPolicy,
+		defaultCheckerName,
 		nil,
 	)
+	require.NoError(t, err)
 
-	err = engine.ValidateCheckerPolicy(context.Background(), model.JudgeRequest{Checker: "ncmp"})
+	err = engine.ValidateChecker(context.Background(), model.JudgeRequest{Checker: "NCMP"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `checker "ncmp" is not allowed`)
+	assert.Contains(t, err.Error(), `checker "NCMP" must be a builtin short name`)
 }
 
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
@@ -581,15 +578,12 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		testlibHeaderKey:       []byte("header"),
 	}}
 
-	checkerPolicy, err := NewCheckerPolicy("default", BuiltinCheckerNames())
-	require.NoError(t, err)
-
 	engine := &JudgeEngine{
 		compiler:        compiler,
 		runner:          runner,
 		resources:       resources,
 		externalStorage: fakeStorage,
-		checkerPolicy:   checkerPolicy,
+		defaultChecker:  "default",
 		log:             slog.Default(),
 	}
 
