@@ -75,9 +75,10 @@ func (s *ExternalStorage) Get(_ context.Context, relPath string) ([]byte, error)
 	}
 
 	// Try cache if enabled
+	var cacheKey string
 	if s.cache != nil {
 		// Cache key includes mount point to avoid collisions between instances
-		cacheKey := generateCacheKey(s.mountPoint, normalized, fileInfo.ModTime().Unix())
+		cacheKey = generateCacheKey(s.mountPoint, normalized, fileInfo.ModTime().Unix())
 
 		if data, ok := s.cache.Get(cacheKey); ok {
 			return data, nil
@@ -92,7 +93,6 @@ func (s *ExternalStorage) Get(_ context.Context, relPath string) ([]byte, error)
 
 	// Store in cache if enabled
 	if s.cache != nil {
-		cacheKey := generateCacheKey(s.mountPoint, normalized, fileInfo.ModTime().Unix())
 		s.cache.Set(cacheKey, data)
 	}
 

@@ -101,7 +101,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 			{Name: "testlib.h", Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(compileMountDir, []string{checkerSourceFileName}),
+		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
 		ArtifactName: checkerArtifactFileName,
 		ArtifactMode: profile.Run.FileMode,
 		ArtifactPath: profile.Compile.ArtifactName,

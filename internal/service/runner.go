@@ -107,12 +107,7 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		},
 		Cwd:   &cwd,
 		Stdin: req.Stdin,
-		Limits: sandbox.ResourceLimits{
-			CPUTimeMs:   req.Limits.CPUTimeMs,
-			WallTimeMs:  req.Limits.WallTimeMs,
-			MemoryMB:    req.Limits.MemoryMB,
-			OutputBytes: req.Limits.OutputBytes,
-		},
+		Limits: req.Limits,
 	})
 	if err != nil {
 		return RunResult{}, fmt.Errorf("sandbox execute: %w", err)

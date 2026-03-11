@@ -20,7 +20,7 @@ type CompileConfig struct {
 	ImageRef     string
 	SourceFiles  []string
 	ArtifactName string
-	BuildCommand func(workDir string, sources []string) []string
+	BuildCommand func(sources []string) []string
 	TimeoutMs    int
 	MemoryMB     int
 }
@@ -56,7 +56,7 @@ func cProfile() LanguageProfile {
 			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFiles:  []string{"main.c"},
 			ArtifactName: "program",
-			BuildCommand: func(_ string, sources []string) []string {
+			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 9+len(sources))
 				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
 				for _, src := range sources {
@@ -84,7 +84,7 @@ func cppProfile() LanguageProfile {
 			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFiles:  []string{"main.cpp"},
 			ArtifactName: "program",
-			BuildCommand: func(_ string, sources []string) []string {
+			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 11+len(sources))
 				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
 				for _, src := range sources {
@@ -112,7 +112,7 @@ func javaProfile() LanguageProfile {
 			ImageRef:     "docker.io/library/eclipse-temurin:21-jdk-jammy",
 			SourceFiles:  []string{"Main.java"},
 			ArtifactName: "solution.jar",
-			BuildCommand: func(_ string, _ []string) []string {
+			BuildCommand: func(_ []string) []string {
 				return []string{"sh", "-c",
 					"mkdir -p /work/classes && " +
 						"javac -encoding UTF-8 -d /work/classes /work/Main.java && " +
@@ -138,7 +138,7 @@ func pythonProfile() LanguageProfile {
 			ImageRef:     "docker.io/library/python:3.11-slim-bookworm",
 			SourceFiles:  []string{"solution.py"},
 			ArtifactName: "solution.pyc",
-			BuildCommand: func(_ string, _ []string) []string {
+			BuildCommand: func(_ []string) []string {
 				return []string{"python3", "-m", "py_compile", "/work/solution.py"}
 			},
 			TimeoutMs: 10000,

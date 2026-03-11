@@ -112,7 +112,7 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 			Mode:    0644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(compileMountDir, profile.Compile.SourceFiles),
+		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
 		ArtifactName: profile.Compile.ArtifactName,
 		ArtifactMode: profile.Run.FileMode,
 		ArtifactPath: profile.Compile.ArtifactName,
