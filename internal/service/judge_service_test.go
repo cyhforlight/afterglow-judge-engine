@@ -160,7 +160,7 @@ func newTestJudgeEngine(
 	}
 	if resources == nil {
 		resources = &fakeResourceStore{files: map[string][]byte{
-			defaultCheckerSourceKey: []byte("checker source"),
+			"checkers/default.cpp": []byte("checker source"),
 			testlibHeaderKey:        []byte("header"),
 		}}
 	}
@@ -443,7 +443,7 @@ func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 	// Only checker source, no testlib.h — prepareChecker will fail loading testlib.h
 	resources := &fakeResourceStore{files: map[string][]byte{
-		defaultCheckerSourceKey: []byte("checker source"),
+		"checkers/default.cpp": []byte("checker source"),
 	}}
 	engine := newTestJudgeEngine(nil, nil, resources)
 
@@ -477,7 +477,7 @@ func TestJudgeEngine_ValidateCheckerPolicy_RejectsDisallowedChecker(t *testing.T
 
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	resources := &fakeResourceStore{files: map[string][]byte{
-		defaultCheckerSourceKey: []byte("default checker source"),
+		"checkers/default.cpp": []byte("default checker source"),
 		"checkers/yesno.cpp":    []byte("yesno checker source"),
 		testlibHeaderKey:        []byte("header"),
 	}}
@@ -499,7 +499,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 
 	assert.Equal(t, model.VerdictOK, result.Verdict)
 	assert.Contains(t, resources.keys, "checkers/yesno.cpp")
-	assert.NotContains(t, resources.keys, defaultCheckerSourceKey)
+	assert.NotContains(t, resources.keys, "checkers/default.cpp")
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
@@ -577,7 +577,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	}}
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
 	resources := &fakeResourceStore{files: map[string][]byte{
-		defaultCheckerSourceKey: []byte("checker source"),
+		"checkers/default.cpp": []byte("checker source"),
 		testlibHeaderKey:        []byte("header"),
 	}}
 

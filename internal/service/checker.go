@@ -3,8 +3,7 @@ package service
 import "context"
 
 const (
-	defaultCheckerSourceKey = "checkers/default.cpp"
-	testlibHeaderKey        = "testlib.h"
+	testlibHeaderKey = "testlib.h"
 
 	checkerSourceFileName   = "checker.cpp"
 	checkerArtifactFileName = "checker"
