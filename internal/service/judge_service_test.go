@@ -161,7 +161,7 @@ func newTestJudgeEngine(
 	if resources == nil {
 		resources = &fakeResourceStore{files: map[string][]byte{
 			"checkers/default.cpp": []byte("checker source"),
-			testlibHeaderKey:        []byte("header"),
+			testlibHeaderKey:       []byte("header"),
 		}}
 	}
 	checkerPolicy, err := NewCheckerPolicy(defaultCheckerName, BuiltinCheckerNames())
@@ -478,8 +478,8 @@ func TestJudgeEngine_ValidateCheckerPolicy_RejectsDisallowedChecker(t *testing.T
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	resources := &fakeResourceStore{files: map[string][]byte{
 		"checkers/default.cpp": []byte("default checker source"),
-		"checkers/yesno.cpp":    []byte("yesno checker source"),
-		testlibHeaderKey:        []byte("header"),
+		"checkers/yesno.cpp":   []byte("yesno checker source"),
+		testlibHeaderKey:       []byte("header"),
 	}}
 	runner := &fakeRunner{runResults: []RunResult{
 		userOKRunResult("YES\n"), checkerOKRunResult(),
@@ -578,7 +578,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
 	resources := &fakeResourceStore{files: map[string][]byte{
 		"checkers/default.cpp": []byte("checker source"),
-		testlibHeaderKey:        []byte("header"),
+		testlibHeaderKey:       []byte("header"),
 	}}
 
 	checkerPolicy, err := NewCheckerPolicy("default", BuiltinCheckerNames())

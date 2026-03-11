@@ -105,8 +105,8 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			ContainerPath: runMountDir,
 			ReadOnly:      true,
 		},
-		Cwd:   &cwd,
-		Stdin: req.Stdin,
+		Cwd:    &cwd,
+		Stdin:  req.Stdin,
 		Limits: req.Limits,
 	})
 	if err != nil {

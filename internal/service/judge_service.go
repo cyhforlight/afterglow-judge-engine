@@ -331,8 +331,8 @@ func (s *JudgeEngine) prepareChecker(
 	}
 
 	// Check cache
+	cacheKey := computeCheckerCacheKey(checkerSource)
 	if s.cache != nil {
-		cacheKey := computeCheckerCacheKey(checkerSource)
 		if cached, ok := s.cache.Get(cacheKey); ok {
 			s.log.InfoContext(ctx, "checker cache hit", "key", cacheKey[:16])
 			return &model.CompiledArtifact{
@@ -390,7 +390,6 @@ func (s *JudgeEngine) prepareChecker(
 
 	// Cache successful compilation
 	if s.cache != nil && compileOut.Result.Succeeded && compileOut.Artifact != nil {
-		cacheKey := computeCheckerCacheKey(checkerSource)
 		s.cache.Set(cacheKey, compileOut.Artifact.Data)
 	}
 

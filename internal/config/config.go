@@ -25,10 +25,9 @@ type Config struct {
 	ContainerdNamespace string
 
 	// Execution Limits
-	MaxConcurrentExecutions int
-	MaxInputSizeMB          int
-	DefaultChecker          string
-	AllowedCheckers         []string // Supports builtin names (e.g., "ncmp") and external checkers (e.g., "external:path/to/checker.cpp", "external:*")
+	MaxInputSizeMB  int
+	DefaultChecker  string
+	AllowedCheckers []string // Supports builtin names (e.g., "ncmp") and external checkers (e.g., "external:path/to/checker.cpp", "external:*")
 
 	// Security
 	EnableAuth     bool
@@ -54,10 +53,9 @@ func Load() *Config {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		MaxConcurrentExecutions: getEnvInt("MAX_CONCURRENT_EXECUTIONS", 10),
-		MaxInputSizeMB:          getEnvInt("MAX_INPUT_SIZE_MB", 256),
-		DefaultChecker:          getEnv("DEFAULT_CHECKER", "default"),
-		AllowedCheckers:         getEnvSlice("ALLOWED_CHECKERS", service.BuiltinCheckerNames()),
+		MaxInputSizeMB:  getEnvInt("MAX_INPUT_SIZE_MB", 256),
+		DefaultChecker:  getEnv("DEFAULT_CHECKER", "default"),
+		AllowedCheckers: getEnvSlice("ALLOWED_CHECKERS", service.BuiltinCheckerNames()),
 
 		// Security
 		EnableAuth:     getEnvBool("ENABLE_AUTH", false),

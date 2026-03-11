@@ -35,16 +35,6 @@ func (w *Workspace) WriteFile(name string, content []byte, mode os.FileMode) err
 	return nil
 }
 
-// ReadFile reads a file from the workspace.
-func (w *Workspace) ReadFile(name string) ([]byte, error) {
-	path := filepath.Join(w.dir, name)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read file %q: %w", name, err)
-	}
-	return content, nil
-}
-
 // Cleanup removes the workspace directory and all its contents.
 func (w *Workspace) Cleanup() error {
 	if err := os.RemoveAll(w.dir); err != nil {

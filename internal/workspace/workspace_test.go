@@ -29,7 +29,7 @@ func TestWorkspace_CreateAndCleanup(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestWorkspace_WriteAndReadFile(t *testing.T) {
+func TestWorkspace_WriteFile(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
 	defer func() { _ = ws.Cleanup() }()
@@ -38,16 +38,7 @@ func TestWorkspace_WriteAndReadFile(t *testing.T) {
 	err = ws.WriteFile("test.txt", content, 0644)
 	require.NoError(t, err)
 
-	readContent, err := ws.ReadFile("test.txt")
+	readContent, err := os.ReadFile(ws.Dir() + "/test.txt")
 	require.NoError(t, err)
 	assert.Equal(t, content, readContent)
-}
-
-func TestWorkspace_ReadNonExistentFile(t *testing.T) {
-	ws, err := New()
-	require.NoError(t, err)
-	defer func() { _ = ws.Cleanup() }()
-
-	_, err = ws.ReadFile("nonexistent.txt")
-	assert.Error(t, err)
 }
