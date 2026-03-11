@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 )
@@ -49,11 +48,11 @@ func RecoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// AuthMiddleware validates API keys.
-func AuthMiddleware(logger *slog.Logger, apiKeys []string) func(http.Handler) http.Handler {
+// AuthMiddleware validates API key.
+func AuthMiddleware(logger *slog.Logger, apiKey string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if len(apiKeys) == 0 {
+			if apiKey == "" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -72,7 +71,7 @@ func AuthMiddleware(logger *slog.Logger, apiKeys []string) func(http.Handler) ht
 			}
 
 			// Validate token
-			if !slices.Contains(apiKeys, token) {
+			if token != apiKey {
 				writeErrorResponse(w, logger, http.StatusUnauthorized, "UNAUTHORIZED", "invalid API key")
 				return
 			}

@@ -175,19 +175,19 @@ func TestRecoveryMiddleware_SubsequentRequests(t *testing.T) {
 func TestAuthMiddleware(t *testing.T) {
 	tests := []struct {
 		name          string
-		apiKeys       []string
+		apiKey        string
 		authHeader    string
 		expectedCode  int
 		expectedError ErrorResponseDTO
 	}{
 		{
-			name:         "no api keys allows all requests",
-			apiKeys:      []string{},
+			name:         "no api key allows all requests",
+			apiKey:       "",
 			expectedCode: http.StatusOK,
 		},
 		{
 			name:         "missing auth header returns 401",
-			apiKeys:      []string{"valid-key"},
+			apiKey:       "valid-key",
 			expectedCode: http.StatusUnauthorized,
 			expectedError: ErrorResponseDTO{
 				Error:   http.StatusText(http.StatusUnauthorized),
@@ -197,7 +197,7 @@ func TestAuthMiddleware(t *testing.T) {
 		},
 		{
 			name:         "invalid format returns 401",
-			apiKeys:      []string{"valid-key"},
+			apiKey:       "valid-key",
 			authHeader:   "InvalidFormat token",
 			expectedCode: http.StatusUnauthorized,
 			expectedError: ErrorResponseDTO{
@@ -208,7 +208,7 @@ func TestAuthMiddleware(t *testing.T) {
 		},
 		{
 			name:         "invalid api key returns 401",
-			apiKeys:      []string{"valid-key"},
+			apiKey:       "valid-key",
 			authHeader:   "Bearer invalid-key",
 			expectedCode: http.StatusUnauthorized,
 			expectedError: ErrorResponseDTO{
@@ -219,19 +219,13 @@ func TestAuthMiddleware(t *testing.T) {
 		},
 		{
 			name:         "valid api key allows request",
-			apiKeys:      []string{"valid-key"},
+			apiKey:       "valid-key",
 			authHeader:   "Bearer valid-key",
 			expectedCode: http.StatusOK,
 		},
 		{
-			name:         "multiple valid keys",
-			apiKeys:      []string{"key1", "key2", "key3"},
-			authHeader:   "Bearer key2",
-			expectedCode: http.StatusOK,
-		},
-		{
 			name:         "empty bearer token returns 401",
-			apiKeys:      []string{"valid-key"},
+			apiKey:       "valid-key",
 			authHeader:   "Bearer ",
 			expectedCode: http.StatusUnauthorized,
 			expectedError: ErrorResponseDTO{
@@ -252,7 +246,7 @@ func TestAuthMiddleware(t *testing.T) {
 				_, _ = w.Write([]byte("success"))
 			})
 
-			wrapped := AuthMiddleware(logger, tt.apiKeys)(handler)
+			wrapped := AuthMiddleware(logger, tt.apiKey)(handler)
 
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			if tt.authHeader != "" {

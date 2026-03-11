@@ -43,7 +43,7 @@
   - 直接在请求体中传 `inputText` / `expectedOutputText`
   - 通过 `inputFile` / `expectedOutputFile` 引用外部文件
 - HTTP 边界保护：
-  - Bearer Token 鉴权（仅当配置了 `API_KEYS`）
+  - Bearer Token 鉴权（仅当配置了 `API_KEY`）
   - 请求体大小限制
   - 严格 JSON 解码，拒绝未知字段
 
@@ -91,7 +91,7 @@ curl -X POST http://localhost:8080/v1/execute \
   }'
 ```
 
-如果未配置 `API_KEYS`，则无需 `Authorization` 请求头。
+如果未配置 `API_KEY`，则无需 `Authorization` 请求头。
 
 ## 架构
 
@@ -168,7 +168,7 @@ Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
-只有在配置了 `API_KEYS` 时才会校验 Bearer Token。
+只有在配置了 `API_KEY` 时才会校验 Bearer Token。
 
 请求体字段：
 
@@ -322,7 +322,7 @@ external:relative/path/to/checker.cpp
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |
 | `DEFAULT_CHECKER` | `default` | 未显式指定 `checker` 时使用的默认 checker |
-| `API_KEYS` | 空 | Bearer Token 列表，逗号分隔；非空时自动启用鉴权 |
+| `API_KEY` | 空 | Bearer Token；非空时自动启用鉴权 |
 | `LOG_LEVEL` | `info` | 日志级别；当前支持 `info` 和 `debug` |
 
 ## 开发

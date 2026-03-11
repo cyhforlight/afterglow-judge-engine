@@ -20,7 +20,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, 30*time.Second, cfg.ReadTimeout)
 	assert.Equal(t, "/run/containerd/containerd.sock", cfg.ContainerdSocket)
 	assert.Equal(t, "default", cfg.DefaultChecker)
-	assert.Empty(t, cfg.APIKeys)
+	assert.Empty(t, cfg.APIKey)
 	assert.Equal(t, "info", cfg.LogLevel)
 }
 
@@ -31,7 +31,7 @@ func TestLoad_FromEnv(t *testing.T) {
 	_ = os.Setenv("HTTP_PORT", "9000")
 	_ = os.Setenv("HTTP_READ_TIMEOUT", "1m")
 	_ = os.Setenv("DEFAULT_CHECKER", "ncmp")
-	_ = os.Setenv("API_KEYS", "key1,key2,key3")
+	_ = os.Setenv("API_KEY", "my-secret-key")
 	_ = os.Setenv("LOG_LEVEL", "debug")
 
 	defer clearEnv()
@@ -42,7 +42,7 @@ func TestLoad_FromEnv(t *testing.T) {
 	assert.Equal(t, 9000, cfg.HTTPPort)
 	assert.Equal(t, time.Minute, cfg.ReadTimeout)
 	assert.Equal(t, "ncmp", cfg.DefaultChecker)
-	assert.Equal(t, []string{"key1", "key2", "key3"}, cfg.APIKeys)
+	assert.Equal(t, "my-secret-key", cfg.APIKey)
 	assert.Equal(t, "debug", cfg.LogLevel)
 }
 
@@ -63,7 +63,7 @@ func clearEnv() {
 		"CONTAINERD_SOCKET", "CONTAINERD_NAMESPACE",
 		"MAX_INPUT_SIZE_MB",
 		"DEFAULT_CHECKER",
-		"API_KEYS", "LOG_LEVEL",
+		"API_KEY", "LOG_LEVEL",
 	}
 	for _, v := range envVars {
 		_ = os.Unsetenv(v)

@@ -27,8 +27,8 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 	mux.HandleFunc("GET /health", handler.HandleHealth)
 
 	var finalHandler http.Handler = mux
-	if len(cfg.APIKeys) > 0 {
-		finalHandler = AuthMiddleware(logger, cfg.APIKeys)(finalHandler)
+	if cfg.APIKey != "" {
+		finalHandler = AuthMiddleware(logger, cfg.APIKey)(finalHandler)
 	}
 	finalHandler = LoggingMiddleware(logger)(finalHandler)
 	finalHandler = RecoveryMiddleware(logger)(finalHandler)

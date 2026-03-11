@@ -51,14 +51,14 @@ func TestIntegration_HTTPServer_FullLifecycle(t *testing.T) {
 	}
 }
 
-func TestIntegration_NewServer_UsesAPIKeysForAuth(t *testing.T) {
+func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 	cfg := &config.Config{
 		HTTPAddr:       "localhost",
 		HTTPPort:       8080,
 		ReadTimeout:    5 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxInputSizeMB: 256,
-		APIKeys:        []string{"secret-token"},
+		APIKey:         "secret-token",
 	}
 
 	server := NewServer(cfg, &mockJudgeService{}, slog.Default())

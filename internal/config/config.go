@@ -4,7 +4,6 @@ package config
 import (
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -26,7 +25,7 @@ type Config struct {
 	DefaultChecker string
 
 	// Security
-	APIKeys []string
+	APIKey string
 
 	// Observability
 	LogLevel string
@@ -51,7 +50,7 @@ func Load() *Config {
 		DefaultChecker: getEnv("DEFAULT_CHECKER", "default"),
 
 		// Security
-		APIKeys: getEnvSlice("API_KEYS", []string{}),
+		APIKey: os.Getenv("API_KEY"),
 
 		// Observability
 		LogLevel: getEnv("LOG_LEVEL", "info"),
@@ -81,23 +80,6 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
-		}
-	}
-	return defaultValue
-}
-
-// getEnvSlice retrieves a comma-separated environment variable as a slice.
-func getEnvSlice(key string, defaultValue []string) []string {
-	if value := os.Getenv(key); value != "" {
-		result := make([]string, 0, 8)
-		for item := range strings.SplitSeq(value, ",") {
-			trimmed := strings.TrimSpace(item)
-			if trimmed != "" {
-				result = append(result, trimmed)
-			}
-		}
-		if len(result) > 0 {
-			return result
 		}
 	}
 	return defaultValue
