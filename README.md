@@ -315,9 +315,6 @@ external:relative/path/to/checker.cpp
 |------|--------|------|
 | `HTTP_ADDR` | `0.0.0.0` | HTTP 监听地址 |
 | `HTTP_PORT` | `8080` | HTTP 监听端口 |
-| `HTTP_READ_TIMEOUT` | `30s` | `http.Server` 读超时 |
-| `HTTP_WRITE_TIMEOUT` | `30s` | `http.Server` 写超时 |
-| `HTTP_SHUTDOWN_TIMEOUT` | `10s` | 优雅关闭超时 |
 | `CONTAINERD_SOCKET` | `/run/containerd/containerd.sock` | containerd 套接字 |
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |

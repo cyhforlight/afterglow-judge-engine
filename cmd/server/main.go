@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/config"
@@ -17,6 +18,8 @@ import (
 	"afterglow-judge-engine/internal/storage"
 	"afterglow-judge-engine/internal/transport/httptransport"
 )
+
+const httpShutdownTimeout = 10 * time.Second
 
 func main() {
 	cfg := config.Load()
@@ -129,7 +132,7 @@ func runServer(server *httptransport.Server, cfg *config.Config, logger *slog.Lo
 		logger.Info("received signal", "signal", sig)
 		serverCancel()
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 		defer cancel()
 
 		return server.Stop(shutdownCtx)

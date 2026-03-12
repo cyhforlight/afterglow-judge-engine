@@ -5,9 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"afterglow-judge-engine/internal/config"
 	"afterglow-judge-engine/internal/service"
+)
+
+const (
+	httpReadTimeout  = 30 * time.Second
+	httpWriteTimeout = 30 * time.Second
 )
 
 // Server implements the HTTP transport layer.
@@ -37,8 +43,8 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      finalHandler,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
+		ReadTimeout:  httpReadTimeout,
+		WriteTimeout: httpWriteTimeout,
 	}
 
 	return &Server{

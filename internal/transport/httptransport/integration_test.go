@@ -20,8 +20,6 @@ func TestIntegration_HTTPServer_FullLifecycle(t *testing.T) {
 	cfg := &config.Config{
 		HTTPAddr:       "localhost",
 		HTTPPort:       0,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
 		MaxInputSizeMB: 256,
 	}
 
@@ -55,8 +53,6 @@ func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 	cfg := &config.Config{
 		HTTPAddr:       "localhost",
 		HTTPPort:       8080,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
 		MaxInputSizeMB: 256,
 		APIKey:         "secret-token",
 	}

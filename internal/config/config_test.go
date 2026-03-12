@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -17,7 +16,6 @@ func TestLoad_Defaults(t *testing.T) {
 
 	assert.Equal(t, "0.0.0.0", cfg.HTTPAddr)
 	assert.Equal(t, 8080, cfg.HTTPPort)
-	assert.Equal(t, 30*time.Second, cfg.ReadTimeout)
 	assert.Equal(t, "/run/containerd/containerd.sock", cfg.ContainerdSocket)
 	assert.Equal(t, "default", cfg.DefaultChecker)
 	assert.Empty(t, cfg.APIKey)
@@ -29,7 +27,6 @@ func TestLoad_FromEnv(t *testing.T) {
 
 	_ = os.Setenv("HTTP_ADDR", "127.0.0.1")
 	_ = os.Setenv("HTTP_PORT", "9000")
-	_ = os.Setenv("HTTP_READ_TIMEOUT", "1m")
 	_ = os.Setenv("DEFAULT_CHECKER", "ncmp")
 	_ = os.Setenv("API_KEY", "my-secret-key")
 	_ = os.Setenv("LOG_LEVEL", "debug")
@@ -40,7 +37,6 @@ func TestLoad_FromEnv(t *testing.T) {
 
 	assert.Equal(t, "127.0.0.1", cfg.HTTPAddr)
 	assert.Equal(t, 9000, cfg.HTTPPort)
-	assert.Equal(t, time.Minute, cfg.ReadTimeout)
 	assert.Equal(t, "ncmp", cfg.DefaultChecker)
 	assert.Equal(t, "my-secret-key", cfg.APIKey)
 	assert.Equal(t, "debug", cfg.LogLevel)
@@ -58,8 +54,7 @@ func TestConfig_Addr(t *testing.T) {
 
 func clearEnv() {
 	envVars := []string{
-		"HTTP_ADDR", "HTTP_PORT", "HTTP_READ_TIMEOUT",
-		"HTTP_WRITE_TIMEOUT", "HTTP_SHUTDOWN_TIMEOUT",
+		"HTTP_ADDR", "HTTP_PORT",
 		"CONTAINERD_SOCKET", "CONTAINERD_NAMESPACE",
 		"MAX_INPUT_SIZE_MB",
 		"DEFAULT_CHECKER",

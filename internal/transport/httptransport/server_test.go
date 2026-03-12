@@ -17,8 +17,6 @@ func TestServer_StartStop(t *testing.T) {
 	cfg := &config.Config{
 		HTTPAddr:       "localhost",
 		HTTPPort:       0,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
 		MaxInputSizeMB: 256,
 	}
 
@@ -50,8 +48,6 @@ func TestServer_GracefulShutdown(t *testing.T) {
 	cfg := &config.Config{
 		HTTPAddr:       "localhost",
 		HTTPPort:       0,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
 		MaxInputSizeMB: 256,
 	}
 
