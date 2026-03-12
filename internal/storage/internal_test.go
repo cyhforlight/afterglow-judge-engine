@@ -52,6 +52,22 @@ func TestInternalStorage_Get_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestInternalStorage_Stat(t *testing.T) {
+	tmpDir := t.TempDir()
+	err := os.WriteFile(filepath.Join(tmpDir, "test-resource.txt"), []byte("test resource content"), 0o644)
+	require.NoError(t, err)
+
+	storage, err := NewInternalStorage(tmpDir)
+	require.NoError(t, err)
+
+	err = storage.Stat(context.Background(), "test-resource.txt")
+	require.NoError(t, err)
+
+	err = storage.Stat(context.Background(), "missing.txt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
 func TestInternalStorage_Get_RejectsInvalidKeys(t *testing.T) {
 	tmpDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("ok"), 0o644)

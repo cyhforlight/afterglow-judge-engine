@@ -95,6 +95,24 @@ func TestExternalStorage_Get_DirectoryRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "regular file")
 }
 
+func TestExternalStorage_Stat(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "test.txt")
+	err := os.WriteFile(testFile, []byte("test content"), 0o644)
+	require.NoError(t, err)
+
+	storage, err := NewExternalStorage(tmpDir)
+	require.NoError(t, err)
+
+	err = storage.Stat(context.Background(), "test.txt")
+	require.NoError(t, err)
+
+	err = storage.Stat(context.Background(), "missing.txt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no such file")
+}
+
 func TestExternalStorage_Get_FileNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 

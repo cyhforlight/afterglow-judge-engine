@@ -94,6 +94,17 @@ func (s *fakeResourceStore) Get(_ context.Context, key string) ([]byte, error) {
 	return append([]byte(nil), content...), nil
 }
 
+func (s *fakeResourceStore) Stat(_ context.Context, key string) error {
+	s.keys = append(s.keys, key)
+	if s.err != nil {
+		return s.err
+	}
+	if _, ok := s.files[key]; !ok {
+		return fmt.Errorf("resource not found: %s", key)
+	}
+	return nil
+}
+
 func testCompiledArtifact() *model.CompiledArtifact {
 	return &model.CompiledArtifact{
 		Data: []byte("binary"),
@@ -455,20 +466,86 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 	assert.Contains(t, result.Cases[0].ExtraInfo, testlibHeaderKey)
 }
 
-func TestJudgeEngine_ValidateChecker_RejectsInvalidName(t *testing.T) {
-	engine, err := NewJudgeEngine(
-		&fakeCompiler{},
-		&fakeRunner{},
-		&fakeResourceStore{},
-		nil,
-		defaultCheckerName,
-		nil,
-	)
-	require.NoError(t, err)
+func TestJudgeEngine_ValidateRequest(t *testing.T) {
+	tests := []struct {
+		name            string
+		req             model.JudgeRequest
+		resources       *fakeResourceStore
+		externalStorage ResourceStore
+		wantErr         string
+	}{
+		{
+			name:    "invalid checker name",
+			req:     model.JudgeRequest{Checker: "NCMP"},
+			wantErr: `checker "NCMP" must be a builtin short name`,
+		},
+		{
+			name: "external input requires storage",
+			req: model.JudgeRequest{
+				Checker: "default",
+				TestCases: []model.JudgeTestCase{{
+					InputFile: "cases/1.in",
+				}},
+			},
+			wantErr: `inputFile "cases/1.in" requires external storage`,
+		},
+		{
+			name: "external checker requires storage",
+			req: model.JudgeRequest{
+				Checker: "external:checkers/custom.cpp",
+			},
+			wantErr: `external checker "checkers/custom.cpp" requires external storage`,
+		},
+		{
+			name: "missing external input file",
+			req: model.JudgeRequest{
+				Checker: "default",
+				TestCases: []model.JudgeTestCase{{
+					InputFile: "cases/1.in",
+				}},
+			},
+			externalStorage: &fakeExternalStorage{files: map[string][]byte{}},
+			wantErr:         `testcases[0]: inputFile "cases/1.in" is not available`,
+		},
+		{
+			name: "missing external checker file",
+			req: model.JudgeRequest{
+				Checker: "external:checkers/custom.cpp",
+			},
+			externalStorage: &fakeExternalStorage{files: map[string][]byte{}},
+			wantErr:         `external checker "checkers/custom.cpp" is not available`,
+		},
+		{
+			name: "missing builtin checker dependency",
+			req:  baseJudgeRequest(),
+			resources: &fakeResourceStore{files: map[string][]byte{
+				"checkers/default.cpp": []byte("checker source"),
+			}},
+			wantErr: `checker dependency "testlib.h" is not available`,
+		},
+		{
+			name: "missing external checker dependency",
+			req: model.JudgeRequest{
+				Checker: "external:checkers/custom.cpp",
+			},
+			resources: &fakeResourceStore{files: map[string][]byte{}},
+			externalStorage: &fakeExternalStorage{files: map[string][]byte{
+				"checkers/custom.cpp": []byte("checker source"),
+			}},
+			wantErr: `checker dependency "testlib.h" is not available`,
+		},
+	}
 
-	err = engine.ValidateChecker(context.Background(), model.JudgeRequest{Checker: "NCMP"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `checker "NCMP" must be a builtin short name`)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := newTestJudgeEngine(nil, nil, tt.resources)
+			engine.externalStorage = tt.externalStorage
+
+			err := engine.ValidateRequest(context.Background(), tt.req)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }
 
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
@@ -627,4 +704,11 @@ func (f *fakeExternalStorage) Get(_ context.Context, path string) ([]byte, error
 		return nil, fmt.Errorf("file not found: %s", path)
 	}
 	return data, nil
+}
+
+func (f *fakeExternalStorage) Stat(_ context.Context, path string) error {
+	if _, ok := f.files[path]; !ok {
+		return fmt.Errorf("file not found: %s", path)
+	}
+	return nil
 }

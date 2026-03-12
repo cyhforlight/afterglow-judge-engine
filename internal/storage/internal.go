@@ -63,6 +63,20 @@ func (s *InternalStorage) Get(_ context.Context, key string) ([]byte, error) {
 	return bytes.Clone(data), nil
 }
 
+// Stat verifies that a resource key exists in the in-memory snapshot.
+func (s *InternalStorage) Stat(_ context.Context, key string) error {
+	normalizedKey, err := NormalizeResourceKey(key)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := s.files[normalizedKey]; !ok {
+		return fmt.Errorf("resource not found: %s", normalizedKey)
+	}
+
+	return nil
+}
+
 func loadSnapshot(baseDir string) (map[string][]byte, error) {
 	info, err := os.Stat(baseDir)
 	if err != nil {

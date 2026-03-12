@@ -29,7 +29,7 @@ func (m *mockJudgeService) PreflightCheck(_ context.Context) error {
 	return m.preflightErr
 }
 
-func (m *mockJudgeService) ValidateChecker(_ context.Context, req model.JudgeRequest) error {
+func (m *mockJudgeService) ValidateRequest(_ context.Context, req model.JudgeRequest) error {
 	m.lastRequest = req
 	return m.validateErr
 }
@@ -177,6 +177,31 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)
+}
+
+func TestHandleExecute_MissingExternalDependency(t *testing.T) {
+	judge := &mockJudgeService{
+		validateErr: errors.New(`testcases[0]: inputFile "cases/1.in" requires external storage`),
+	}
+	handler := NewHandler(judge, slog.Default(), 256)
+
+	dto := validJudgeRequest()
+	dto.TestCases = []JudgeTestCaseDTO{{
+		InputFile:          "cases/1.in",
+		ExpectedOutputText: "42\n",
+	}}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	w := httptest.NewRecorder()
+	handler.HandleExecute(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp ErrorResponseDTO
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "INVALID_REQUEST", resp.Code)
+	assert.Contains(t, resp.Details, `inputFile "cases/1.in" requires external storage`)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {

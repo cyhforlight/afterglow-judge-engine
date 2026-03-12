@@ -54,7 +54,7 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
-	if err := h.judge.ValidateChecker(ctx, judgeRequest); err != nil {
+	if err := h.judge.ValidateRequest(ctx, judgeRequest); err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}

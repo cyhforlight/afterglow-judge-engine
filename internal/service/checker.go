@@ -29,6 +29,7 @@ const (
 // ResourceStore provides read-only access to internal checker resources.
 type ResourceStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
+	Stat(ctx context.Context, key string) error
 }
 
 // CheckerLocation describes where a checker is stored.

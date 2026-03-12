@@ -19,7 +19,7 @@ import (
 // JudgeService handles full judge orchestration.
 type JudgeService interface {
 	PreflightCheck(ctx context.Context) error
-	ValidateChecker(ctx context.Context, req model.JudgeRequest) error
+	ValidateRequest(ctx context.Context, req model.JudgeRequest) error
 	Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult
 }
 
@@ -50,11 +50,15 @@ func NewJudgeEngine(
 	if err := validateCheckerShortName(defaultChecker); err != nil {
 		return nil, fmt.Errorf("default checker: %w", err)
 	}
+	var externalResourceStore ResourceStore
+	if externalStorage != nil {
+		externalResourceStore = externalStorage
+	}
 	return &JudgeEngine{
 		compiler:        compiler,
 		runner:          runner,
 		resources:       resources,
-		externalStorage: externalStorage,
+		externalStorage: externalResourceStore,
 		defaultChecker:  defaultChecker,
 		cache:           cache,
 		log:             slog.Default(),
@@ -66,10 +70,67 @@ func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
 	return s.runner.PreflightCheck(ctx)
 }
 
-// ValidateChecker verifies whether the request checker is well-formed.
-func (s *JudgeEngine) ValidateChecker(_ context.Context, req model.JudgeRequest) error {
-	_, err := ResolveChecker(req.Checker, s.defaultChecker)
-	return err
+// ValidateRequest verifies whether the request can be handled by the judge.
+func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeRequest) error {
+	checkerLoc, err := ResolveChecker(req.Checker, s.defaultChecker)
+	if err != nil {
+		return err
+	}
+
+	if err := s.validateCheckerDependencies(ctx, checkerLoc); err != nil {
+		return err
+	}
+
+	for index, testCase := range req.TestCases {
+		if testCase.InputFile != "" {
+			if err := s.validateExternalDependency(ctx, testCase.InputFile, "inputFile"); err != nil {
+				return fmt.Errorf("testcases[%d]: %w", index, err)
+			}
+		}
+		if testCase.ExpectedOutputFile != "" {
+			if err := s.validateExternalDependency(ctx, testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
+				return fmt.Errorf("testcases[%d]: %w", index, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *JudgeEngine) validateCheckerDependencies(ctx context.Context, checkerLoc CheckerLocation) error {
+	if checkerLoc.IsExternal {
+		if err := s.validateExternalDependency(ctx, checkerLoc.Path, "external checker"); err != nil {
+			return err
+		}
+	} else {
+		if s.resources == nil {
+			return fmt.Errorf("builtin checker %q is not available: internal resource store is unavailable", checkerLoc.Path)
+		}
+
+		checkerSourceKey := fmt.Sprintf("checkers/%s.cpp", checkerLoc.Path)
+		if err := s.resources.Stat(ctx, checkerSourceKey); err != nil {
+			return fmt.Errorf("builtin checker %q is not available: %w", checkerLoc.Path, err)
+		}
+	}
+
+	if s.resources == nil {
+		return fmt.Errorf("checker dependency %q is not available: internal resource store is unavailable", testlibHeaderKey)
+	}
+	if err := s.resources.Stat(ctx, testlibHeaderKey); err != nil {
+		return fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
+	}
+
+	return nil
+}
+
+func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, label string) error {
+	if s.externalStorage == nil {
+		return fmt.Errorf("%s %q requires external storage", label, path)
+	}
+	if err := s.externalStorage.Stat(ctx, path); err != nil {
+		return fmt.Errorf("%s %q is not available: %w", label, path, err)
+	}
+	return nil
 }
 
 // Judge compiles source code and evaluates all test cases.

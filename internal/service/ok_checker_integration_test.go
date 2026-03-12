@@ -66,7 +66,8 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	t.Helper()
 
 	var checkerSource []byte
-	var err error
+	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
+	require.NoError(t, err)
 
 	// Check if this is an external checker (has path separator)
 	if filepath.Base(checkerName) != checkerName {
@@ -77,18 +78,12 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 		require.NoError(t, err, "failed to read external checker: %s", checkerPath)
 	} else {
 		// Builtin checker - load from internal storage
-		resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
-		require.NoError(t, err)
-
 		checkerSource, err = resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
 		require.NoError(t, err)
 	}
 
 	// Load testlib.h from internal storage
-	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
-	require.NoError(t, err)
-
-	_, err = resourceStore.Get(ctx, "testlib.h")
+	testlibHeader, err := resourceStore.Get(ctx, testlibHeaderKey)
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -98,6 +93,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	out, err := compiler.Compile(ctx, CompileRequest{
 		Files: []CompileFile{
 			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
+			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
