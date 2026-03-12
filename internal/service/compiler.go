@@ -15,19 +15,12 @@ import (
 
 const compileMountDir = "/work"
 
-// CompileFile is a single source or support file written into the compile workspace.
-type CompileFile struct {
-	Name    string
-	Content []byte
-	Mode    os.FileMode
-}
-
 // ArtifactLoader resolves the compiled artifact from the workspace.
 type ArtifactLoader func(workDir string) (model.CompiledArtifact, error)
 
 // CompileRequest contains a generic compilation job definition.
 type CompileRequest struct {
-	Files          []CompileFile
+	Files          []workspace.File
 	ImageRef       string
 	Command        []string
 	ArtifactName   string
@@ -112,7 +105,7 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 	}
 	defer func() { _ = ws.Cleanup() }()
 
-	if err := ws.WriteFiles(toWorkspaceFiles(req.Files)); err != nil {
+	if err := ws.WriteFiles(req.Files); err != nil {
 		return out, fmt.Errorf("write compile files: %w", err)
 	}
 
@@ -157,18 +150,6 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 	}
 	out.Artifact = &artifact
 	return out, nil
-}
-
-func toWorkspaceFiles(files []CompileFile) []workspace.File {
-	workspaceFiles := make([]workspace.File, 0, len(files))
-	for _, file := range files {
-		workspaceFiles = append(workspaceFiles, workspace.File{
-			Name:    file.Name,
-			Content: file.Content,
-			Mode:    file.Mode,
-		})
-	}
-	return workspaceFiles
 }
 
 func loadCompiledArtifactFromRequest(ws *workspace.Workspace, req CompileRequest) (model.CompiledArtifact, error) {

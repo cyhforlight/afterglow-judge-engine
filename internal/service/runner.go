@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"afterglow-judge-engine/internal/sandbox"
@@ -15,16 +14,9 @@ import (
 
 const runMountDir = "/sandbox"
 
-// RunFile is a single file written into the run workspace.
-type RunFile struct {
-	Name    string
-	Content []byte
-	Mode    os.FileMode
-}
-
 // RunRequest contains a generic run job definition.
 type RunRequest struct {
-	Files    []RunFile
+	Files    []workspace.File
 	ImageRef string
 	Command  []string
 	Cwd      string
@@ -82,7 +74,7 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	defer func() { _ = ws.Cleanup() }()
 
-	if err := ws.WriteFiles(toRunWorkspaceFiles(req.Files)); err != nil {
+	if err := ws.WriteFiles(req.Files); err != nil {
 		return RunResult{}, fmt.Errorf("write run files: %w", err)
 	}
 
@@ -116,16 +108,4 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Verdict:   result.Verdict,
 		ExtraInfo: result.ExtraInfo,
 	}, nil
-}
-
-func toRunWorkspaceFiles(files []RunFile) []workspace.File {
-	workspaceFiles := make([]workspace.File, 0, len(files))
-	for _, file := range files {
-		workspaceFiles = append(workspaceFiles, workspace.File{
-			Name:    file.Name,
-			Content: file.Content,
-			Mode:    file.Mode,
-		})
-	}
-	return workspaceFiles
 }

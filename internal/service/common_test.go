@@ -11,6 +11,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/require"
 )
@@ -106,7 +107,7 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 	require.NoError(t, err)
 
 	req := CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte(sourceCode),
 			Mode:    0644,

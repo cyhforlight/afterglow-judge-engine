@@ -8,6 +8,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func TestCompiler_LoadsArtifactFromWorkspace(t *testing.T) {
 
 	compiler := NewCompiler(sb)
 	out, err := compiler.Compile(context.Background(), CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    "main.c",
 			Content: []byte("int main() { return 0; }"),
 			Mode:    0644,
@@ -107,7 +108,7 @@ func TestRunner_WritesFilesAndReturnsRawResult(t *testing.T) {
 
 	runner := NewRunner(sb)
 	out, err := runner.Run(context.Background(), RunRequest{
-		Files: []RunFile{{
+		Files: []workspace.File{{
 			Name:    "program",
 			Content: []byte("binary"),
 			Mode:    0o755,

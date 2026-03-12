@@ -7,6 +7,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,7 @@ int main() {
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
 	runOut, err := env.runner.Run(env.ctx, RunRequest{
-		Files: []RunFile{{
+		Files: []workspace.File{{
 			Name:    profile.Run.ArtifactName,
 			Content: artifact.Data,
 			Mode:    artifact.Mode,

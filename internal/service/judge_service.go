@@ -14,6 +14,7 @@ import (
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/storage"
+	"afterglow-judge-engine/internal/workspace"
 )
 
 // JudgeService handles full judge orchestration.
@@ -276,7 +277,7 @@ func (s *JudgeEngine) compileUserCode(
 	}
 
 	compileReq := CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte(sourceCode),
 			Mode:    0644,
@@ -386,7 +387,7 @@ func (s *JudgeEngine) prepareChecker(
 	// Compile checker
 	profile := cppProfile()
 	compileReq := CompileRequest{
-		Files: []CompileFile{
+		Files: []workspace.File{
 			{
 				Name:    checkerSourceFileName,
 				Content: checkerSource,
@@ -459,7 +460,7 @@ func (s *JudgeEngine) executeUserCode(
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
 	runOut, err := s.runner.Run(ctx, RunRequest{
-		Files: []RunFile{{
+		Files: []workspace.File{{
 			Name:    profile.Run.ArtifactName,
 			Content: artifact.Data,
 			Mode:    programMode,
@@ -529,7 +530,7 @@ func (s *JudgeEngine) runChecker(
 	}
 
 	runOut, err := s.runner.Run(ctx, RunRequest{
-		Files: []RunFile{
+		Files: []workspace.File{
 			{Name: checkerArtifactFileName, Content: checkerArtifact.Data, Mode: checkerMode},
 			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0644},
 			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0644},

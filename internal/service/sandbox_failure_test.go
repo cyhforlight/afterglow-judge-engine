@@ -7,6 +7,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
 	runOut, err := env.runner.Run(env.ctx, RunRequest{
-		Files: []RunFile{{
+		Files: []workspace.File{{
 			Name:    profile.Run.ArtifactName,
 			Content: artifact.Data,
 			Mode:    programMode,

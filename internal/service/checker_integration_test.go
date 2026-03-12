@@ -9,6 +9,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 	"afterglow-judge-engine/internal/storage"
 
 	"github.com/stretchr/testify/assert"
@@ -53,7 +54,7 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName string
 
 	profile := cppProfile()
 	out, err := compiler.Compile(ctx, CompileRequest{
-		Files: []CompileFile{
+		Files: []workspace.File{
 			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
@@ -95,7 +96,7 @@ func runCheckerForTest(
 	}
 
 	runOut, err := runner.Run(ctx, RunRequest{
-		Files: []RunFile{
+		Files: []workspace.File{
 			{Name: checkerArtifactFileName, Content: checker.Data, Mode: checkerMode},
 			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0o644},
 			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},

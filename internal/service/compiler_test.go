@@ -9,6 +9,7 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func TestCompiler_RealCompile(t *testing.T) {
 	require.NoError(t, err)
 
 	req := CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte("int main() { return 42; }"),
 			Mode:    0644,
@@ -63,7 +64,7 @@ func TestCompiler_CompilationFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	req := CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte("int main( { return 0; }"), // Syntax error
 			Mode:    0644,
@@ -100,7 +101,7 @@ func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	require.NoError(t, err)
 
 	req := CompileRequest{
-		Files: []CompileFile{{
+		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte("int main() { return 1; }"),
 			Mode:    0644,
