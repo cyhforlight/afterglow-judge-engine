@@ -5,47 +5,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
+	iofs "io/fs"
 	"path"
 	"path/filepath"
 	"strings"
+
+	rootassets "afterglow-judge-engine"
 )
 
 // InternalStorage implements read-only storage for project-bundled resources.
-// It keeps an in-memory snapshot loaded at initialization time, so later file
-// changes on disk are not observed until the process rebuilds the snapshot.
-// Used for resources like testlib.h, ncmp, rcmp that ship with the project.
+// Used for resources like testlib.h and builtin checker sources.
 type InternalStorage struct {
-	files map[string][]byte
+	fsys iofs.FS
 }
 
 const bundledSupportDirName = "support"
 
-// NewInternalStorage creates a read-only, in-memory snapshot for internal
-// resources. The returned storage does not watch baseDir for later changes.
-func NewInternalStorage(baseDir string) (*InternalStorage, error) {
-	files, err := loadSnapshot(baseDir)
+// NewBundledInternalStorage creates a storage backed by embedded support resources.
+func NewBundledInternalStorage() (*InternalStorage, error) {
+	bundledFS, err := iofs.Sub(rootassets.BundledSupportFiles, bundledSupportDirName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open bundled support resources: %w", err)
 	}
 
-	return &InternalStorage{files: files}, nil
+	return newInternalStorage(bundledFS), nil
 }
 
-// NewBundledInternalStorage creates a snapshot of the support directory next to the executable.
-func NewBundledInternalStorage() (*InternalStorage, error) {
-	executablePath, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("resolve executable path: %w", err)
-	}
-
-	supportDir, err := supportDirFromExecutable(executablePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewInternalStorage(supportDir)
+func newInternalStorage(fsys iofs.FS) *InternalStorage {
+	return &InternalStorage{fsys: fsys}
 }
 
 // Get retrieves resource content by key (key = relative path like "checkers/ncmp").
@@ -55,85 +42,31 @@ func (s *InternalStorage) Get(_ context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 
-	data, ok := s.files[normalizedKey]
-	if !ok {
+	data, err := iofs.ReadFile(s.fsys, normalizedKey)
+	if errors.Is(err, iofs.ErrNotExist) {
 		return nil, fmt.Errorf("resource not found: %s", normalizedKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read internal resource %q: %w", normalizedKey, err)
 	}
 
 	return bytes.Clone(data), nil
 }
 
-// Stat verifies that a resource key exists in the in-memory snapshot.
+// Stat verifies that a resource key exists in storage.
 func (s *InternalStorage) Stat(_ context.Context, key string) error {
 	normalizedKey, err := NormalizeResourceKey(key)
 	if err != nil {
 		return err
 	}
 
-	if _, ok := s.files[normalizedKey]; !ok {
+	if _, err := iofs.Stat(s.fsys, normalizedKey); errors.Is(err, iofs.ErrNotExist) {
 		return fmt.Errorf("resource not found: %s", normalizedKey)
+	} else if err != nil {
+		return fmt.Errorf("stat internal resource %q: %w", normalizedKey, err)
 	}
 
 	return nil
-}
-
-func loadSnapshot(baseDir string) (map[string][]byte, error) {
-	info, err := os.Stat(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("base directory not accessible: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("base directory is not a directory: %q", baseDir)
-	}
-
-	files := make(map[string][]byte)
-	err = filepath.WalkDir(baseDir, func(filePath string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk internal resource %q: %w", filePath, walkErr)
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return fmt.Errorf("internal resource must be a regular file: %q", filePath)
-		}
-
-		relativePath, err := filepath.Rel(baseDir, filePath)
-		if err != nil {
-			return fmt.Errorf("resolve relative path for %q: %w", filePath, err)
-		}
-
-		key, err := NormalizeResourceKey(relativePath)
-		if err != nil {
-			return fmt.Errorf("normalize internal resource key for %q: %w", filePath, err)
-		}
-
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("read internal resource %q: %w", filePath, err)
-		}
-
-		files[key] = content
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return files, nil
-}
-
-func supportDirFromExecutable(executablePath string) (string, error) {
-	if executablePath == "" {
-		return "", errors.New("executable path is required")
-	}
-
-	resolvedPath, err := filepath.EvalSymlinks(executablePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve executable symlinks: %w", err)
-	}
-
-	return filepath.Join(filepath.Dir(resolvedPath), bundledSupportDirName), nil
 }
 
 // NormalizeResourceKey validates and normalizes a resource key.

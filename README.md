@@ -65,12 +65,12 @@ go build -o server ./cmd/server
 ./server
 ```
 
-默认情况下，程序会从可执行文件同级目录加载：
+默认情况下：
 
-- `support/`：内置 checker、`testlib.h` 等内部资源
-- `testdata/`：外部测试数据和外部 checker 的根目录
+- 内置 checker、`testlib.h` 等 internal resources 会在构建时 embed 进二进制，运行时不需要额外放在可执行文件旁边
+- `testdata/`：仍然作为外部测试数据和外部 checker 的根目录，从可执行文件同级目录加载
 
-因此最简单的用法就是在仓库根目录直接构建并运行，这样二进制旁边天然就有 `support/` 和 `testdata/`。
+因此最简单的用法仍然是在仓库根目录直接构建并运行，这样二进制旁边天然就有 `testdata/`。
 
 ### 调用评测 API
 
@@ -144,13 +144,13 @@ internal/
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
 ├── sandbox/                    containerd 沙箱适配层
 ├── service/                    编译、运行、checker、判题编排
-├── storage/                    内部资源和外部文件存储
+├── storage/                    internal resources 和外部文件存储
 ├── transport/httptransport/    HTTP server / handler / dto / middleware
 └── workspace/                  临时工作目录管理
 
 support/
-├── testlib.h                   内置 checker 依赖
-└── checkers/                   内置 checker 源码
+├── testlib.h                   编译进二进制的内置 checker 依赖
+└── checkers/                   编译进二进制的内置 checker 源码
 
 testdata/
 └── ...                         外部测试数据、外部 checker、E2E 用例
@@ -283,7 +283,7 @@ GET /health
 
 ### 内置 checker
 
-当前内置 checker 位于 `support/checkers/`，包括：
+当前内置 checker 源码位于 `support/checkers/`，构建时会 embed 进二进制，包括：
 
 - `default`
 - `ncmp`

@@ -10,8 +10,8 @@ import (
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
-	"afterglow-judge-engine/internal/workspace"
 	"afterglow-judge-engine/internal/storage"
+	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +67,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	t.Helper()
 
 	var checkerSource []byte
-	resourceStore, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
+	resourceStore, err := storage.NewBundledInternalStorage()
 	require.NoError(t, err)
 
 	// Check if this is an external checker (has path separator)

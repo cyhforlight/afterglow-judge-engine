@@ -2,38 +2,27 @@ package storage
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestInternalStorage_Get(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, "test-resource.txt"), []byte("test resource content"), 0o644)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{
+		"test-resource.txt": &fstest.MapFile{Data: []byte("test resource content")},
+	})
 
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
-	ctx := context.Background()
-
-	data, err := storage.Get(ctx, "test-resource.txt")
+	data, err := storage.Get(context.Background(), "test-resource.txt")
 	require.NoError(t, err)
 	assert.Equal(t, []byte("test resource content"), data)
 }
 
 func TestInternalStorage_Get_NestedPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	checkersDir := filepath.Join(tmpDir, "checkers")
-	err := os.MkdirAll(checkersDir, 0o755)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(checkersDir, "ncmp.cpp"), []byte("int main() {}"), 0o644)
-	require.NoError(t, err)
-
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{
+		"checkers/ncmp.cpp": &fstest.MapFile{Data: []byte("int main() {}")},
+	})
 
 	data, err := storage.Get(context.Background(), "checkers/ncmp.cpp")
 	require.NoError(t, err)
@@ -41,26 +30,19 @@ func TestInternalStorage_Get_NestedPath(t *testing.T) {
 }
 
 func TestInternalStorage_Get_NotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{})
 
-	ctx := context.Background()
-
-	_, err = storage.Get(ctx, "nonexistent.txt")
+	_, err := storage.Get(context.Background(), "nonexistent.txt")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestInternalStorage_Stat(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, "test-resource.txt"), []byte("test resource content"), 0o644)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{
+		"test-resource.txt": &fstest.MapFile{Data: []byte("test resource content")},
+	})
 
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
-
-	err = storage.Stat(context.Background(), "test-resource.txt")
+	err := storage.Stat(context.Background(), "test-resource.txt")
 	require.NoError(t, err)
 
 	err = storage.Stat(context.Background(), "missing.txt")
@@ -69,12 +51,9 @@ func TestInternalStorage_Stat(t *testing.T) {
 }
 
 func TestInternalStorage_Get_RejectsInvalidKeys(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("ok"), 0o644)
-	require.NoError(t, err)
-
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{
+		"test.txt": &fstest.MapFile{Data: []byte("ok")},
+	})
 
 	tests := []struct {
 		name  string
@@ -96,12 +75,9 @@ func TestInternalStorage_Get_RejectsInvalidKeys(t *testing.T) {
 }
 
 func TestInternalStorage_Get_ReturnsCopy(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("hello"), 0o644)
-	require.NoError(t, err)
-
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
+	storage := newInternalStorage(fstest.MapFS{
+		"test.txt": &fstest.MapFile{Data: []byte("hello")},
+	})
 
 	firstRead, err := storage.Get(context.Background(), "test.txt")
 	require.NoError(t, err)
@@ -112,58 +88,14 @@ func TestInternalStorage_Get_ReturnsCopy(t *testing.T) {
 	assert.Equal(t, []byte("hello"), secondRead)
 }
 
-func TestInternalStorage_SnapshotSurvivesSourceRemoval(t *testing.T) {
-	tmpDir := t.TempDir()
-	nestedDir := filepath.Join(tmpDir, "checkers")
-	err := os.MkdirAll(nestedDir, 0o755)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "testlib.h"), []byte("header"), 0o644)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(nestedDir, "ncmp.cpp"), []byte("checker"), 0o644)
-	require.NoError(t, err)
-
-	storage, err := NewInternalStorage(tmpDir)
-	require.NoError(t, err)
-
-	err = os.RemoveAll(tmpDir)
+func TestNewBundledInternalStorage(t *testing.T) {
+	storage, err := NewBundledInternalStorage()
 	require.NoError(t, err)
 
 	header, err := storage.Get(context.Background(), "testlib.h")
 	require.NoError(t, err)
-	assert.Equal(t, []byte("header"), header)
+	assert.NotEmpty(t, header)
 
-	checker, err := storage.Get(context.Background(), "checkers/ncmp.cpp")
+	err = storage.Stat(context.Background(), "checkers/default.cpp")
 	require.NoError(t, err)
-	assert.Equal(t, []byte("checker"), checker)
-}
-
-func TestSupportDirFromExecutable(t *testing.T) {
-	projectDir := t.TempDir()
-	binDir := filepath.Join(projectDir, "bin")
-	err := os.MkdirAll(filepath.Join(projectDir, bundledSupportDirName), 0o755)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(binDir, 0o755))
-
-	executablePath := filepath.Join(projectDir, "judge-server")
-	require.NoError(t, os.WriteFile(executablePath, []byte("#!/bin/sh\n"), 0o755))
-
-	supportDir, err := supportDirFromExecutable(executablePath)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(projectDir, bundledSupportDirName), supportDir)
-}
-
-func TestSupportDirFromExecutable_ResolvesSymlink(t *testing.T) {
-	projectDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, bundledSupportDirName), 0o755))
-
-	realExecutable := filepath.Join(projectDir, "judge-server")
-	require.NoError(t, os.WriteFile(realExecutable, []byte("#!/bin/sh\n"), 0o755))
-
-	linkDir := t.TempDir()
-	linkPath := filepath.Join(linkDir, "judge-server")
-	require.NoError(t, os.Symlink(realExecutable, linkPath))
-
-	supportDir, err := supportDirFromExecutable(linkPath)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(projectDir, bundledSupportDirName), supportDir)
 }

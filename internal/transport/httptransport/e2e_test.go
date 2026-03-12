@@ -152,7 +152,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
-	internalStorage, err := storage.NewInternalStorage(filepath.Join(projectRoot(t), "support"))
+	internalStorage, err := storage.NewBundledInternalStorage()
 	require.NoError(t, err)
 	compileCache, err := cache.New(100)
 	require.NoError(t, err)
