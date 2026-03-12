@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 
@@ -133,20 +132,4 @@ func TestRunner_WritesFilesAndReturnsRawResult(t *testing.T) {
 		Verdict:   sandbox.VerdictOK,
 		ExtraInfo: "details",
 	}, out)
-}
-
-func TestLoadPythonBytecodeArtifact_RenamesArtifact(t *testing.T) {
-	dir := t.TempDir()
-	pycacheDir := filepath.Join(dir, "__pycache__")
-	require.NoError(t, os.Mkdir(pycacheDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(pycacheDir, "solution.cpython-311.pyc"), []byte("pyc"), 0o644))
-
-	loader := loadPythonBytecodeArtifact("solution.pyc", 0o644)
-	artifact, err := loader(dir)
-	require.NoError(t, err)
-	assert.Equal(t, model.CompiledArtifact{
-		Name: "solution.pyc",
-		Data: []byte("pyc"),
-		Mode: 0o644,
-	}, artifact)
 }

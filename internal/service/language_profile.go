@@ -139,7 +139,10 @@ func pythonProfile() LanguageProfile {
 			SourceFiles:  []string{"solution.py"},
 			ArtifactName: "solution.pyc",
 			BuildCommand: func(_ []string) []string {
-				return []string{"python3", "-m", "py_compile", "/work/solution.py"}
+				return []string{
+					"python3", "-c",
+					"import py_compile; py_compile.compile('/work/solution.py', cfile='/work/solution.pyc')",
+				}
 			},
 			TimeoutMs: 10000,
 			MemoryMB:  256,

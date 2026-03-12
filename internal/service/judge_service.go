@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"afterglow-judge-engine/internal/cache"
@@ -295,45 +293,12 @@ func (s *JudgeEngine) compileUserCode(
 		},
 	}
 
-	// Python bytecode requires special artifact loading
-	if lang == model.LanguagePython {
-		compileReq.ArtifactLoader = loadPythonBytecodeArtifact(profile.Compile.ArtifactName, profile.Run.FileMode)
-	}
-
 	compileOut, err := s.compiler.Compile(ctx, compileReq)
 	if err != nil {
 		return nil, model.CompileResult{}, err
 	}
 
 	return compileOut.Artifact, compileOut.Result, nil
-}
-
-func loadPythonBytecodeArtifact(artifactName string, artifactMode os.FileMode) ArtifactLoader {
-	return func(workDir string) (model.CompiledArtifact, error) {
-		pycachePath := filepath.Join(workDir, "__pycache__")
-		entries, err := os.ReadDir(pycachePath)
-		if err != nil {
-			return model.CompiledArtifact{}, fmt.Errorf("read python cache directory: %w", err)
-		}
-
-		for _, entry := range entries {
-			if filepath.Ext(entry.Name()) != ".pyc" {
-				continue
-			}
-
-			artifact, err := loadCompiledArtifactAtPath(filepath.Join(pycachePath, entry.Name()))
-			if err != nil {
-				return model.CompiledArtifact{}, err
-			}
-			artifact.Name = artifactName
-			if artifact.Mode == 0 {
-				artifact.Mode = artifactMode
-			}
-			return artifact, nil
-		}
-
-		return model.CompiledArtifact{}, fmt.Errorf("python bytecode artifact not found in %q", pycachePath)
-	}
 }
 
 // prepareChecker loads, compiles, and caches a checker.

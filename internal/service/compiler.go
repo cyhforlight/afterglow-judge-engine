@@ -15,19 +15,15 @@ import (
 
 const compileMountDir = "/work"
 
-// ArtifactLoader resolves the compiled artifact from the workspace.
-type ArtifactLoader func(workDir string) (model.CompiledArtifact, error)
-
 // CompileRequest contains a generic compilation job definition.
 type CompileRequest struct {
-	Files          []workspace.File
-	ImageRef       string
-	Command        []string
-	ArtifactName   string
-	ArtifactMode   os.FileMode
-	ArtifactPath   string
-	ArtifactLoader ArtifactLoader
-	Limits         sandbox.ResourceLimits
+	Files        []workspace.File
+	ImageRef     string
+	Command      []string
+	ArtifactName string
+	ArtifactMode os.FileMode
+	ArtifactPath string
+	Limits       sandbox.ResourceLimits
 }
 
 // CompileOutput is the generic compiler output.
@@ -89,8 +85,8 @@ func validateCompileRequest(req CompileRequest) error {
 	if strings.TrimSpace(req.ArtifactName) == "" {
 		return errors.New("artifact name is required")
 	}
-	if strings.TrimSpace(req.ArtifactPath) == "" && req.ArtifactLoader == nil {
-		return errors.New("artifact path or loader is required")
+	if strings.TrimSpace(req.ArtifactPath) == "" {
+		return errors.New("artifact path is required")
 	}
 	return nil
 }
@@ -153,20 +149,6 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 }
 
 func loadCompiledArtifactFromRequest(ws *workspace.Workspace, req CompileRequest) (model.CompiledArtifact, error) {
-	if req.ArtifactLoader != nil {
-		artifact, err := req.ArtifactLoader(ws.Dir())
-		if err != nil {
-			return model.CompiledArtifact{}, err
-		}
-		if artifact.Name == "" {
-			artifact.Name = req.ArtifactName
-		}
-		if artifact.Mode == 0 {
-			artifact.Mode = req.ArtifactMode
-		}
-		return artifact, nil
-	}
-
 	artifact, err := loadCompiledArtifact(ws, req.ArtifactPath)
 	if err != nil {
 		return model.CompiledArtifact{}, err
@@ -193,24 +175,6 @@ func loadCompiledArtifact(ws *workspace.Workspace, name string) (model.CompiledA
 
 	return model.CompiledArtifact{
 		Name: filepath.Base(name),
-		Data: data,
-		Mode: info.Mode().Perm(),
-	}, nil
-}
-
-func loadCompiledArtifactAtPath(path string) (model.CompiledArtifact, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return model.CompiledArtifact{}, fmt.Errorf("stat artifact %q: %w", path, err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return model.CompiledArtifact{}, fmt.Errorf("read artifact %q: %w", path, err)
-	}
-
-	return model.CompiledArtifact{
-		Name: filepath.Base(path),
 		Data: data,
 		Mode: info.Mode().Perm(),
 	}, nil

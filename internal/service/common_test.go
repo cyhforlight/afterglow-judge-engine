@@ -125,10 +125,6 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 		},
 	}
 
-	if lang == model.LanguagePython {
-		req.ArtifactLoader = loadPythonBytecodeArtifact(profile.Compile.ArtifactName, profile.Run.FileMode)
-	}
-
 	out, err := env.compiler.Compile(env.ctx, req)
 	require.NoError(t, err)
 	return out.Artifact, out.Result
