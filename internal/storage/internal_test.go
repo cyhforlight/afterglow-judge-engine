@@ -50,30 +50,6 @@ func TestInternalStorage_Stat(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestInternalStorage_Get_RejectsInvalidKeys(t *testing.T) {
-	storage := newInternalStorage(fstest.MapFS{
-		"test.txt": &fstest.MapFile{Data: []byte("ok")},
-	})
-
-	tests := []struct {
-		name  string
-		key   string
-		error string
-	}{
-		{name: "empty", key: "", error: "resource key is required"},
-		{name: "absolute", key: "/etc/passwd", error: "resource key must be relative"},
-		{name: "parent traversal", key: "../secret.txt", error: "escapes base directory"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := storage.Get(context.Background(), tt.key)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.error)
-		})
-	}
-}
-
 func TestInternalStorage_Get_ReturnsCopy(t *testing.T) {
 	storage := newInternalStorage(fstest.MapFS{
 		"test.txt": &fstest.MapFile{Data: []byte("hello")},

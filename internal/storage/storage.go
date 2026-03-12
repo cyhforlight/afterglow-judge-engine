@@ -1,2 +1,2 @@
-// Package storage provides abstractions for file storage backends.
+// Package storage provides read-only access to bundled judge resources and external judge data.
 package storage

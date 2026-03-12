@@ -139,7 +139,7 @@ cmd/
 └── server/                     HTTP 服务入口
 
 internal/
-├── cache/                      简单缓存，用于 checker 和外部文件等热点资源
+├── cache/                      简单缓存，用于 checker 编译结果
 ├── config/                     环境变量配置加载
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
 ├── sandbox/                    containerd 沙箱适配层

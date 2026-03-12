@@ -42,6 +42,10 @@ func NewJudgeEngine(
 	defaultChecker string,
 	cache *cache.Cache,
 ) (*JudgeEngine, error) {
+	if resources == nil {
+		return nil, errors.New("internal resource store is required")
+	}
+
 	defaultChecker = strings.TrimSpace(defaultChecker)
 	if defaultChecker == "" {
 		defaultChecker = defaultCheckerName
@@ -102,19 +106,12 @@ func (s *JudgeEngine) validateCheckerDependencies(ctx context.Context, checkerLo
 			return err
 		}
 	} else {
-		if s.resources == nil {
-			return fmt.Errorf("builtin checker %q is not available: internal resource store is unavailable", checkerLoc.Path)
-		}
-
 		checkerSourceKey := fmt.Sprintf("checkers/%s.cpp", checkerLoc.Path)
 		if err := s.resources.Stat(ctx, checkerSourceKey); err != nil {
 			return fmt.Errorf("builtin checker %q is not available: %w", checkerLoc.Path, err)
 		}
 	}
 
-	if s.resources == nil {
-		return fmt.Errorf("checker dependency %q is not available: internal resource store is unavailable", testlibHeaderKey)
-	}
 	if err := s.resources.Stat(ctx, testlibHeaderKey); err != nil {
 		return fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
 	}
@@ -317,9 +314,6 @@ func (s *JudgeEngine) prepareChecker(
 			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
 		}
 	} else {
-		if s.resources == nil {
-			return nil, model.CompileResult{}, errors.New("resource store is required")
-		}
 		storageKey := fmt.Sprintf("checkers/%s.cpp", loc.Path)
 		checkerSource, err = s.resources.Get(ctx, storageKey)
 		if err != nil {

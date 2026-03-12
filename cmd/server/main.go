@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -70,13 +69,10 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 
 	// 4. Create ExternalStorage for test data files.
 	var externalStorage *storage.ExternalStorage
-	externalDataDir, err := resolveExternalDataDir(cfg)
-	if err != nil {
-		slog.Warn("failed to resolve external data directory", "error", err)
-	} else if externalDataDir != "" {
-		externalStorage, err = storage.NewExternalStorage(externalDataDir)
+	if cfg.ExternalDataDir != "" {
+		externalStorage, err = storage.NewExternalStorage(cfg.ExternalDataDir)
 		if err != nil {
-			slog.Warn("failed to initialize external storage", "error", err, "path", externalDataDir)
+			slog.Warn("failed to initialize external storage", "error", err, "path", cfg.ExternalDataDir)
 			externalStorage = nil
 		}
 	}
@@ -105,25 +101,6 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 
 	return judge, nil
 }
-
-func resolveExternalDataDir(cfg *config.Config) (string, error) {
-	if cfg.ExternalDataDir != "" {
-		return cfg.ExternalDataDir, nil
-	}
-
-	executablePath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve executable path for testdata: %w", err)
-	}
-
-	resolvedPath, err := filepath.EvalSymlinks(executablePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve executable symlinks for testdata: %w", err)
-	}
-
-	return filepath.Join(filepath.Dir(resolvedPath), "testdata"), nil
-}
-
 func runServer(server *httptransport.Server, cfg *config.Config, logger *slog.Logger) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

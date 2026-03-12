@@ -35,35 +35,25 @@ func newInternalStorage(fsys iofs.FS) *InternalStorage {
 	return &InternalStorage{fsys: fsys}
 }
 
-// Get retrieves resource content by key (key = relative path like "checkers/ncmp").
+// Get retrieves bundled resource content by trusted relative key.
 func (s *InternalStorage) Get(_ context.Context, key string) ([]byte, error) {
-	normalizedKey, err := NormalizeResourceKey(key)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := iofs.ReadFile(s.fsys, normalizedKey)
+	data, err := iofs.ReadFile(s.fsys, key)
 	if errors.Is(err, iofs.ErrNotExist) {
-		return nil, fmt.Errorf("resource not found: %s", normalizedKey)
+		return nil, fmt.Errorf("resource not found: %s", key)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read internal resource %q: %w", normalizedKey, err)
+		return nil, fmt.Errorf("read internal resource %q: %w", key, err)
 	}
 
 	return bytes.Clone(data), nil
 }
 
-// Stat verifies that a resource key exists in storage.
+// Stat verifies that a bundled resource key exists in storage.
 func (s *InternalStorage) Stat(_ context.Context, key string) error {
-	normalizedKey, err := NormalizeResourceKey(key)
-	if err != nil {
-		return err
-	}
-
-	if _, err := iofs.Stat(s.fsys, normalizedKey); errors.Is(err, iofs.ErrNotExist) {
-		return fmt.Errorf("resource not found: %s", normalizedKey)
+	if _, err := iofs.Stat(s.fsys, key); errors.Is(err, iofs.ErrNotExist) {
+		return fmt.Errorf("resource not found: %s", key)
 	} else if err != nil {
-		return fmt.Errorf("stat internal resource %q: %w", normalizedKey, err)
+		return fmt.Errorf("stat internal resource %q: %w", key, err)
 	}
 
 	return nil

@@ -180,6 +180,14 @@ func newTestJudgeEngine(
 	return engine
 }
 
+func TestNewJudgeEngine_RequiresInternalResources(t *testing.T) {
+	engine, err := NewJudgeEngine(&fakeCompiler{}, &fakeRunner{}, nil, nil, defaultCheckerName, nil)
+
+	require.Error(t, err)
+	assert.Nil(t, engine)
+	assert.Contains(t, err.Error(), "internal resource store is required")
+}
+
 func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
 	if len(testCases) == 0 {
 		testCases = []model.JudgeTestCase{{InputText: "", ExpectedOutput: ""}}
