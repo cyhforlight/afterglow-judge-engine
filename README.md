@@ -318,6 +318,7 @@ external:relative/path/to/checker.cpp
 | `CONTAINERD_SOCKET` | `/run/containerd/containerd.sock` | containerd 套接字 |
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |
+| `MAX_CONCURRENT_CONTAINERS` | `8` | 同时运行的最大容器数（编译+执行共享） |
 | `DEFAULT_CHECKER` | `default` | 未显式指定 `checker` 时使用的默认 checker |
 | `EXTERNAL_DATA_DIR` | `/home/forlight/afterglow-judge-engine/testdata` | 外部测试数据和外部 checker 根目录 |
 | `API_KEY` | 空 | Bearer Token；非空时自动启用鉴权 |
@@ -351,5 +352,5 @@ golangci-lint run
 
 ## 未来演化方向（功能性）
 
-1. 并发功能处理（能够并行执行多个评测任务）
-2. 添加独立的评测请求编排层（如控制最大并发评测数量、评测的优先级处理等）
+1. 添加独立的评测请求编排层（如评测的优先级处理、请求排队等）
+2. 支持评测结果的持久化和回查

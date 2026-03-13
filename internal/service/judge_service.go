@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/model"
@@ -181,30 +182,39 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	}
 }
 
-// runAllCases loads test data and executes each case sequentially.
+// runAllCases loads test data and executes each case concurrently.
+// Actual parallelism is bounded by the shared container semaphore.
 func (s *JudgeEngine) runAllCases(
 	ctx context.Context,
 	req model.JudgeRequest,
 	userArtifact *model.CompiledArtifact,
 	checkerArtifact *model.CompiledArtifact,
 ) ([]model.JudgeCaseResult, int) {
-	results := make([]model.JudgeCaseResult, 0, len(req.TestCases))
-	passed := 0
+	results := make([]model.JudgeCaseResult, len(req.TestCases))
 
+	var wg sync.WaitGroup
 	for i, tc := range req.TestCases {
-		if err := s.loadTestCaseData(ctx, &tc); err != nil {
-			s.log.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
-			results = append(results, model.JudgeCaseResult{
-				Verdict:   model.VerdictUKE,
-				ExtraInfo: fmt.Sprintf("test data loading failed: %v", err),
-			})
-			continue
-		}
-		r := s.runSingleCase(ctx, req, userArtifact, checkerArtifact, tc, i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.loadTestCaseData(ctx, &tc); err != nil {
+				s.log.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
+				results[i] = model.JudgeCaseResult{
+					Verdict:   model.VerdictUKE,
+					ExtraInfo: fmt.Sprintf("test data loading failed: %v", err),
+				}
+				return
+			}
+			results[i] = s.runSingleCase(ctx, req, userArtifact, checkerArtifact, tc, i)
+		}()
+	}
+	wg.Wait()
+
+	passed := 0
+	for _, r := range results {
 		if r.Verdict == model.VerdictOK {
 			passed++
 		}
-		results = append(results, r)
 	}
 
 	return results, passed

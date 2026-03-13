@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 )
@@ -17,9 +18,10 @@ type Config struct {
 	ContainerdNamespace string
 
 	// Execution Limits
-	MaxInputSizeMB  int
-	DefaultChecker  string
-	ExternalDataDir string
+	MaxInputSizeMB          int
+	MaxConcurrentContainers int
+	DefaultChecker          string
+	ExternalDataDir         string
 
 	// Security
 	APIKey string
@@ -30,6 +32,11 @@ type Config struct {
 
 // Load creates a Config from environment variables with sensible defaults.
 func Load() *Config {
+	maxContainers := getEnvInt("MAX_CONCURRENT_CONTAINERS", 8)
+	if maxContainers <= 0 {
+		log.Fatalf("MAX_CONCURRENT_CONTAINERS must be positive, got %d", maxContainers)
+	}
+
 	return &Config{
 		// HTTP Server
 		HTTPAddr: getEnv("HTTP_ADDR", "0.0.0.0"),
@@ -40,9 +47,10 @@ func Load() *Config {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		MaxInputSizeMB:  getEnvInt("MAX_INPUT_SIZE_MB", 256),
-		DefaultChecker:  getEnv("DEFAULT_CHECKER", "default"),
-		ExternalDataDir: getEnv("EXTERNAL_DATA_DIR", "/home/forlight/afterglow-judge-engine/testdata"),
+		MaxInputSizeMB:          getEnvInt("MAX_INPUT_SIZE_MB", 256),
+		MaxConcurrentContainers: maxContainers,
+		DefaultChecker:          getEnv("DEFAULT_CHECKER", "default"),
+		ExternalDataDir:         getEnv("EXTERNAL_DATA_DIR", "/home/forlight/afterglow-judge-engine/testdata"),
 
 		// Security
 		APIKey: os.Getenv("API_KEY"),

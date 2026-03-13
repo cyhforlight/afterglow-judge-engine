@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"afterglow-judge-engine/internal/model"
@@ -18,6 +20,7 @@ import (
 // If compileResults is set, each call returns the next result in order.
 // Otherwise, it returns the single artifact/result/err.
 type fakeCompiler struct {
+	mu             sync.Mutex
 	artifact       *model.CompiledArtifact
 	result         model.CompileResult
 	err            error
@@ -26,6 +29,9 @@ type fakeCompiler struct {
 }
 
 func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.err != nil {
 		return CompileOutput{}, c.err
 	}
@@ -47,6 +53,7 @@ func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutp
 // fakeRunner supports sequential run results.
 // For JudgeEngine tests, calls alternate: user execution, checker execution, user execution, checker execution...
 type fakeRunner struct {
+	mu           sync.Mutex
 	preflightErr error
 	runErr       error
 	runResult    RunResult
@@ -59,6 +66,9 @@ func (r *fakeRunner) PreflightCheck(_ context.Context) error {
 }
 
 func (r *fakeRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.runErr != nil {
 		return RunResult{}, r.runErr
 	}
@@ -75,12 +85,16 @@ func (r *fakeRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
 }
 
 type fakeResourceStore struct {
+	mu    sync.Mutex
 	files map[string][]byte
 	err   error
 	keys  []string
 }
 
 func (s *fakeResourceStore) Get(_ context.Context, key string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.keys = append(s.keys, key)
 	if s.err != nil {
 		return nil, s.err
@@ -95,6 +109,9 @@ func (s *fakeResourceStore) Get(_ context.Context, key string) ([]byte, error) {
 }
 
 func (s *fakeResourceStore) Stat(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.keys = append(s.keys, key)
 	if s.err != nil {
 		return s.err
@@ -240,17 +257,25 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 }
 
 func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T) {
-	runner := &fakeRunner{runResults: []RunResult{
-		userOKRunResult("2\n"), checkerOKRunResult(), // case-1: OK
-		userOKRunResult("4\n"), {ExitCode: 0, Verdict: sandbox.VerdictTLE, Stderr: "checker timed out"}, // case-2: checker UKE
-		userOKRunResult("6\n"), checkerOKRunResult(), // case-3: OK
-	}}
-	engine := newTestJudgeEngine(runner, nil, nil)
+	runner := &inputKeyedRunner{
+		userResults: map[string]RunResult{
+			"1\n": userOKRunResult("2\n"),
+			"2\n": userOKRunResult("4\n"),
+			"3\n": userOKRunResult("6\n"),
+		},
+		checkerResults: map[string]RunResult{
+			"2\n": checkerOKRunResult(),
+			"4\n": {ExitCode: 0, Verdict: sandbox.VerdictTLE, Stderr: "checker timed out"}, // checker UKE
+			"6\n": checkerOKRunResult(),
+		},
+	}
+	engine := newTestJudgeEngine(nil, nil, nil)
+	engine.runner = runner
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{ExpectedOutput: "2\n"},
-		model.JudgeTestCase{ExpectedOutput: "4\n"},
-		model.JudgeTestCase{ExpectedOutput: "6\n"},
+		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
+		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "4\n"},
+		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
 	))
 
 	require.Len(t, result.Cases, 3)
@@ -263,13 +288,10 @@ func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T
 }
 
 func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
-	// All user executions hit runtime errors — checker never runs
-	runner := &fakeRunner{runResults: []RunResult{
-		{Verdict: sandbox.VerdictRE, ExitCode: 1},
-		{Verdict: sandbox.VerdictTLE, ExitCode: 124},
-		{Verdict: sandbox.VerdictMLE, ExitCode: 137},
-		{Verdict: sandbox.VerdictOLE, ExitCode: 1},
-	}}
+	// All user executions hit runtime errors — checker never runs.
+	// With parallel execution, we can't predict which case gets which error,
+	// but the test only checks aggregate verdict and total calls.
+	runner := &fakeRunner{runResult: RunResult{Verdict: sandbox.VerdictRE, ExitCode: 1}}
 	engine := newTestJudgeEngine(runner, nil, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
@@ -294,12 +316,19 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 }
 
 func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
-	runner := &fakeRunner{runResults: []RunResult{
-		userOKRunResult("2\n"), checkerOKRunResult(), // case-1: OK
-		userOKRunResult("4\n"), checkerWARunResult("2nd lines differ"), // case-2: WA
-		{Verdict: sandbox.VerdictTLE, ExitCode: 124}, // case-3: TLE (no checker)
-	}}
-	engine := newTestJudgeEngine(runner, nil, nil)
+	runner := &inputKeyedRunner{
+		userResults: map[string]RunResult{
+			"1\n": userOKRunResult("2\n"),
+			"2\n": userOKRunResult("4\n"),
+			"3\n": {Verdict: sandbox.VerdictTLE, ExitCode: 124}, // TLE — no checker
+		},
+		checkerResults: map[string]RunResult{
+			"2\n": checkerOKRunResult(),                   // case-1: OK
+			"4\n": checkerWARunResult("2nd lines differ"), // case-2: WA
+		},
+	}
+	engine := newTestJudgeEngine(nil, nil, nil)
+	engine.runner = runner
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
@@ -317,12 +346,20 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 }
 
 func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
-	runner := &fakeRunner{runResults: []RunResult{
-		userOKRunResult("2\n"), checkerOKRunResult(),
-		userOKRunResult("4\n"), checkerOKRunResult(),
-		userOKRunResult("6\n"), checkerOKRunResult(),
-	}}
-	engine := newTestJudgeEngine(runner, nil, nil)
+	runner := &inputKeyedRunner{
+		userResults: map[string]RunResult{
+			"1\n": userOKRunResult("2\n"),
+			"2\n": userOKRunResult("4\n"),
+			"3\n": userOKRunResult("6\n"),
+		},
+		checkerResults: map[string]RunResult{
+			"2\n": checkerOKRunResult(),
+			"4\n": checkerOKRunResult(),
+			"6\n": checkerOKRunResult(),
+		},
+	}
+	engine := newTestJudgeEngine(nil, nil, nil)
+	engine.runner = runner
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
@@ -518,20 +555,21 @@ func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 }
 
 func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
-	customRunner := &sequentialErrRunner{
-		results: []runCallResult{
-			{result: userOKRunResult("42\n")},
-			{err: errors.New("sandbox boom")},
-			{result: userOKRunResult("42\n")},
-			{err: errors.New("sandbox boom")},
+	customRunner := &inputKeyedErrRunner{
+		userResults: map[string]runCallResult{
+			"1\n": {result: userOKRunResult("42\n")},
+			"2\n": {result: userOKRunResult("42\n")},
+		},
+		checkerResults: map[string]runCallResult{
+			"42\n": {err: errors.New("sandbox boom")},
 		},
 	}
 	engine := newTestJudgeEngine(nil, nil, nil)
 	engine.runner = customRunner
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{ExpectedOutput: "42\n"},
-		model.JudgeTestCase{ExpectedOutput: "42\n"},
+		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "42\n"},
+		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "42\n"},
 	))
 
 	require.Len(t, result.Cases, 2)
@@ -541,26 +579,86 @@ func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
 	assert.Equal(t, 4, customRunner.calls)
 }
 
-// sequentialErrRunner allows per-call error control.
+// runCallResult pairs a RunResult with an optional error for keyed runners.
 type runCallResult struct {
 	result RunResult
 	err    error
 }
 
-type sequentialErrRunner struct {
-	results []runCallResult
-	calls   int
+// inputKeyedRunner dispatches run results based on request content,
+// making it safe for parallel test case execution.
+//
+// For user runs (Stdin != nil), it looks up results by stdin text.
+// For checker runs (Stdin == nil), it looks up results by the actual output
+// content found in Files[2] (the checker output file).
+type inputKeyedRunner struct {
+	mu sync.Mutex
+	// userResults maps stdin text → RunResult for user execution
+	userResults map[string]RunResult
+	// checkerResults maps user stdout → RunResult for checker execution
+	checkerResults map[string]RunResult
+	calls          int
 }
 
-func (r *sequentialErrRunner) PreflightCheck(_ context.Context) error { return nil }
+func (r *inputKeyedRunner) PreflightCheck(_ context.Context) error { return nil }
 
-func (r *sequentialErrRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
-	idx := r.calls
-	if idx >= len(r.results) {
-		idx = len(r.results) - 1
-	}
+func (r *inputKeyedRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.calls++
-	return r.results[idx].result, r.results[idx].err
+
+	if req.Stdin != nil {
+		data, _ := io.ReadAll(req.Stdin)
+		input := string(data)
+		if res, ok := r.userResults[input]; ok {
+			return res, nil
+		}
+		return RunResult{}, fmt.Errorf("inputKeyedRunner: no user result for input %q", input)
+	}
+
+	// Checker call — identify by output file content (Files[2] = actual output).
+	if len(req.Files) >= 3 {
+		if res, ok := r.checkerResults[string(req.Files[2].Content)]; ok {
+			return res, nil
+		}
+	}
+
+	return RunResult{}, errors.New("inputKeyedRunner: no checker result found")
+}
+
+// inputKeyedErrRunner is like inputKeyedRunner but supports per-call errors.
+type inputKeyedErrRunner struct {
+	mu             sync.Mutex
+	userResults    map[string]runCallResult // stdin → user run result
+	checkerResults map[string]runCallResult // user stdout → checker run result
+	calls          int
+}
+
+func (r *inputKeyedErrRunner) PreflightCheck(_ context.Context) error { return nil }
+
+func (r *inputKeyedErrRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.calls++
+
+	if req.Stdin != nil {
+		data, _ := io.ReadAll(req.Stdin)
+		input := string(data)
+		if res, ok := r.userResults[input]; ok {
+			return res.result, res.err
+		}
+		return RunResult{}, fmt.Errorf("inputKeyedErrRunner: no user result for input %q", input)
+	}
+
+	if len(req.Files) >= 3 {
+		if res, ok := r.checkerResults[string(req.Files[2].Content)]; ok {
+			return res.result, res.err
+		}
+	}
+
+	return RunResult{}, errors.New("inputKeyedErrRunner: no checker result found")
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
@@ -620,11 +718,15 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 
 // fakeExternalStorage implements a simple in-memory external storage for testing.
 type fakeExternalStorage struct {
+	mu       sync.Mutex
 	files    map[string][]byte
 	getCalls int
 }
 
 func (f *fakeExternalStorage) Get(_ context.Context, path string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.getCalls++
 	data, ok := f.files[path]
 	if !ok {
@@ -634,6 +736,9 @@ func (f *fakeExternalStorage) Get(_ context.Context, path string) ([]byte, error
 }
 
 func (f *fakeExternalStorage) Stat(_ context.Context, path string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if _, ok := f.files[path]; !ok {
 		return fmt.Errorf("file not found: %s", path)
 	}
