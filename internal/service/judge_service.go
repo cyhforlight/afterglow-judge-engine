@@ -131,21 +131,6 @@ func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, labe
 
 // Judge compiles source code and evaluates all test cases.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
-	// Copy TestCases to avoid mutating caller's slice.
-	// req is passed by value, but TestCases is a slice (reference type).
-	testCases := make([]model.JudgeTestCase, len(req.TestCases))
-	copy(testCases, req.TestCases)
-	req.TestCases = testCases
-
-	// Load test case files before compilation
-	for i := range req.TestCases {
-		if err := s.loadTestCaseData(ctx, &req.TestCases[i]); err != nil {
-			s.log.ErrorContext(ctx, "failed to load test case data",
-				"index", i, "error", err)
-			return failedBeforeRun(req.TestCases, fmt.Sprintf("test data loading failed: %v", err))
-		}
-	}
-
 	// Resolve checker before compilation so direct callers get early validation.
 	checkerLoc, err := ResolveChecker(req.Checker, s.defaultChecker)
 	if err != nil {
@@ -185,16 +170,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation succeeded without artifact")
 	}
 
-	caseResults := make([]model.JudgeCaseResult, 0, len(req.TestCases))
-	passedCount := 0
-
-	for i, testCase := range req.TestCases {
-		caseResult := s.runSingleCase(ctx, req, compileOut, checkerArtifact, testCase, i)
-		if caseResult.Verdict == model.VerdictOK {
-			passedCount++
-		}
-		caseResults = append(caseResults, caseResult)
-	}
+	caseResults, passedCount := s.runAllCases(ctx, req, compileOut, checkerArtifact)
 
 	return model.JudgeResult{
 		Verdict:     aggregateVerdict(caseResults),
@@ -203,6 +179,35 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		PassedCount: passedCount,
 		TotalCount:  len(req.TestCases),
 	}
+}
+
+// runAllCases loads test data and executes each case sequentially.
+func (s *JudgeEngine) runAllCases(
+	ctx context.Context,
+	req model.JudgeRequest,
+	userArtifact *model.CompiledArtifact,
+	checkerArtifact *model.CompiledArtifact,
+) ([]model.JudgeCaseResult, int) {
+	results := make([]model.JudgeCaseResult, 0, len(req.TestCases))
+	passed := 0
+
+	for i, tc := range req.TestCases {
+		if err := s.loadTestCaseData(ctx, &tc); err != nil {
+			s.log.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
+			results = append(results, model.JudgeCaseResult{
+				Verdict:   model.VerdictUKE,
+				ExtraInfo: fmt.Sprintf("test data loading failed: %v", err),
+			})
+			continue
+		}
+		r := s.runSingleCase(ctx, req, userArtifact, checkerArtifact, tc, i)
+		if r.Verdict == model.VerdictOK {
+			passed++
+		}
+		results = append(results, r)
+	}
+
+	return results, passed
 }
 
 // loadTestCaseData resolves file paths to actual content strings.
