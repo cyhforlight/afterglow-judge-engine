@@ -234,7 +234,7 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictWA, result.Cases[0].Verdict)
 	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
-	assert.Equal(t, model.VerdictWA, result.Verdict)
+	assert.Equal(t, model.VerdictOK, result.Verdict)
 	assert.Equal(t, 0, result.PassedCount)
 	assert.Equal(t, 2, runner.calls, "one user run + one checker run")
 }
@@ -279,7 +279,7 @@ func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
 		model.JudgeTestCase{},
 	))
 
-	assert.Equal(t, model.VerdictOLE, result.Verdict)
+	assert.Equal(t, model.VerdictOK, result.Verdict)
 	assert.Equal(t, 4, runner.calls, "only user runs, no checker runs for runtime errors")
 }
 
@@ -312,7 +312,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, model.VerdictWA, result.Cases[1].Verdict)
 	assert.Equal(t, "2nd lines differ", result.Cases[1].ExtraInfo)
 	assert.Equal(t, model.VerdictTLE, result.Cases[2].Verdict)
-	assert.Equal(t, model.VerdictTLE, result.Verdict)
+	assert.Equal(t, model.VerdictOK, result.Verdict)
 	assert.Equal(t, 1, result.PassedCount)
 }
 
@@ -638,4 +638,29 @@ func (f *fakeExternalStorage) Stat(_ context.Context, path string) error {
 		return fmt.Errorf("file not found: %s", path)
 	}
 	return nil
+}
+
+func TestAggregateVerdict(t *testing.T) {
+	tests := []struct {
+		name     string
+		cases    []model.JudgeCaseResult
+		expected model.Verdict
+	}{
+		{"empty cases returns UKE", []model.JudgeCaseResult{}, model.VerdictUKE},
+		{"all OK returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictOK}}, model.VerdictOK},
+		{"WA without UKE returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}}, model.VerdictOK},
+		{"mixed runtime errors without UKE returns OK", []model.JudgeCaseResult{
+			{Verdict: model.VerdictOK}, {Verdict: model.VerdictTLE}, {Verdict: model.VerdictMLE},
+			{Verdict: model.VerdictRE}, {Verdict: model.VerdictOLE}, {Verdict: model.VerdictWA},
+		}, model.VerdictOK},
+		{"any UKE returns UKE", []model.JudgeCaseResult{
+			{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}, {Verdict: model.VerdictTLE}, {Verdict: model.VerdictUKE},
+		}, model.VerdictUKE},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, aggregateVerdict(tt.cases))
+		})
+	}
 }

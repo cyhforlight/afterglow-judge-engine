@@ -68,7 +68,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_2_tle.cpp",
 				language:       "C++",
-				overallVerdict: "TimeLimitExceeded",
+				overallVerdict: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -81,7 +81,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_3_wa_and_tle.cpp",
 				language:       "C++",
-				overallVerdict: "TimeLimitExceeded",
+				overallVerdict: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -94,7 +94,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_4_wa_and_tle.py",
 				language:       "Python",
-				overallVerdict: "TimeLimitExceeded",
+				overallVerdict: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -107,7 +107,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_5_wa_and_tle.c",
 				language:       "C",
-				overallVerdict: "TimeLimitExceeded",
+				overallVerdict: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"WrongAnswer"}},

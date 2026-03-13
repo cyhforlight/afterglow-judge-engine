@@ -197,7 +197,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	}
 
 	return model.JudgeResult{
-		Verdict:     selectWorstVerdict(caseResults),
+		Verdict:     aggregateVerdict(caseResults),
 		Compile:     compileResult,
 		Cases:       caseResults,
 		PassedCount: passedCount,
@@ -593,4 +593,20 @@ func judgeCaseResultFromExecution(
 	result.Verdict = verdict
 	result.ExtraInfo = extraInfo
 	return result
+}
+
+// aggregateVerdict returns the overall judge result status.
+// It only reflects whether the judge system itself worked correctly:
+//   - UKE if any case has an infrastructure error (or no cases at all)
+//   - OK otherwise (the per-case verdicts carry AC/WA/TLE/etc. details)
+func aggregateVerdict(cases []model.JudgeCaseResult) model.Verdict {
+	if len(cases) == 0 {
+		return model.VerdictUKE
+	}
+	for _, c := range cases {
+		if c.Verdict == model.VerdictUKE {
+			return model.VerdictUKE
+		}
+	}
+	return model.VerdictOK
 }
