@@ -61,7 +61,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	// 3. Create checker compile cache (not a global singleton).
-	compileCache, err := cache.New(500)
+	compileCache, err := cache.New(64)
 	if err != nil {
 		slog.Warn("failed to initialize cache", "error", err)
 		compileCache = nil // Allow running without checker cache.

@@ -36,11 +36,6 @@ func (c *Cache) Set(key string, value []byte) {
 	c.cache.Add(key, value)
 }
 
-// Delete removes content from cache.
-func (c *Cache) Delete(key string) {
-	c.cache.Remove(key)
-}
-
 // Len returns the number of entries in the cache.
 func (c *Cache) Len() int {
 	return c.cache.Len()

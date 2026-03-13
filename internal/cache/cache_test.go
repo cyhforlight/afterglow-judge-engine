@@ -93,23 +93,6 @@ func TestCache_LRU_RecentlyAccessed(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestCache_Delete(t *testing.T) {
-	cache, err := New(10)
-	require.NoError(t, err)
-
-	key := "testkey"
-
-	// Set
-	cache.Set(key, []byte("content"))
-
-	// Delete
-	cache.Delete(key)
-
-	// Should be gone from cache
-	_, ok := cache.Get(key)
-	assert.False(t, ok)
-}
-
 func TestCache_Len(t *testing.T) {
 	cache, err := New(10)
 	require.NoError(t, err)
