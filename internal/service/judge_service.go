@@ -589,12 +589,8 @@ func judgeCaseResultFromExecution(
 	verdict model.Verdict,
 	extraInfo string,
 ) model.JudgeCaseResult {
-	return model.JudgeCaseResult{
-		Verdict:    verdict,
-		Stdout:     runResult.Stdout,
-		TimeUsed:   runResult.TimeUsed,
-		MemoryUsed: runResult.MemoryUsed,
-		ExitCode:   runResult.ExitCode,
-		ExtraInfo:  extraInfo,
-	}
+	result := model.JudgeCaseResult(runResult)
+	result.Verdict = verdict
+	result.ExtraInfo = extraInfo
+	return result
 }
