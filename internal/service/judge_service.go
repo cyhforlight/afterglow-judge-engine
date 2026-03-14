@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/sync/singleflight"
+
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
@@ -32,6 +34,13 @@ type JudgeEngine struct {
 	defaultChecker  string
 	cache           *cache.Cache
 	log             *slog.Logger
+	checkerGroup    singleflight.Group
+}
+
+// checkerCompileResult bundles the output of a checker compilation for singleflight.
+type checkerCompileResult struct {
+	artifact *model.CompiledArtifact
+	result   model.CompileResult
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -289,6 +298,7 @@ func (s *JudgeEngine) compileUserCode(
 }
 
 // prepareChecker loads, compiles, and caches a checker.
+// Concurrent calls for the same checker source are coalesced via singleflight.
 func (s *JudgeEngine) prepareChecker(
 	ctx context.Context,
 	loc CheckerLocation,
@@ -326,10 +336,39 @@ func (s *JudgeEngine) prepareChecker(
 		s.log.InfoContext(ctx, "checker cache miss", "key", cacheKey[:16])
 	}
 
+	// Coalesce concurrent compilations of the same checker.
+	v, err, _ := s.checkerGroup.Do(cacheKey, func() (any, error) {
+		// Double-check cache: another goroutine may have populated it.
+		if s.cache != nil {
+			if cached, ok := s.cache.Get(cacheKey); ok {
+				s.log.InfoContext(ctx, "checker cache hit after singleflight wait", "key", cacheKey[:16])
+				return checkerCompileResult{
+					artifact: &model.CompiledArtifact{Data: cached, Mode: 0755},
+					result:   model.CompileResult{Succeeded: true},
+				}, nil
+			}
+		}
+
+		return s.compileChecker(ctx, checkerSource, cacheKey)
+	})
+	if err != nil {
+		return nil, model.CompileResult{}, err
+	}
+
+	cr := v.(checkerCompileResult)
+	return cr.artifact, cr.result, nil
+}
+
+// compileChecker compiles checker source and caches the result on success.
+func (s *JudgeEngine) compileChecker(
+	ctx context.Context,
+	checkerSource []byte,
+	cacheKey string,
+) (any, error) {
 	// Load testlib.h
 	testlibHeader, err := s.resources.Get(ctx, testlibHeaderKey)
 	if err != nil {
-		return nil, model.CompileResult{}, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
+		return nil, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
 	}
 
 	// Compile checker
@@ -360,7 +399,7 @@ func (s *JudgeEngine) prepareChecker(
 
 	compileOut, err := s.compiler.Compile(ctx, compileReq)
 	if err != nil {
-		return nil, model.CompileResult{}, err
+		return nil, err
 	}
 
 	// Cache successful compilation
@@ -368,7 +407,7 @@ func (s *JudgeEngine) prepareChecker(
 		s.cache.Set(cacheKey, compileOut.Artifact.Data)
 	}
 
-	return compileOut.Artifact, compileOut.Result, nil
+	return checkerCompileResult{artifact: compileOut.Artifact, result: compileOut.Result}, nil
 }
 
 func computeCheckerCacheKey(source []byte) string {
