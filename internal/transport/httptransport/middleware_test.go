@@ -93,14 +93,12 @@ func TestRecoveryMiddleware(t *testing.T) {
 		shouldPanic  bool
 		panicValue   any
 		expectedCode int
-		expectedBody string
 	}{
 		{
 			name:         "recovers from panic",
 			shouldPanic:  true,
 			panicValue:   "something went wrong",
 			expectedCode: http.StatusInternalServerError,
-			expectedBody: "Internal Server Error",
 		},
 		{
 			name:         "does not affect normal requests",
@@ -132,7 +130,11 @@ func TestRecoveryMiddleware(t *testing.T) {
 			assert.Equal(t, tt.expectedCode, w.Code)
 
 			if tt.shouldPanic {
-				assert.Contains(t, w.Body.String(), tt.expectedBody)
+				assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+				var resp ErrorResponseDTO
+				err := json.NewDecoder(w.Body).Decode(&resp)
+				require.NoError(t, err)
+				assert.Equal(t, "INTERNAL_ERROR", resp.Code)
 				assert.Contains(t, logBuf.String(), "panic recovered")
 				return
 			}

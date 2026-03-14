@@ -45,7 +45,7 @@ type JudgeCaseResultDTO struct {
 
 // JudgeResponseDTO represents an HTTP judge response.
 type JudgeResponseDTO struct {
-	Verdict     string               `json:"verdict"`
+	Status      string               `json:"status"`
 	Compile     CompileResultDTO     `json:"compile"`
 	Cases       []JudgeCaseResultDTO `json:"cases"`
 	PassedCount int                  `json:"passedCount"`
@@ -144,7 +144,7 @@ func ToJudgeResponse(result model.JudgeResult) JudgeResponseDTO {
 	}
 
 	return JudgeResponseDTO{
-		Verdict: result.Verdict.String(),
+		Status: result.Status.String(),
 		Compile: CompileResultDTO{
 			Succeeded: result.Compile.Succeeded,
 			Log:       result.Compile.Log,

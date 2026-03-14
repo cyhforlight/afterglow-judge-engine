@@ -229,7 +229,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 
 	result := engine.Judge(context.Background(), baseJudgeRequest())
 
-	assert.Equal(t, model.VerdictCE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusCompileError, result.Status)
 	assert.False(t, result.Compile.Succeeded)
 	assert.Equal(t, "compile failed", result.Compile.Log)
 	assert.Empty(t, result.Cases)
@@ -251,7 +251,7 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictWA, result.Cases[0].Verdict)
 	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, 0, result.PassedCount)
 	assert.Equal(t, 2, runner.calls, "one user run + one checker run")
 }
@@ -283,7 +283,7 @@ func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T
 	assert.Equal(t, model.VerdictUKE, result.Cases[1].Verdict)
 	assert.Contains(t, result.Cases[1].ExtraInfo, "checker timed out")
 	assert.Equal(t, model.VerdictOK, result.Cases[2].Verdict)
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.Equal(t, 2, result.PassedCount)
 }
 
@@ -301,7 +301,7 @@ func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
 		model.JudgeTestCase{},
 	))
 
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, 4, runner.calls, "only user runs, no checker runs for runtime errors")
 }
 
@@ -310,7 +310,7 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 
 	result := engine.Judge(context.Background(), baseJudgeRequest())
 
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.False(t, result.Compile.Succeeded)
 	assert.Contains(t, result.Compile.Log, "compile infrastructure error")
 }
@@ -341,7 +341,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, model.VerdictWA, result.Cases[1].Verdict)
 	assert.Equal(t, "2nd lines differ", result.Cases[1].ExtraInfo)
 	assert.Equal(t, model.VerdictTLE, result.Cases[2].Verdict)
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, 1, result.PassedCount)
 }
 
@@ -367,7 +367,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
 	))
 
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, 3, result.PassedCount)
 	assert.Equal(t, 3, result.TotalCount)
 }
@@ -390,7 +390,7 @@ func TestJudgeEngine_SingleTestCase(t *testing.T) {
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictOK, result.Cases[0].Verdict)
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, 1, result.PassedCount)
 }
 
@@ -406,7 +406,7 @@ func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 		model.JudgeTestCase{},
 	))
 
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.True(t, result.Compile.Succeeded)
 	require.Len(t, result.Cases, 2)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
@@ -424,7 +424,7 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 		model.JudgeTestCase{},
 	))
 
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.True(t, result.Compile.Succeeded)
 	require.Len(t, result.Cases, 1)
 	assert.Contains(t, result.Cases[0].ExtraInfo, testlibHeaderKey)
@@ -534,7 +534,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 		},
 	})
 
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Contains(t, resources.keys, "checkers/yesno.cpp")
 	assert.NotContains(t, resources.keys, "checkers/default.cpp")
 }
@@ -575,7 +575,7 @@ func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
 	require.Len(t, result.Cases, 2)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "checker infrastructure error")
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.Equal(t, 4, customRunner.calls)
 }
 
@@ -703,7 +703,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	}
 
 	result := engine.Judge(context.Background(), originalReq)
-	assert.Equal(t, model.VerdictOK, result.Verdict)
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
 
 	// Verify original request was NOT mutated
 	assert.Equal(t, "test.in", originalReq.TestCases[0].InputFile, "InputFile should not be cleared")
@@ -713,7 +713,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 
 	// Call Judge again with the same request to verify it still works
 	result2 := engine.Judge(context.Background(), originalReq)
-	assert.Equal(t, model.VerdictOK, result2.Verdict, "Second call should also succeed")
+	assert.Equal(t, model.JudgeStatusOK, result2.Status, "Second call should also succeed")
 	assert.Equal(t, 4, fakeStorage.getCalls, "Should load files 4 times (2 files x 2 calls)")
 }
 
@@ -746,27 +746,27 @@ func (f *fakeExternalStorage) Stat(_ context.Context, path string) error {
 	return nil
 }
 
-func TestAggregateVerdict(t *testing.T) {
+func TestAggregateStatus(t *testing.T) {
 	tests := []struct {
 		name     string
 		cases    []model.JudgeCaseResult
-		expected model.Verdict
+		expected model.JudgeStatus
 	}{
-		{"empty cases returns UKE", []model.JudgeCaseResult{}, model.VerdictUKE},
-		{"all OK returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictOK}}, model.VerdictOK},
-		{"WA without UKE returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}}, model.VerdictOK},
+		{"empty cases returns SystemError", []model.JudgeCaseResult{}, model.JudgeStatusSystemError},
+		{"all OK returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictOK}}, model.JudgeStatusOK},
+		{"WA without UKE returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}}, model.JudgeStatusOK},
 		{"mixed runtime errors without UKE returns OK", []model.JudgeCaseResult{
 			{Verdict: model.VerdictOK}, {Verdict: model.VerdictTLE}, {Verdict: model.VerdictMLE},
 			{Verdict: model.VerdictRE}, {Verdict: model.VerdictOLE}, {Verdict: model.VerdictWA},
-		}, model.VerdictOK},
-		{"any UKE returns UKE", []model.JudgeCaseResult{
+		}, model.JudgeStatusOK},
+		{"any UKE returns SystemError", []model.JudgeCaseResult{
 			{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}, {Verdict: model.VerdictTLE}, {Verdict: model.VerdictUKE},
-		}, model.VerdictUKE},
+		}, model.JudgeStatusSystemError},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, aggregateVerdict(tt.cases))
+			assert.Equal(t, tt.expected, aggregateStatus(tt.cases))
 		})
 	}
 }

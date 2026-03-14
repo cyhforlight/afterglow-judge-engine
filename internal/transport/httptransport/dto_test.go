@@ -175,7 +175,7 @@ func TestJudgeRequestDTO_ToModel_InvalidLanguage(t *testing.T) {
 
 func TestToJudgeResponse(t *testing.T) {
 	modelResult := model.JudgeResult{
-		Verdict: model.VerdictWA,
+		Status: model.JudgeStatusOK,
 		Compile: model.CompileResult{
 			Succeeded: true,
 			Log:       "ok",
@@ -201,7 +201,7 @@ func TestToJudgeResponse(t *testing.T) {
 	}
 
 	dto := ToJudgeResponse(modelResult)
-	assert.Equal(t, "WrongAnswer", dto.Verdict)
+	assert.Equal(t, "OK", dto.Status)
 	assert.True(t, dto.Compile.Succeeded)
 	require.Len(t, dto.Cases, 2)
 	assert.Equal(t, "OK", dto.Cases[0].Verdict)

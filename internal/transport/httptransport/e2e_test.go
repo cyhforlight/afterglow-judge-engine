@@ -32,11 +32,11 @@ type e2eProblemSuite struct {
 }
 
 type e2eCodeExpectation struct {
-	filename       string
-	language       string
-	overallVerdict string
-	caseVerdicts   []e2eVerdictExpectation
-	passedCount    int
+	filename      string
+	language      string
+	overallStatus string
+	caseVerdicts  []e2eVerdictExpectation
+	passedCount   int
 }
 
 type e2eVerdictExpectation struct {
@@ -55,7 +55,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_1_ac.cpp",
 				language:       "C++",
-				overallVerdict: "OK",
+				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -68,7 +68,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_2_tle.cpp",
 				language:       "C++",
-				overallVerdict: "OK",
+				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -81,7 +81,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_3_wa_and_tle.cpp",
 				language:       "C++",
-				overallVerdict: "OK",
+				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -94,7 +94,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_4_wa_and_tle.py",
 				language:       "Python",
-				overallVerdict: "OK",
+				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"OK"}},
@@ -107,7 +107,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			{
 				filename:       "code_5_wa_and_tle.c",
 				language:       "C",
-				overallVerdict: "OK",
+				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
 					{name: "sum2", allowed: []string{"WrongAnswer"}},
@@ -227,7 +227,7 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 
 					resp := executeJudgeRequest(t, handler, reqBody)
 
-					assert.Equal(t, codeExpectation.overallVerdict, resp.Verdict)
+					assert.Equal(t, codeExpectation.overallStatus, resp.Status)
 					assert.Equal(t, codeExpectation.passedCount, resp.PassedCount)
 					assert.Equal(t, len(testCases), resp.TotalCount)
 					require.Len(t, resp.Cases, len(codeExpectation.caseVerdicts))

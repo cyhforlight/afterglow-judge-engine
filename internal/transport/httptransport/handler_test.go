@@ -83,7 +83,7 @@ func TestHandleHealth_Unhealthy(t *testing.T) {
 
 func TestHandleExecute_Success(t *testing.T) {
 	service := &mockJudgeService{result: model.JudgeResult{
-		Verdict: model.VerdictOK,
+		Status:  model.JudgeStatusOK,
 		Compile: model.CompileResult{Succeeded: true, Log: "ok"},
 		Cases: []model.JudgeCaseResult{{
 			Verdict:   model.VerdictOK,
@@ -107,7 +107,7 @@ func TestHandleExecute_Success(t *testing.T) {
 	var resp JudgeResponseDTO
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
-	assert.Equal(t, "OK", resp.Verdict)
+	assert.Equal(t, "OK", resp.Status)
 	assert.Equal(t, 1, resp.PassedCount)
 	assert.Equal(t, "Python", service.lastRequest.Language.String())
 	assert.Equal(t, "default", service.lastRequest.Checker)

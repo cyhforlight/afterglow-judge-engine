@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/resource"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 )
@@ -38,7 +37,7 @@ func NewJudgeEngine(
 	checkerCompiler Compiler,
 	runner Runner,
 	resources ResourceStore,
-	externalStorage *resource.External,
+	externalStorage ResourceStore,
 	defaultChecker string,
 ) (*JudgeEngine, error) {
 	if resources == nil {
@@ -52,16 +51,12 @@ func NewJudgeEngine(
 	if err := validateCheckerShortName(defaultChecker); err != nil {
 		return nil, fmt.Errorf("default checker: %w", err)
 	}
-	var externalResourceStore ResourceStore
-	if externalStorage != nil {
-		externalResourceStore = externalStorage
-	}
 	return &JudgeEngine{
 		compiler:        compiler,
 		checkerCompiler: checkerCompiler,
 		runner:          runner,
 		resources:       resources,
-		externalStorage: externalResourceStore,
+		externalStorage: externalStorage,
 		defaultChecker:  defaultChecker,
 		log:             slog.Default(),
 	}, nil
@@ -144,7 +139,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 
 	if !compileResult.Succeeded {
 		return model.JudgeResult{
-			Verdict:    model.VerdictCE,
+			Status:     model.JudgeStatusCompileError,
 			Compile:    compileResult,
 			TotalCount: len(req.TestCases),
 			Cases:      make([]model.JudgeCaseResult, 0, len(req.TestCases)),
@@ -172,7 +167,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	caseResults, passedCount := s.runAllCases(ctx, req, compileOut, checkerArtifact)
 
 	return model.JudgeResult{
-		Verdict:     aggregateVerdict(caseResults),
+		Status:      aggregateStatus(caseResults),
 		Compile:     compileResult,
 		Cases:       caseResults,
 		PassedCount: passedCount,
@@ -550,7 +545,7 @@ func (s *JudgeEngine) unknownJudgeResult(
 	}
 
 	return model.JudgeResult{
-		Verdict:    model.VerdictUKE,
+		Status:     model.JudgeStatusSystemError,
 		Compile:    compileResult,
 		Cases:      caseResults,
 		TotalCount: len(testCases),
@@ -559,7 +554,7 @@ func (s *JudgeEngine) unknownJudgeResult(
 
 func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeResult {
 	return model.JudgeResult{
-		Verdict:    model.VerdictUKE,
+		Status:     model.JudgeStatusSystemError,
 		Compile:    model.CompileResult{Succeeded: false, Log: log},
 		TotalCount: len(testCases),
 	}
@@ -576,18 +571,18 @@ func judgeCaseResultFromExecution(
 	return result
 }
 
-// aggregateVerdict returns the overall judge result status.
-// It only reflects whether the judge system itself worked correctly:
-//   - UKE if any case has an infrastructure error (or no cases at all)
+// aggregateStatus returns the overall system-level status of a judge session.
+// It only reflects whether the judge infrastructure worked correctly:
+//   - SystemError if any case has an infrastructure error (or no cases at all)
 //   - OK otherwise (the per-case verdicts carry AC/WA/TLE/etc. details)
-func aggregateVerdict(cases []model.JudgeCaseResult) model.Verdict {
+func aggregateStatus(cases []model.JudgeCaseResult) model.JudgeStatus {
 	if len(cases) == 0 {
-		return model.VerdictUKE
+		return model.JudgeStatusSystemError
 	}
 	for _, c := range cases {
 		if c.Verdict == model.VerdictUKE {
-			return model.VerdictUKE
+			return model.JudgeStatusSystemError
 		}
 	}
-	return model.VerdictOK
+	return model.JudgeStatusOK
 }

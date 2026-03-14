@@ -68,12 +68,13 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	// 4. Create external resource store for test data files.
-	var externalResources *resource.External
+	var externalResources service.ResourceStore
 	if cfg.ExternalDataDir != "" {
-		externalResources, err = resource.NewExternal(cfg.ExternalDataDir)
+		ext, err := resource.NewExternal(cfg.ExternalDataDir)
 		if err != nil {
 			slog.Warn("failed to initialize external resources", "error", err, "path", cfg.ExternalDataDir)
-			externalResources = nil
+		} else {
+			externalResources = ext
 		}
 	}
 

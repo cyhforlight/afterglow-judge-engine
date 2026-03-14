@@ -39,7 +39,7 @@ func RecoveryMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 						"error", err,
 						"path", r.URL.Path,
 					)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					writeErrorResponse(w, logger, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 				}
 			}()
 			next.ServeHTTP(w, r)

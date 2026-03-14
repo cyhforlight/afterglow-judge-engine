@@ -150,9 +150,38 @@ type JudgeCaseResult struct {
 	ExtraInfo  string  `json:"extraInfo"`
 }
 
+// JudgeStatus represents the overall system-level outcome of a judge session.
+// Unlike Verdict (which describes per-case test results like OK/WA/TLE),
+// JudgeStatus describes whether the judge pipeline itself completed successfully.
+type JudgeStatus int
+
+const (
+	JudgeStatusOK           JudgeStatus = iota + 1 // all cases evaluated; check per-case verdicts for details
+	JudgeStatusCompileError                         // user code failed to compile
+	JudgeStatusSystemError                          // infrastructure failure prevented evaluation
+)
+
+func (s JudgeStatus) String() string {
+	switch s {
+	case JudgeStatusOK:
+		return "OK"
+	case JudgeStatusCompileError:
+		return "CompileError"
+	case JudgeStatusSystemError:
+		return "SystemError"
+	default:
+		return "Unknown"
+	}
+}
+
+// MarshalJSON implements json.Marshaler for JudgeStatus.
+func (s JudgeStatus) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
 // JudgeResult contains the final judge outcome.
 type JudgeResult struct {
-	Verdict     Verdict           `json:"verdict"`
+	Status      JudgeStatus       `json:"status"`
 	Compile     CompileResult     `json:"compile"`
 	Cases       []JudgeCaseResult `json:"cases"`
 	PassedCount int               `json:"passedCount"`
