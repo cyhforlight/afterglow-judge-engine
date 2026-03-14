@@ -93,17 +93,13 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	runner := service.NewThrottledRunner(service.NewRunner(sb), containerSem)
 
 	// 6. Create judge engine with internal checker resources.
-	judge, err := service.NewJudgeEngine(
+	judge := service.NewJudgeEngine(
 		compiler,
 		checkerCompiler,
 		runner,
 		bundledResources,
 		externalResources,
-		cfg.DefaultChecker,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("initialize judge engine: %w", err)
-	}
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {

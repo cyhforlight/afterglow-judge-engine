@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolveChecker_Default(t *testing.T) {
-	loc, err := ResolveChecker("", "default")
+	loc, err := ResolveChecker("")
 	require.NoError(t, err)
 	assert.Equal(t, "default", loc.Path)
 	assert.False(t, loc.IsExternal)
@@ -30,7 +30,7 @@ func TestResolveChecker_Builtin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveChecker(tt.input, "default")
+			got, err := ResolveChecker(tt.input)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -67,7 +67,7 @@ func TestResolveChecker_External(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveChecker(tt.input, "default")
+			got, err := ResolveChecker(tt.input)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)

@@ -22,7 +22,6 @@ type Config struct {
 	// Execution Limits
 	MaxInputSizeMB          int
 	MaxConcurrentContainers int
-	DefaultChecker          string
 	ExternalDataDir         string
 
 	// Security
@@ -43,7 +42,6 @@ func Load() (*Config, error) {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		DefaultChecker:  getEnv("DEFAULT_CHECKER", "default"),
 		ExternalDataDir: getEnv("EXTERNAL_DATA_DIR", "/home/forlight/afterglow-judge-engine/testdata"),
 
 		// Security
@@ -101,9 +99,6 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.MaxConcurrentContainers <= 0 {
 		return fmt.Errorf("MAX_CONCURRENT_CONTAINERS must be positive, got %d", cfg.MaxConcurrentContainers)
-	}
-	if cfg.DefaultChecker == "" {
-		return fmt.Errorf("DEFAULT_CHECKER must not be empty")
 	}
 	if cfg.ExternalDataDir == "" {
 		return fmt.Errorf("EXTERNAL_DATA_DIR must not be empty")

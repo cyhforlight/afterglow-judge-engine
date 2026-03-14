@@ -39,10 +39,10 @@ type CheckerLocation struct {
 }
 
 // ResolveChecker converts a request checker name into a validated CheckerLocation.
-func ResolveChecker(raw, defaultChecker string) (CheckerLocation, error) {
+func ResolveChecker(raw string) (CheckerLocation, error) {
 	name := strings.TrimSpace(raw)
 	if name == "" {
-		return CheckerLocation{Path: defaultChecker}, nil
+		return CheckerLocation{Path: defaultCheckerName}, nil
 	}
 
 	if checkerPath, ok := strings.CutPrefix(name, externalPrefix); ok {

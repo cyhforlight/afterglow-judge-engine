@@ -189,19 +189,8 @@ func newTestJudgeEngine(
 			testlibHeaderKey:       []byte("header"),
 		}}
 	}
-	engine, err := NewJudgeEngine(compiler, compiler, runner, resources, nil, defaultCheckerName)
-	if err != nil {
-		panic(err)
-	}
+	engine := NewJudgeEngine(compiler, compiler, runner, resources, nil)
 	return engine
-}
-
-func TestNewJudgeEngine_RequiresInternalResources(t *testing.T) {
-	engine, err := NewJudgeEngine(&fakeCompiler{}, &fakeCompiler{}, &fakeRunner{}, nil, nil, defaultCheckerName)
-
-	require.Error(t, err)
-	assert.Nil(t, engine)
-	assert.Contains(t, err.Error(), "internal resource store is required")
 }
 
 func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
@@ -684,7 +673,6 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		runner:          runner,
 		resources:       resources,
 		externalStorage: fakeStorage,
-		defaultChecker:  "default",
 	}
 
 	originalReq := model.JudgeRequest{

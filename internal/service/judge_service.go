@@ -27,7 +27,6 @@ type JudgeEngine struct {
 	runner          Runner
 	resources       ResourceStore
 	externalStorage ResourceStore
-	defaultChecker  string
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -37,27 +36,14 @@ func NewJudgeEngine(
 	runner Runner,
 	resources ResourceStore,
 	externalStorage ResourceStore,
-	defaultChecker string,
-) (*JudgeEngine, error) {
-	if resources == nil {
-		return nil, errors.New("internal resource store is required")
-	}
-
-	defaultChecker = strings.TrimSpace(defaultChecker)
-	if defaultChecker == "" {
-		defaultChecker = defaultCheckerName
-	}
-	if err := validateCheckerShortName(defaultChecker); err != nil {
-		return nil, fmt.Errorf("default checker: %w", err)
-	}
+) *JudgeEngine {
 	return &JudgeEngine{
 		compiler:        compiler,
 		checkerCompiler: checkerCompiler,
 		runner:          runner,
 		resources:       resources,
 		externalStorage: externalStorage,
-		defaultChecker:  defaultChecker,
-	}, nil
+	}
 }
 
 // PreflightCheck verifies backend runtime readiness.
@@ -67,7 +53,7 @@ func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
 
 // ValidateRequest verifies whether the request can be handled by the judge.
 func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeRequest) error {
-	checkerLoc, err := ResolveChecker(req.Checker, s.defaultChecker)
+	checkerLoc, err := ResolveChecker(req.Checker)
 	if err != nil {
 		return err
 	}
@@ -124,7 +110,7 @@ func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, labe
 // Judge compiles source code and evaluates all test cases.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
 	// Resolve checker before compilation so direct callers get early validation.
-	checkerLoc, err := ResolveChecker(req.Checker, s.defaultChecker)
+	checkerLoc, err := ResolveChecker(req.Checker)
 	if err != nil {
 		return failedBeforeRun(req.TestCases, err.Error())
 	}

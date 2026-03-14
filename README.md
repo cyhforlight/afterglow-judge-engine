@@ -297,7 +297,7 @@ GET /health
 - `rcmp6`
 - `rcmp9`
 
-`checker` 字段为空时，会回退到服务端配置的 `DEFAULT_CHECKER`。
+`checker` 字段为空时，默认使用内置的 `default` checker。
 
 ### 外部 checker
 
@@ -319,7 +319,6 @@ external:relative/path/to/checker.cpp
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |
 | `MAX_CONCURRENT_CONTAINERS` | `8` | 同时运行的最大容器数（编译+执行共享） |
-| `DEFAULT_CHECKER` | `default` | 未显式指定 `checker` 时使用的默认 checker |
 | `EXTERNAL_DATA_DIR` | `/home/forlight/afterglow-judge-engine/testdata` | 外部测试数据和外部 checker 根目录 |
 | `API_KEY` | 空 | Bearer Token；非空时自动启用鉴权 |
 | `LOG_LEVEL` | `info` | 日志级别；当前支持 `info` 和 `debug` |

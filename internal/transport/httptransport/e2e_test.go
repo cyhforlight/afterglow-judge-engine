@@ -169,9 +169,8 @@ func newE2EHandler(t *testing.T) *Handler {
 		compileCache,
 	)
 	baseRunner := service.NewThrottledRunner(service.NewRunner(sb), testContainerSem)
-	judge, err := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
-		bundledResources, externalResources, "default")
-	require.NoError(t, err)
+	judge := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
+		bundledResources, externalResources)
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {
