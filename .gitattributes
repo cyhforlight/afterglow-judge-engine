@@ -1,3 +1,6 @@
+# 统一换行符为 LF
+* text=auto eol=lf
+
 # 忽略第三方代码
 testdata/** linguist-detectable=false
 support/** linguist-detectable=false
