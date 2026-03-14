@@ -36,8 +36,8 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 	if cfg.APIKey != "" {
 		finalHandler = AuthMiddleware(logger, cfg.APIKey)(finalHandler)
 	}
-	finalHandler = LoggingMiddleware(logger)(finalHandler)
 	finalHandler = RecoveryMiddleware(logger)(finalHandler)
+	finalHandler = LoggingMiddleware(logger)(finalHandler)
 
 	addr := fmt.Sprintf("%s:%d", cfg.HTTPAddr, cfg.HTTPPort)
 	httpServer := &http.Server{
