@@ -21,7 +21,12 @@ import (
 const httpShutdownTimeout = 10 * time.Second
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		os.Exit(1)
+	}
+
 	logger := setupLogger(cfg.LogLevel)
 	slog.SetDefault(logger)
 
@@ -73,10 +78,9 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	if cfg.ExternalDataDir != "" {
 		ext, err := resource.NewExternal(cfg.ExternalDataDir)
 		if err != nil {
-			slog.Warn("failed to initialize external resources", "error", err, "path", cfg.ExternalDataDir)
-		} else {
-			externalResources = ext
+			return nil, fmt.Errorf("initialize external resources %q: %w", cfg.ExternalDataDir, err)
 		}
+		externalResources = ext
 	}
 
 	// 5. Create base compiler and runner primitives, throttled by a shared semaphore.
