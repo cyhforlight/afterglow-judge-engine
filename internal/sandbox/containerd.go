@@ -102,6 +102,10 @@ func (s *ContainerdSandbox) PreflightCheck(ctx context.Context) error {
 
 // Execute runs a command in an isolated container.
 func (s *ContainerdSandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+	if err := validateExecuteLimits(req.Limits); err != nil {
+		return ExecuteResult{}, err
+	}
+
 	client, err := containerd.New(s.socketPath)
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("connect to containerd: %w", err)
@@ -116,6 +120,21 @@ func (s *ContainerdSandbox) Execute(ctx context.Context, req ExecuteRequest) (Ex
 	}
 
 	return s.executeInContainer(execCtx, client, image, req)
+}
+
+func validateExecuteLimits(limits ResourceLimits) error {
+	switch {
+	case limits.CPUTimeMs <= 0:
+		return errors.New("CPU time limit must be positive")
+	case limits.WallTimeMs <= 0:
+		return errors.New("wall time limit must be positive")
+	case limits.MemoryMB <= 0:
+		return errors.New("memory limit must be positive")
+	case limits.OutputBytes <= 0:
+		return errors.New("output limit must be positive")
+	default:
+		return nil
+	}
 }
 
 func (s *ContainerdSandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {

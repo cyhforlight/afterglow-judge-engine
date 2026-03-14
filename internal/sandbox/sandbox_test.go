@@ -7,6 +7,77 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateExecuteLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		limits  ResourceLimits
+		wantErr string
+	}{
+		{
+			name: "valid limits",
+			limits: ResourceLimits{
+				CPUTimeMs:   1000,
+				WallTimeMs:  3000,
+				MemoryMB:    256,
+				OutputBytes: 1024,
+			},
+		},
+		{
+			name: "cpu time must be positive",
+			limits: ResourceLimits{
+				CPUTimeMs:   0,
+				WallTimeMs:  3000,
+				MemoryMB:    256,
+				OutputBytes: 1024,
+			},
+			wantErr: "CPU time limit must be positive",
+		},
+		{
+			name: "wall time must be positive",
+			limits: ResourceLimits{
+				CPUTimeMs:   1000,
+				WallTimeMs:  0,
+				MemoryMB:    256,
+				OutputBytes: 1024,
+			},
+			wantErr: "wall time limit must be positive",
+		},
+		{
+			name: "memory must be positive",
+			limits: ResourceLimits{
+				CPUTimeMs:   1000,
+				WallTimeMs:  3000,
+				MemoryMB:    0,
+				OutputBytes: 1024,
+			},
+			wantErr: "memory limit must be positive",
+		},
+		{
+			name: "output must be positive",
+			limits: ResourceLimits{
+				CPUTimeMs:   1000,
+				WallTimeMs:  3000,
+				MemoryMB:    256,
+				OutputBytes: 0,
+			},
+			wantErr: "output limit must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateExecuteLimits(tt.limits)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, tt.wantErr, err.Error())
+		})
+	}
+}
+
 func TestResolveCwd(t *testing.T) {
 	tests := []struct {
 		name    string
