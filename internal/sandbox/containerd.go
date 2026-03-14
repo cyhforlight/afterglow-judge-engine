@@ -39,7 +39,6 @@ const (
 type ContainerdSandbox struct {
 	socketPath string
 	namespace  string
-	log        *slog.Logger
 
 	checkCgroupV2   func() error
 	checkContainerd func(ctx context.Context, socketPath string) error
@@ -57,7 +56,6 @@ func NewContainerdSandbox(socketPath, namespace string) *ContainerdSandbox {
 	return &ContainerdSandbox{
 		socketPath:      socketPath,
 		namespace:       namespace,
-		log:             slog.Default(),
 		checkCgroupV2:   ensureCgroupV2Enabled,
 		checkContainerd: ensureContainerdAvailable,
 	}
@@ -98,7 +96,7 @@ func (s *ContainerdSandbox) PreflightCheck(ctx context.Context) error {
 	if err := s.checkContainerd(ctx, s.socketPath); err != nil {
 		return err
 	}
-	s.log.DebugContext(ctx, "sandbox preflight checks passed")
+	slog.DebugContext(ctx, "sandbox preflight checks passed")
 	return nil
 }
 
@@ -123,13 +121,13 @@ func (s *ContainerdSandbox) Execute(ctx context.Context, req ExecuteRequest) (Ex
 func (s *ContainerdSandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
 	image, err := client.GetImage(ctx, imageRef)
 	if err == nil {
-		s.log.DebugContext(ctx, "image found locally", "ref", imageRef)
+		slog.DebugContext(ctx, "image found locally", "ref", imageRef)
 		return image, nil
 	}
 	if !errdefs.IsNotFound(err) {
 		return nil, fmt.Errorf("get image %q: %w", imageRef, err)
 	}
-	s.log.InfoContext(ctx, "pulling image", "ref", imageRef)
+	slog.InfoContext(ctx, "pulling image", "ref", imageRef)
 	image, err = client.Pull(ctx, imageRef, containerd.WithPullUnpack)
 	if err != nil {
 		return nil, fmt.Errorf("pull image %q: %w", imageRef, err)
@@ -203,7 +201,7 @@ func (s *ContainerdSandbox) executeInContainer(
 	}
 	addCleanup(func() { _ = container.Delete(ctx, containerd.WithSnapshotCleanup) })
 
-	s.log.DebugContext(ctx, "container created", "id", containerID, "image", req.ImageRef)
+	slog.DebugContext(ctx, "container created", "id", containerID, "image", req.ImageRef)
 
 	oleLimiter := newOutputLimiter(req.Limits.OutputBytes)
 	stdoutLW := newLimitedWriter(oleLimiter)

@@ -28,7 +28,6 @@ type JudgeEngine struct {
 	resources       ResourceStore
 	externalStorage ResourceStore
 	defaultChecker  string
-	log             *slog.Logger
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -58,7 +57,6 @@ func NewJudgeEngine(
 		resources:       resources,
 		externalStorage: externalStorage,
 		defaultChecker:  defaultChecker,
-		log:             slog.Default(),
 	}, nil
 }
 
@@ -133,7 +131,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 
 	compileOut, compileResult, err := s.compileUserCode(ctx, req.Language, req.SourceCode)
 	if err != nil {
-		s.log.ErrorContext(ctx, "compile step failed", "error", err)
+		slog.ErrorContext(ctx, "compile step failed", "error", err)
 		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
 	}
 
@@ -148,7 +146,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 
 	checkerArtifact, checkerResult, err := s.prepareChecker(ctx, checkerLoc)
 	if err != nil {
-		s.log.ErrorContext(ctx, "checker setup failed", "error", err)
+		slog.ErrorContext(ctx, "checker setup failed", "error", err)
 		return s.unknownJudgeResult(req.TestCases, compileResult, fmt.Sprintf("checker setup failed: %v", err))
 	}
 	if !checkerResult.Succeeded {
@@ -156,11 +154,11 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		if message == "" {
 			message = "checker compilation failed"
 		}
-		s.log.ErrorContext(ctx, "checker compilation failed", "log", message)
+		slog.ErrorContext(ctx, "checker compilation failed", "log", message)
 		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation failed: "+message)
 	}
 	if checkerArtifact == nil {
-		s.log.ErrorContext(ctx, "checker compilation succeeded without artifact")
+		slog.ErrorContext(ctx, "checker compilation succeeded without artifact")
 		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation succeeded without artifact")
 	}
 
@@ -191,7 +189,7 @@ func (s *JudgeEngine) runAllCases(
 		go func() {
 			defer wg.Done()
 			if err := s.loadTestCaseData(ctx, &tc); err != nil {
-				s.log.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
+				slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
 				results[i] = model.JudgeCaseResult{
 					Verdict:   model.VerdictUKE,
 					ExtraInfo: fmt.Sprintf("test data loading failed: %v", err),
@@ -497,7 +495,7 @@ func (s *JudgeEngine) runSingleCase(
 
 	runResult, err := s.executeUserCode(ctx, userArtifact, req.Language, testCase.InputText, req.TimeLimit, req.MemoryLimit)
 	if err != nil {
-		s.log.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
+		slog.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
 		return model.JudgeCaseResult{
 			Verdict:   model.VerdictUKE,
 			ExtraInfo: fmt.Sprintf("infrastructure error: %v", err),
@@ -510,7 +508,7 @@ func (s *JudgeEngine) runSingleCase(
 
 	checkerVerdict, checkerMessage, err := s.runChecker(ctx, checkerArtifact, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
 	if err != nil {
-		s.log.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
+		slog.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
 		return judgeCaseResultFromExecution(
 			runResult,
 			model.VerdictUKE,

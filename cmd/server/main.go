@@ -23,6 +23,7 @@ const httpShutdownTimeout = 10 * time.Second
 func main() {
 	cfg := config.Load()
 	logger := setupLogger(cfg.LogLevel)
+	slog.SetDefault(logger)
 
 	logger.Info("starting sandbox server", "addr", fmt.Sprintf("%s:%d", cfg.HTTPAddr, cfg.HTTPPort))
 

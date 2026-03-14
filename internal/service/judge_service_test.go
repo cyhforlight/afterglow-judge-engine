@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"sync"
 	"testing"
 
@@ -686,7 +685,6 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		resources:       resources,
 		externalStorage: fakeStorage,
 		defaultChecker:  "default",
-		log:             slog.Default(),
 	}
 
 	originalReq := model.JudgeRequest{
