@@ -28,6 +28,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 
 	for _, tcNum := range testcases {
 		t.Run(fmt.Sprintf("testcase-%d", tcNum), func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 
 			// Locate testcase directory
@@ -88,7 +89,7 @@ func compileCheckerForTestOK(ctx context.Context, t *testing.T, checkerName stri
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb)
+	compiler := NewThrottledCompiler(NewCompiler(sb), testContainerSem)
 
 	profile := checkerProfile()
 	out, err := compiler.Compile(ctx, CompileRequest{

@@ -22,6 +22,9 @@ type serviceIntegrationEnv struct {
 	runner   Runner
 }
 
+// testContainerSem limits concurrent container operations across all tests in this package.
+var testContainerSem = make(chan struct{}, 8)
+
 var (
 	projectRootOnce   sync.Once
 	cachedProjectRoot string
@@ -81,13 +84,13 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 func newCompilerForTest(t *testing.T) Compiler {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
-	return NewCompiler(sb)
+	return NewThrottledCompiler(NewCompiler(sb), testContainerSem)
 }
 
 func newRunnerForTest(t *testing.T) Runner {
 	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
-	return NewRunner(sb)
+	return NewThrottledRunner(NewRunner(sb), testContainerSem)
 }
 
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {

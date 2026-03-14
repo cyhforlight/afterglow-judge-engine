@@ -128,6 +128,9 @@ func requireE2EPrerequisites(t *testing.T) {
 	}
 }
 
+// testContainerSem limits concurrent container operations across all tests in this package.
+var testContainerSem = make(chan struct{}, 8)
+
 func projectRoot(t *testing.T) string {
 	t.Helper()
 
@@ -160,8 +163,8 @@ func newE2EHandler(t *testing.T) *Handler {
 	externalResources, err := resource.NewExternal(testdataDir)
 	require.NoError(t, err)
 
-	baseCompiler := service.NewCompiler(sb)
-	baseRunner := service.NewRunner(sb)
+	baseCompiler := service.NewThrottledCompiler(service.NewCompiler(sb), testContainerSem)
+	baseRunner := service.NewThrottledRunner(service.NewRunner(sb), testContainerSem)
 	judge, err := service.NewJudgeEngine(baseCompiler, baseRunner,
 		bundledResources, externalResources, "default", compileCache)
 	require.NoError(t, err)
@@ -208,6 +211,7 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 
 			for _, codeExpectation := range suite.codes {
 				t.Run(codeExpectation.filename, func(t *testing.T) {
+					t.Parallel()
 					reqBody := JudgeRequestDTO{
 						SourceCode:  readSourceCode(t, suite.dir, codeExpectation.filename),
 						Checker:     suite.checker,

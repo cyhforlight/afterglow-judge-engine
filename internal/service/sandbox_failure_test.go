@@ -64,6 +64,7 @@ func TestSandboxFailure_CompileError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 60*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
@@ -92,6 +93,7 @@ func TestSandboxFailure_TimeLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
@@ -121,6 +123,7 @@ func TestSandboxFailure_MemoryLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
@@ -152,6 +155,7 @@ func TestSandboxFailure_RuntimeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
@@ -179,6 +183,7 @@ func TestSandboxFailure_OutputLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 

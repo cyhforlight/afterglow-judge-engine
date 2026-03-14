@@ -50,7 +50,7 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName string
 	require.NoError(t, err)
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb)
+	compiler := NewThrottledCompiler(NewCompiler(sb), testContainerSem)
 
 	profile := checkerProfile()
 	out, err := compiler.Compile(ctx, CompileRequest{
@@ -84,7 +84,7 @@ func runCheckerForTest(
 	t.Helper()
 
 	sb := sandbox.NewContainerdSandbox("", "")
-	runner := NewRunner(sb)
+	runner := NewThrottledRunner(NewRunner(sb), testContainerSem)
 
 	profile := checkerProfile()
 	runOut, err := runner.Run(ctx, RunRequest{
@@ -305,6 +305,7 @@ func TestChecker_AllBundledCheckers(t *testing.T) {
 
 	for _, scenario := range checkerScenarios() {
 		t.Run(strings.TrimSuffix(scenario.checker, ".cpp"), func(t *testing.T) {
+			t.Parallel()
 			ctx := newIntegrationContext(t, 90*time.Second)
 			checker := compileCheckerForTest(ctx, t, scenario.checker)
 

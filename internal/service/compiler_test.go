@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
@@ -16,12 +15,10 @@ import (
 )
 
 func TestCompiler_RealCompile(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
+	requireServiceIntegrationTest(t)
+	t.Parallel()
 
-	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb)
+	compiler := newCompilerForTest(t)
 
 	profile, err := ProfileForLanguage(model.LanguageC)
 	require.NoError(t, err)
@@ -51,12 +48,10 @@ func TestCompiler_RealCompile(t *testing.T) {
 }
 
 func TestCompiler_CompilationFailure(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
+	requireServiceIntegrationTest(t)
+	t.Parallel()
 
-	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb)
+	compiler := newCompilerForTest(t)
 
 	profile, err := ProfileForLanguage(model.LanguageC)
 	require.NoError(t, err)
@@ -86,12 +81,9 @@ func TestCompiler_CompilationFailure(t *testing.T) {
 }
 
 func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
-	if !hasContainerd(t) {
-		t.Skip("containerd not available")
-	}
+	requireServiceIntegrationTest(t)
 
-	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewCompiler(sb)
+	compiler := newCompilerForTest(t)
 
 	profile, err := ProfileForLanguage(model.LanguageC)
 	require.NoError(t, err)
@@ -128,16 +120,6 @@ func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 
 	assert.Equal(t, beforeCount, afterCount, "no workspace should leak after compile")
 	assert.NotEmpty(t, out.Artifact.Data, "artifact should be returned by value")
-}
-
-func hasContainerd(t *testing.T) bool {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	sb := sandbox.NewContainerdSandbox("", "")
-	return sb.PreflightCheck(ctx) == nil
 }
 
 // countJudgeWorkspaces counts sandbox workspace directories.
