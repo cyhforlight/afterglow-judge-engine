@@ -14,71 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompiler_RealCompile(t *testing.T) {
-	requireServiceIntegrationTest(t)
-	t.Parallel()
-
-	compiler := newCompilerForTest(t)
-
-	profile, err := ProfileForLanguage(model.LanguageC)
-	require.NoError(t, err)
-
-	req := CompileRequest{
-		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFiles[0],
-			Content: []byte("int main() { return 42; }"),
-			Mode:    0644,
-		}},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
-		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
-		},
-	}
-
-	out, err := compiler.Compile(context.Background(), req)
-	require.NoError(t, err)
-	require.True(t, out.Result.Succeeded)
-	require.NotNil(t, out.Artifact)
-	assert.NotEmpty(t, out.Artifact.Data)
-}
-
-func TestCompiler_CompilationFailure(t *testing.T) {
-	requireServiceIntegrationTest(t)
-	t.Parallel()
-
-	compiler := newCompilerForTest(t)
-
-	profile, err := ProfileForLanguage(model.LanguageC)
-	require.NoError(t, err)
-
-	req := CompileRequest{
-		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFiles[0],
-			Content: []byte("int main( { return 0; }"), // Syntax error
-			Mode:    0644,
-		}},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
-		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
-		},
-	}
-
-	out, err := compiler.Compile(context.Background(), req)
-	require.NoError(t, err, "Compile should not return error for compilation failure")
-	require.False(t, out.Result.Succeeded, "compilation should fail")
-	require.NotEmpty(t, out.Result.Log, "should have error log")
-	require.Nil(t, out.Artifact, "failed compilation should have no artifact")
-}
+// TestCompiler_RealCompile / TestCompiler_CompilationFailure 已移除：
+// 编译成功/失败的行为已被 ok_checker_integration_test 和 sandbox_failure_test 充分覆盖，
+// 单独的编译原语测试必要性较低。
 
 func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 	requireServiceIntegrationTest(t)

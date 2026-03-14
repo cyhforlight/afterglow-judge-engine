@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,13 +39,27 @@ func newInternalResourceStoreForTest(t *testing.T) ResourceStore {
 	return resourceStore
 }
 
-// compileCheckerForTest compiles a builtin checker using Compiler directly.
-func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName string) model.CompiledArtifact {
+// compileCheckerForTest compiles a checker for testing.
+// For builtin checkers (e.g. "default.cpp"), source is loaded from bundled resources.
+// For external checkers (path contains separator, e.g. "subdir/checker.cpp"),
+// source is loaded from externalDir on the filesystem.
+func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, externalDir string) model.CompiledArtifact {
 	t.Helper()
 
 	resourceStore := newInternalResourceStoreForTest(t)
-	checkerSource, err := resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
-	require.NoError(t, err)
+
+	var checkerSource []byte
+	var err error
+	if filepath.Base(checkerName) != checkerName {
+		// External checker — load from filesystem.
+		checkerPath := filepath.Join(externalDir, checkerName)
+		checkerSource, err = os.ReadFile(checkerPath)
+		require.NoError(t, err, "failed to read external checker: %s", checkerPath)
+	} else {
+		// Builtin checker — load from bundled resources.
+		checkerSource, err = resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
+		require.NoError(t, err)
+	}
 
 	testlibHeader, err := resourceStore.Get(ctx, testlibHeaderKey)
 	require.NoError(t, err)
@@ -307,7 +322,7 @@ func TestChecker_AllBundledCheckers(t *testing.T) {
 		t.Run(strings.TrimSuffix(scenario.checker, ".cpp"), func(t *testing.T) {
 			t.Parallel()
 			ctx := newIntegrationContext(t, 90*time.Second)
-			checker := compileCheckerForTest(ctx, t, scenario.checker)
+			checker := compileCheckerForTest(ctx, t, scenario.checker, "")
 
 			cases := []checkerCase{scenario.okCase, scenario.failCase}
 			for _, tc := range cases {
