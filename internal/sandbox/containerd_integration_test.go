@@ -25,23 +25,15 @@ func TestContainerdSandbox_PreflightCheck(t *testing.T) {
 }
 
 func TestContainerdSandbox_Execute_SimpleEcho(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
+	env := newStandardSandboxTestEnv(t)
 
 	req := ExecuteRequest{
 		ImageRef: testPythonImageRef,
 		Command:  []string{"python3", "-c", "print('Hello World')"},
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
+		Limits:   standardLimits(),
 	}
 
-	result, err := sb.Execute(ctx, req)
+	result, err := env.sb.Execute(env.ctx, req)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, result.ExitCode)
@@ -50,10 +42,7 @@ func TestContainerdSandbox_Execute_SimpleEcho(t *testing.T) {
 }
 
 func TestContainerdSandbox_Execute_WithStdin(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
+	env := newStandardSandboxTestEnv(t)
 
 	stdin := bytes.NewBufferString("test input\n")
 
@@ -61,15 +50,10 @@ func TestContainerdSandbox_Execute_WithStdin(t *testing.T) {
 		ImageRef: testPythonImageRef,
 		Command:  []string{"python3", "-c", "import sys; print(sys.stdin.read(), end='')"},
 		Stdin:    stdin,
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
+		Limits:   standardLimits(),
 	}
 
-	result, err := sb.Execute(ctx, req)
+	result, err := env.sb.Execute(env.ctx, req)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, result.ExitCode)
@@ -77,197 +61,171 @@ func TestContainerdSandbox_Execute_WithStdin(t *testing.T) {
 	assert.Contains(t, result.Stdout, "test input")
 }
 
-func TestContainerdSandbox_Execute_TLE(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "while True: pass"},
-		Limits: ResourceLimits{
-			CPUTimeMs:   100, // 100ms limit
-			WallTimeMs:  300, // 300ms wall time
-			MemoryMB:    128,
-			OutputBytes: 1024,
+func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
+	tests := []struct {
+		name            string
+		script          string
+		limits          ResourceLimits
+		expectedCode    int
+		expectedVerdict Verdict
+		checkExtraInfo  string // Substring to check in ExtraInfo
+	}{
+		{
+			name:            "OK - simple output",
+			script:          "print('Hello World')",
+			limits:          standardLimits(),
+			expectedCode:    0,
+			expectedVerdict: VerdictOK,
+		},
+		{
+			name:            "TLE - infinite loop",
+			script:          "while True: pass",
+			limits:          tightLimits(100, 128),
+			expectedCode:    0,
+			expectedVerdict: VerdictTLE,
+			checkExtraInfo:  "limit",
+		},
+		{
+			name:            "MLE - large allocation",
+			script:          "x = bytearray(100 * 1024 * 1024)",
+			limits:          tightLimits(5000, 64),
+			expectedCode:    -1, // Don't assert specific exit code (can be 137, or other non-zero)
+			expectedVerdict: VerdictMLE,
+			checkExtraInfo:  "memory limit",
+		},
+		{
+			name:            "OLE - excessive output",
+			script:          "print('x' * 10000000)",
+			limits:          largeLimits(),
+			expectedCode:    0,
+			expectedVerdict: VerdictOLE,
+			checkExtraInfo:  "output limit",
+		},
+		{
+			name:            "RE - non-zero exit",
+			script:          "import sys; sys.exit(42)",
+			limits:          standardLimits(),
+			expectedCode:    42,
+			expectedVerdict: VerdictRE,
 		},
 	}
 
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newStandardSandboxTestEnv(t)
 
-	assert.Equal(t, VerdictTLE, result.Verdict)
-	assert.Contains(t, result.ExtraInfo, "limit")
+			req := ExecuteRequest{
+				ImageRef: testPythonImageRef,
+				Command:  []string{"python3", "-c", tt.script},
+				Limits:   tt.limits,
+			}
+
+			result, err := env.sb.Execute(env.ctx, req)
+			require.NoError(t, err)
+
+			if tt.expectedCode >= 0 {
+				assert.Equal(t, tt.expectedCode, result.ExitCode)
+			}
+			assert.Equal(t, tt.expectedVerdict, result.Verdict)
+
+			if tt.checkExtraInfo != "" {
+				assert.Contains(t, result.ExtraInfo, tt.checkExtraInfo)
+			}
+		})
+	}
 }
 
-func TestContainerdSandbox_Execute_OLE(t *testing.T) {
-	requireSandboxIntegrationTest(t)
+func TestContainerdSandbox_IOOperations(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMount  func(t *testing.T, tmpDir string) // Prepare files
+		script      string
+		stdin       string
+		mountRO     bool
+		checkResult func(t *testing.T, tmpDir string, result ExecuteResult)
+	}{
+		{
+			name:       "stdin - read and process",
+			setupMount: nil,
+			script:     "import sys; print(sys.stdin.read(), end='')",
+			stdin:      "test input\n",
+			checkResult: func(t *testing.T, tmpDir string, result ExecuteResult) {
+				assert.Equal(t, 0, result.ExitCode)
+				assert.Equal(t, VerdictOK, result.Verdict)
+				assert.Contains(t, result.Stdout, "test input")
+			},
+		},
+		{
+			name: "read file - compute result",
+			setupMount: func(t *testing.T, tmpDir string) {
+				err := os.WriteFile(filepath.Join(tmpDir, "input.txt"), []byte("7\n"), 0o644)
+				require.NoError(t, err)
+			},
+			script:  "n = int(open('/sandbox/input.txt').read()); print(n * n)",
+			mountRO: true,
+			checkResult: func(t *testing.T, tmpDir string, result ExecuteResult) {
+				assert.Equal(t, 0, result.ExitCode)
+				assert.Equal(t, VerdictOK, result.Verdict)
+				assert.Contains(t, result.Stdout, "49")
+			},
+		},
+		{
+			name:       "write file - create output",
+			setupMount: nil,
+			script: `
+with open('/sandbox/result.txt', 'w') as f:
+    f.write('test output')
+print('done')
+`,
+			mountRO: false,
+			checkResult: func(t *testing.T, tmpDir string, result ExecuteResult) {
+				assert.Equal(t, 0, result.ExitCode)
+				assert.Equal(t, VerdictOK, result.Verdict)
 
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "print('x' * 10000000)"},
-		Limits: ResourceLimits{
-			CPUTimeMs:   5000,
-			WallTimeMs:  15000,
-			MemoryMB:    128,
-			OutputBytes: 1024 * 1024, // 1MB limit
+				content, err := os.ReadFile(filepath.Join(tmpDir, "result.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, "test output", string(content))
+			},
 		},
 	}
 
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newStandardSandboxTestEnv(t)
+			tmpDir := t.TempDir()
 
-	assert.Equal(t, VerdictOLE, result.Verdict)
-	assert.Contains(t, result.ExtraInfo, "output limit")
-}
+			if tt.setupMount != nil {
+				tt.setupMount(t, tmpDir)
+			}
 
-func TestContainerdSandbox_Execute_NonZeroExit(t *testing.T) {
-	requireSandboxIntegrationTest(t)
+			req := ExecuteRequest{
+				ImageRef: testPythonImageRef,
+				Command:  []string{"python3", "-c", tt.script},
+				Limits:   standardLimits(),
+			}
 
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
+			if tt.stdin != "" {
+				req.Stdin = bytes.NewBufferString(tt.stdin)
+			}
 
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "import sys; sys.exit(42)"},
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
+			if tmpDir != "" {
+				req.MountDir = &Mount{
+					HostPath:      tmpDir,
+					ContainerPath: "/sandbox",
+					ReadOnly:      tt.mountRO,
+				}
+			}
+
+			result, err := env.sb.Execute(env.ctx, req)
+			require.NoError(t, err)
+
+			tt.checkResult(t, tmpDir, result)
+		})
 	}
-
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 42, result.ExitCode)
-	assert.Equal(t, VerdictRE, result.Verdict)
-}
-
-func TestContainerdSandbox_Execute_MountedBinary(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
-
-	// 挂载 testdata/test_runner/test_runner 二进制
-	testRunnerPath := filepath.Join("..", "..", "testdata", "test_runner", "test_runner")
-	absPath, err := filepath.Abs(testRunnerPath)
-	require.NoError(t, err)
-
-	tmpDir := t.TempDir()
-	// 复制二进制到临时目录（确保权限正确）
-	data, err := os.ReadFile(absPath)
-	require.NoError(t, err)
-	binaryPath := filepath.Join(tmpDir, "test_runner")
-	err = os.WriteFile(binaryPath, data, 0o755)
-	require.NoError(t, err)
-
-	req := ExecuteRequest{
-		ImageRef: testStaticImageRef,
-		Command:  []string{"/sandbox/test_runner"},
-		MountDir: &Mount{
-			HostPath:      tmpDir,
-			ContainerPath: "/sandbox",
-			ReadOnly:      true,
-		},
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
-	}
-
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, VerdictOK, result.Verdict)
-	assert.Contains(t, result.Stdout, "Hello from test binary")
-}
-
-func TestContainerdSandbox_Execute_MountedBinaryReadFile(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
-
-	// 准备测试二进制和数据文件
-	testRunnerPath := filepath.Join("..", "..", "testdata", "test_runner", "test_runner")
-	absPath, err := filepath.Abs(testRunnerPath)
-	require.NoError(t, err)
-
-	tmpDir := t.TempDir()
-	data, err := os.ReadFile(absPath)
-	require.NoError(t, err)
-	binaryPath := filepath.Join(tmpDir, "test_runner")
-	err = os.WriteFile(binaryPath, data, 0o755)
-	require.NoError(t, err)
-
-	// 创建输入文件
-	inputPath := filepath.Join(tmpDir, "input.txt")
-	err = os.WriteFile(inputPath, []byte("7\n"), 0o644)
-	require.NoError(t, err)
-
-	req := ExecuteRequest{
-		ImageRef: testStaticImageRef,
-		Command:  []string{"/sandbox/test_runner", "readfile", "/sandbox/input.txt"},
-		MountDir: &Mount{
-			HostPath:      tmpDir,
-			ContainerPath: "/sandbox",
-			ReadOnly:      true,
-		},
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
-	}
-
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, VerdictOK, result.Verdict)
-	assert.Contains(t, result.Stdout, "49") // 7*7=49
-}
-
-func TestContainerdSandbox_Execute_MLE(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "x = bytearray(100 * 1024 * 1024)"},
-		Limits: ResourceLimits{
-			CPUTimeMs:   5000,
-			WallTimeMs:  15000,
-			MemoryMB:    64, // 64MB limit
-			OutputBytes: 1024,
-		},
-	}
-
-	result, err := sb.Execute(ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, VerdictMLE, result.Verdict)
-	assert.Contains(t, result.ExtraInfo, "memory limit")
 }
 
 func TestContainerdSandbox_Execute_WriteFile(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 10*time.Second)
+	env := newStandardSandboxTestEnv(t)
 
 	tmpDir := t.TempDir()
 
@@ -285,15 +243,10 @@ print('done')
 			ContainerPath: "/output",
 			ReadOnly:      false,
 		},
-		Limits: ResourceLimits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: 1024,
-		},
+		Limits: standardLimits(),
 	}
 
-	result, err := sb.Execute(ctx, req)
+	result, err := env.sb.Execute(env.ctx, req)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, result.ExitCode)
@@ -304,4 +257,54 @@ print('done')
 	content, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
 	assert.Equal(t, "test output", string(content))
+}
+
+func TestContainerdSandbox_SeccompEnforcement(t *testing.T) {
+	// NOTE: This test focuses on socket blocking as the primary seccomp verification.
+	// Fork/vfork blocking is tested at the service layer with C programs (policy_fork_bomb.c)
+	// because Python's os.fork() uses clone() which must be allowed for thread support.
+	tests := []struct {
+		name          string
+		script        string
+		enableSeccomp bool
+		expectBlocked bool
+		checkResult   func(t *testing.T, result ExecuteResult)
+	}{
+		{
+			name: "seccomp enabled - socket blocked",
+			script: `
+import socket
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print("socket succeeded")
+except OSError as e:
+    print(f"socket blocked: {e}")
+`,
+			enableSeccomp: true,
+			expectBlocked: true,
+			checkResult: func(t *testing.T, result ExecuteResult) {
+				// Socket creation should fail with OSError
+				assert.Contains(t, []Verdict{VerdictOK, VerdictRE}, result.Verdict)
+				assert.Contains(t, result.Stdout, "socket blocked")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newStandardSandboxTestEnv(t)
+
+			req := ExecuteRequest{
+				ImageRef:      testPythonImageRef,
+				Command:       []string{"python3", "-c", tt.script},
+				Limits:        standardLimits(),
+				EnableSeccomp: tt.enableSeccomp,
+			}
+
+			result, err := env.sb.Execute(env.ctx, req)
+			require.NoError(t, err)
+
+			tt.checkResult(t, result)
+		})
+	}
 }

@@ -200,8 +200,8 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 		language model.Language
 		filePath string
 	}{
-		{"C fork bomb", model.LanguageC, "policy/policy_fork_bomb.c"},
-		{"Python system call", model.LanguagePython, "policy/policy_system_call.py"},
+		{"C network socket", model.LanguageC, "policy/policy_network_socket.c"},
+		{"Python network socket", model.LanguagePython, "policy/policy_network_socket.py"},
 	}
 
 	for _, tt := range tests {
@@ -217,13 +217,13 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
 			t.Logf("Verdict: %v, ExitCode: %d, ExtraInfo: %s", runOut.Verdict, runOut.ExitCode, runOut.ExtraInfo)
+			t.Logf("Stdout: %s", runOut.Stdout)
 			t.Logf("Stderr: %s", runOut.Stderr)
-			// With seccomp blocking fork/socket, programs may:
-			// - Get RE if they check return values and abort
-			// - Get TLE if they loop forever on failed syscalls
-			// - Get OK if they handle errors gracefully
-			assert.Contains(t, []sandbox.Verdict{sandbox.VerdictRE, sandbox.VerdictTLE, sandbox.VerdictOK},
-				runOut.Verdict, "expected RE, TLE, or OK for policy violation")
+
+			// With seccomp blocking socket, programs should handle the error gracefully
+			// and exit with code 0 (printing "blocked" message) or non-zero (error)
+			assert.Equal(t, sandbox.VerdictOK, runOut.Verdict, "program should complete normally")
+			assert.Contains(t, runOut.Stdout, "blocked", "should report socket was blocked by seccomp")
 		})
 	}
 }

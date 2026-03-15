@@ -84,7 +84,10 @@
 
 | 文件名 | 语言 | 触发机制 | 预期结果 |
 |--------|------|----------|----------|
-| `policy_fork_bomb.c` | C | 持续调用 `fork()` | TLE（seccomp 阻止 fork，程序无限循环） |
-| `policy_system_call.py` | Python | 调用 `os.system()` | OK（seccomp 阻止 fork，命令失败但程序正常结束） |
+| `policy_network_socket.c` | C | 尝试创建 socket | OK（seccomp 阻止 socket，程序检测到并正常退出） |
+| `policy_network_socket.py` | Python | 尝试创建 socket | OK（seccomp 阻止 socket，程序捕获异常并正常退出） |
 
-这些测试验证 seccomp 配置正确阻止了网络和进程创建系统调用。
+这些测试验证 seccomp 配置正确阻止了网络系统调用。
+
+**注**：进程创建（fork）的防护主要依赖 PID 限制（128 个进程上限）和单核 CPU 绑定，而非 seccomp。Seccomp 虽然阻止 `fork()`/`vfork()`，但 Python/JVM 使用 `clone()` 系统调用（为支持多线程必须允许），因此 seccomp 无法完全阻止进程创建。
+

@@ -55,6 +55,7 @@
 - cgroup v2
 - 可用的 containerd
 - root 权限或等价权限
+- x64 CPU 架构
 
 ### 构建与启动
 
