@@ -175,6 +175,15 @@ func newTestJudgeEngine(
 	compiler *fakeCompiler,
 	resources *fakeResourceStore,
 ) *JudgeEngine {
+	return newTestJudgeEngineWithStorage(runner, compiler, resources, nil)
+}
+
+func newTestJudgeEngineWithStorage(
+	runner *fakeRunner,
+	compiler *fakeCompiler,
+	resources *fakeResourceStore,
+	externalStorage ResourceStore,
+) *JudgeEngine {
 	if runner == nil {
 		runner = &fakeRunner{}
 	}
@@ -189,7 +198,7 @@ func newTestJudgeEngine(
 			testlibHeaderKey:       []byte("header"),
 		}}
 	}
-	engine := NewJudgeEngine(compiler, compiler, runner, resources, nil, 10)
+	engine := NewJudgeEngine(compiler, compiler, runner, resources, externalStorage, 10)
 	return engine
 }
 
@@ -662,18 +671,8 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		userOKRunResult("expected output"), checkerOKRunResult(),
 	}}
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
-	resources := &fakeResourceStore{files: map[string][]byte{
-		"checkers/default.cpp": []byte("checker source"),
-		testlibHeaderKey:       []byte("header"),
-	}}
 
-	engine := &JudgeEngine{
-		compiler:        compiler,
-		checkerCompiler: compiler,
-		runner:          runner,
-		resources:       resources,
-		externalStorage: fakeStorage,
-	}
+	engine := newTestJudgeEngineWithStorage(runner, compiler, nil, fakeStorage)
 
 	originalReq := model.JudgeRequest{
 		SourceCode:  "code",
