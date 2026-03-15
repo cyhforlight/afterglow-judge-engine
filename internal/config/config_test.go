@@ -20,7 +20,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "0.0.0.0", cfg.HTTPAddr)
 	assert.Equal(t, 8080, cfg.HTTPPort)
 	assert.Equal(t, "/run/containerd/containerd.sock", cfg.ContainerdSocket)
-	assert.Equal(t, "/home/forlight/afterglow-judge-engine/testdata", cfg.ExternalDataDir)
+	assert.Empty(t, cfg.ExternalDataDir)
 	assert.Empty(t, cfg.APIKey)
 	assert.Equal(t, "info", cfg.LogLevel)
 }
@@ -30,13 +30,11 @@ func TestLoad_FromEnv(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	_ = os.Setenv("HTTP_ADDR", "127.0.0.1")
-	_ = os.Setenv("HTTP_PORT", "9000")
-	_ = os.Setenv("EXTERNAL_DATA_DIR", tmpDir)
-	_ = os.Setenv("API_KEY", "my-secret-key")
-	_ = os.Setenv("LOG_LEVEL", "debug")
-
-	defer clearEnv()
+	t.Setenv("HTTP_ADDR", "127.0.0.1")
+	t.Setenv("HTTP_PORT", "9000")
+	t.Setenv("EXTERNAL_DATA_DIR", tmpDir)
+	t.Setenv("API_KEY", "my-secret-key")
+	t.Setenv("LOG_LEVEL", "debug")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -46,6 +44,36 @@ func TestLoad_FromEnv(t *testing.T) {
 	assert.Equal(t, tmpDir, cfg.ExternalDataDir)
 	assert.Equal(t, "my-secret-key", cfg.APIKey)
 	assert.Equal(t, "debug", cfg.LogLevel)
+}
+
+func TestLoad_ExternalDataDirDisabledWhenUnsetOrBlank(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{
+			name:  "unset",
+			value: "",
+		},
+		{
+			name:  "blank",
+			value: "   ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv()
+			if tt.name == "blank" {
+				t.Setenv("EXTERNAL_DATA_DIR", tt.value)
+			}
+
+			cfg, err := Load()
+
+			require.NoError(t, err)
+			assert.Empty(t, cfg.ExternalDataDir)
+		})
+	}
 }
 
 func TestLoad_InvalidConfig(t *testing.T) {

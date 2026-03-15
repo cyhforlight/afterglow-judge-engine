@@ -44,7 +44,7 @@ func Load() (*Config, error) {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		ExternalDataDir: getEnv("EXTERNAL_DATA_DIR", "/home/forlight/afterglow-judge-engine/testdata"),
+		ExternalDataDir: getOptionalEnv("EXTERNAL_DATA_DIR"),
 
 		// Security
 		APIKey: getOptionalEnv("API_KEY"),
@@ -111,11 +111,10 @@ func (cfg *Config) Validate() error {
 	if cfg.MaxConcurrentJudges <= 0 {
 		return fmt.Errorf("MAX_CONCURRENT_JUDGES must be positive, got %d", cfg.MaxConcurrentJudges)
 	}
-	if cfg.ExternalDataDir == "" {
-		return errors.New("EXTERNAL_DATA_DIR must not be empty")
-	}
-	if err := validateDirectory("EXTERNAL_DATA_DIR", cfg.ExternalDataDir); err != nil {
-		return err
+	if cfg.ExternalDataDir != "" {
+		if err := validateDirectory("EXTERNAL_DATA_DIR", cfg.ExternalDataDir); err != nil {
+			return err
+		}
 	}
 	if err := validateLogLevel(cfg.LogLevel); err != nil {
 		return err

@@ -73,7 +73,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		compileCache = nil // Allow running without checker cache.
 	}
 
-	// 4. Create external resource store for test data files.
+	// 4. Optionally enable external test data / checker files when configured.
 	var externalResources service.ResourceStore
 	if cfg.ExternalDataDir != "" {
 		ext, err := resource.NewExternal(cfg.ExternalDataDir)
