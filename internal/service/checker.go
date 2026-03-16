@@ -16,11 +16,13 @@ const (
 
 	testlibHeaderKey = "testlib.h"
 
+	// Checker execution file names
 	checkerSourceFileName = "checker.cpp"
 	checkerInputFileName  = "input.txt"
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
 
+	// Checker execution limits
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
 )
@@ -58,6 +60,11 @@ func ResolveChecker(raw string) (CheckerLocation, error) {
 	return CheckerLocation{Path: name}, nil
 }
 
+// builtinCheckerPath constructs the resource key for a builtin checker.
+func builtinCheckerPath(shortName string) string {
+	return fmt.Sprintf("checkers/%s.cpp", shortName)
+}
+
 func validateCheckerShortName(name string) error {
 	if name == "" {
 		return errors.New("checker name must not be empty")
@@ -65,9 +72,10 @@ func validateCheckerShortName(name string) error {
 	if strings.ContainsAny(name, `/\.`) {
 		return fmt.Errorf("checker %q contains invalid path characters (/, \\, .)", name)
 	}
+	// Allow letters (any case), digits, underscore, and hyphen
 	for _, r := range name {
-		if !unicode.IsLower(r) && !unicode.IsDigit(r) {
-			return fmt.Errorf("checker %q must contain only lowercase letters and digits", name)
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' {
+			return fmt.Errorf("checker %q contains invalid characters (only letters, digits, _, - allowed)", name)
 		}
 	}
 	return nil

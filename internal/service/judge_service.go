@@ -87,7 +87,7 @@ func (s *JudgeEngine) validateCheckerDependencies(ctx context.Context, checkerLo
 			return err
 		}
 	} else {
-		checkerSourceKey := fmt.Sprintf("checkers/%s.cpp", checkerLoc.Path)
+		checkerSourceKey := builtinCheckerPath(checkerLoc.Path)
 		if err := s.resources.Stat(ctx, checkerSourceKey); err != nil {
 			return fmt.Errorf("builtin checker %q is not available: %w", checkerLoc.Path, err)
 		}
@@ -299,7 +299,7 @@ func (s *JudgeEngine) prepareChecker(
 			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
 		}
 	} else {
-		storageKey := fmt.Sprintf("checkers/%s.cpp", loc.Path)
+		storageKey := builtinCheckerPath(loc.Path)
 		checkerSource, err = s.resources.Get(ctx, storageKey)
 		if err != nil {
 			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, storageKey, err)

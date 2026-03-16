@@ -23,9 +23,13 @@ func TestResolveChecker_Builtin(t *testing.T) {
 	}{
 		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
 		{name: "another valid", input: "yesno", wantPath: "yesno"},
+		{name: "uppercase allowed", input: "NCMP", wantPath: "NCMP"},
+		{name: "mixed case allowed", input: "MyChecker", wantPath: "MyChecker"},
+		{name: "underscore allowed", input: "my_checker", wantPath: "my_checker"},
+		{name: "hyphen allowed", input: "ncmp-v2", wantPath: "ncmp-v2"},
 		{name: "file extension rejected", input: "ncmp.cpp", wantErr: `invalid path characters`},
 		{name: "path rejected", input: "../ncmp", wantErr: `invalid path characters`},
-		{name: "uppercase rejected", input: "NCMP", wantErr: `lowercase letters and digits`},
+		{name: "special char rejected", input: "ncmp@v2", wantErr: `invalid characters`},
 	}
 
 	for _, tt := range tests {

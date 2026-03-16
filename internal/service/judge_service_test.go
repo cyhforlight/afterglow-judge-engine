@@ -437,8 +437,8 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 	}{
 		{
 			name:    "invalid checker name",
-			req:     model.JudgeRequest{Checker: "NCMP"},
-			wantErr: `must contain only lowercase letters and digits`,
+			req:     model.JudgeRequest{Checker: "ncmp@v2"},
+			wantErr: `invalid characters`,
 		},
 		{
 			name: "external input requires storage",
