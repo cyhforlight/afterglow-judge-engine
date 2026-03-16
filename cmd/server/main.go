@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/config"
@@ -17,8 +16,6 @@ import (
 	"afterglow-judge-engine/internal/service"
 	"afterglow-judge-engine/internal/transport/httptransport"
 )
-
-const httpShutdownTimeout = 10 * time.Second
 
 func main() {
 	cfg, err := config.Load()
@@ -109,29 +106,25 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 
 	return judge, nil
 }
+
 func runServer(server *httptransport.Server, logger *slog.Logger) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	serverCtx, serverCancel := context.WithCancel(context.Background())
 	defer serverCancel()
 
 	errChan := make(chan error, 1)
 	go func() {
-		if err := server.Start(serverCtx); err != nil {
-			errChan <- err
-		}
+		errChan <- server.Run(serverCtx)
 	}()
 
 	select {
 	case sig := <-sigChan:
 		logger.Info("received signal", "signal", sig)
 		serverCancel()
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
-		defer cancel()
-
-		return server.Stop(shutdownCtx)
+		return <-errChan
 
 	case err := <-errChan:
 		return err

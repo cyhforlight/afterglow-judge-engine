@@ -31,7 +31,7 @@ func TestIntegration_HTTPServer_FullLifecycle(t *testing.T) {
 
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- server.Start(ctx)
+		errChan <- server.Run(ctx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)

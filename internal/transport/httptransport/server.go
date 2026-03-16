@@ -12,14 +12,14 @@ import (
 )
 
 const (
-	httpReadTimeout  = 30 * time.Second
-	httpWriteTimeout = 30 * time.Second
+	httpReadTimeout     = 30 * time.Second
+	httpWriteTimeout    = 30 * time.Second
+	httpShutdownTimeout = 10 * time.Second
 )
 
 // Server implements the HTTP transport layer.
 type Server struct {
 	httpServer *http.Server
-	handler    *Handler
 	logger     *slog.Logger
 	addr       string
 }
@@ -49,39 +49,46 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 
 	return &Server{
 		httpServer: httpServer,
-		handler:    handler,
 		logger:     logger,
 		addr:       addr,
 	}
 }
 
-// Start starts the HTTP server.
-func (s *Server) Start(ctx context.Context) error {
+// Run starts the HTTP server and blocks until the context is cancelled
+// or the underlying server exits with an error.
+func (s *Server) Run(ctx context.Context) error {
 	s.logger.Info("starting HTTP server", "addr", s.addr)
 
-	errChan := make(chan error, 1)
+	serveErrCh := make(chan error, 1)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+		err := s.httpServer.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			serveErrCh <- fmt.Errorf("server error: %w", err)
+			return
 		}
+		serveErrCh <- nil
 	}()
 
 	select {
+	case err := <-serveErrCh:
+		return err
 	case <-ctx.Done():
-		return nil
-	case err := <-errChan:
-		return fmt.Errorf("server error: %w", err)
-	}
-}
+		s.logger.Info("stopping HTTP server")
 
-// Stop gracefully shuts down the HTTP server.
-func (s *Server) Stop(ctx context.Context) error {
-	s.logger.Info("stopping HTTP server")
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("server shutdown failed: %w", err)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer cancel()
+
+		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("server shutdown failed: %w", err)
+		}
+
+		if err := <-serveErrCh; err != nil {
+			return err
+		}
+
+		s.logger.Info("HTTP server stopped")
+		return nil
 	}
-	s.logger.Info("HTTP server stopped")
-	return nil
 }
 
 // Addr returns the server's listening address.
