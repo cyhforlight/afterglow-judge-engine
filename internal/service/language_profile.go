@@ -55,9 +55,9 @@ func cProfile() LanguageProfile {
 			ArtifactName: "program",
 			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 9+len(sources))
-				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
+				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/program")
 				for _, src := range sources {
-					args = append(args, "/work/"+src)
+					args = append(args, compileMountDir+"/"+src)
 				}
 				args = append(args, "-lm")
 				return args
@@ -82,9 +82,9 @@ func cppProfile() LanguageProfile {
 			ArtifactName: "program",
 			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "/work/program")
+				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/program")
 				for _, src := range sources {
-					args = append(args, "/work/"+src)
+					args = append(args, compileMountDir+"/"+src)
 				}
 				args = append(args, "-lm")
 				return args
@@ -110,9 +110,9 @@ func checkerProfile() LanguageProfile {
 			ArtifactName: "checker",
 			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "/work/checker")
+				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/checker")
 				for _, src := range sources {
-					args = append(args, "/work/"+src)
+					args = append(args, compileMountDir+"/"+src)
 				}
 				args = append(args, "-lm")
 				return args
@@ -137,9 +137,9 @@ func javaProfile() LanguageProfile {
 			ArtifactName: "solution.jar",
 			BuildCommand: func(_ []string) []string {
 				return []string{"sh", "-c",
-					"mkdir -p /work/classes && " +
-						"javac -encoding UTF-8 -d /work/classes /work/Main.java && " +
-						"jar --create --file /work/solution.jar --main-class Main -C /work/classes ."}
+					"mkdir -p " + compileMountDir + "/classes && " +
+						"javac -encoding UTF-8 -d " + compileMountDir + "/classes " + compileMountDir + "/Main.java && " +
+						"jar --create --file " + compileMountDir + "/solution.jar --main-class Main -C " + compileMountDir + "/classes ."}
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -163,7 +163,7 @@ func pythonProfile() LanguageProfile {
 			BuildCommand: func(_ []string) []string {
 				return []string{
 					"sh", "-c",
-					"python3 -c 'import py_compile; py_compile.compile(\"/work/solution.py\", cfile=\"/work/solution.pyc\", doraise=True)' || exit 1",
+					"python3 -c 'import py_compile; py_compile.compile(\"" + compileMountDir + "/solution.py\", cfile=\"" + compileMountDir + "/solution.pyc\", doraise=True)' || exit 1",
 				}
 			},
 			TimeoutMs: 10000,

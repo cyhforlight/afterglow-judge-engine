@@ -16,11 +16,10 @@ const (
 
 	testlibHeaderKey = "testlib.h"
 
-	checkerSourceFileName   = "checker.cpp"
-	checkerArtifactFileName = "checker"
-	checkerInputFileName    = "input.txt"
-	checkerOutputFileName   = "output.txt"
-	checkerAnswerFileName   = "answer.txt"
+	checkerSourceFileName = "checker.cpp"
+	checkerInputFileName  = "input.txt"
+	checkerOutputFileName = "output.txt"
+	checkerAnswerFileName = "answer.txt"
 
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
@@ -64,11 +63,11 @@ func validateCheckerShortName(name string) error {
 		return errors.New("checker name must not be empty")
 	}
 	if strings.ContainsAny(name, `/\.`) {
-		return fmt.Errorf("checker %q must be a builtin short name", name)
+		return fmt.Errorf("checker %q contains invalid path characters (/, \\, .)", name)
 	}
 	for _, r := range name {
 		if !unicode.IsLower(r) && !unicode.IsDigit(r) {
-			return fmt.Errorf("checker %q must be a builtin short name", name)
+			return fmt.Errorf("checker %q must contain only lowercase letters and digits", name)
 		}
 	}
 	return nil

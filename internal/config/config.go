@@ -44,10 +44,10 @@ func Load() (*Config, error) {
 		ContainerdNamespace: getEnv("CONTAINERD_NAMESPACE", "afterglow-sandbox"),
 
 		// Execution Limits
-		ExternalDataDir: getOptionalEnv("EXTERNAL_DATA_DIR"),
+		ExternalDataDir: getEnv("EXTERNAL_DATA_DIR", ""),
 
 		// Security
-		APIKey: getOptionalEnv("API_KEY"),
+		APIKey: getEnv("API_KEY", ""),
 
 		// Observability
 		LogLevel: getEnv("LOG_LEVEL", "info"),
@@ -128,14 +128,6 @@ func getEnv(key, defaultValue string) string {
 	value, ok := os.LookupEnv(key)
 	if !ok {
 		return defaultValue
-	}
-	return strings.TrimSpace(value)
-}
-
-func getOptionalEnv(key string) string {
-	value, ok := os.LookupEnv(key)
-	if !ok {
-		return ""
 	}
 	return strings.TrimSpace(value)
 }

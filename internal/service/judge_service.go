@@ -475,7 +475,7 @@ func checkerRunLimits() sandbox.ResourceLimits {
 		CPUTimeMs:   checkerCPUTimeLimitMs,
 		WallTimeMs:  checkerCPUTimeLimitMs * sandbox.WallTimeMultiplier,
 		MemoryMB:    checkerMemoryLimitMB,
-		OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+		OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
 	}
 }
 
@@ -555,6 +555,7 @@ func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeRes
 	return model.JudgeResult{
 		Status:     model.JudgeStatusSystemError,
 		Compile:    model.CompileResult{Succeeded: false, Log: log},
+		Cases:      []model.JudgeCaseResult{},
 		TotalCount: len(testCases),
 	}
 }

@@ -23,9 +23,9 @@ func TestResolveChecker_Builtin(t *testing.T) {
 	}{
 		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
 		{name: "another valid", input: "yesno", wantPath: "yesno"},
-		{name: "file extension rejected", input: "ncmp.cpp", wantErr: `must be a builtin short name`},
-		{name: "path rejected", input: "../ncmp", wantErr: `must be a builtin short name`},
-		{name: "uppercase rejected", input: "NCMP", wantErr: `must be a builtin short name`},
+		{name: "file extension rejected", input: "ncmp.cpp", wantErr: `invalid path characters`},
+		{name: "path rejected", input: "../ncmp", wantErr: `invalid path characters`},
+		{name: "uppercase rejected", input: "NCMP", wantErr: `lowercase letters and digits`},
 	}
 
 	for _, tt := range tests {

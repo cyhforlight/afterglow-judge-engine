@@ -1,11 +1,12 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
-	"sort"
+	"slices"
 
 	"golang.org/x/sync/singleflight"
 
@@ -75,7 +76,9 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 func computeCacheKey(req CompileRequest) string {
 	sorted := make([]workspace.File, len(req.Files))
 	copy(sorted, req.Files)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	slices.SortFunc(sorted, func(a, b workspace.File) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	h := sha256.New()
 	for _, f := range sorted {
