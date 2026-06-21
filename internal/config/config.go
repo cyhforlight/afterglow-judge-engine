@@ -4,17 +4,23 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"afterglow-judge-engine/internal/model"
 )
 
 // Config holds all server configuration.
 type Config struct {
 	// HTTP Server
-	HTTPAddr string
-	HTTPPort int
+	HTTPAddr           string
+	HTTPPort           int
+	HTTPReadTimeoutMs  int
+	HTTPWriteTimeoutMs int
 
 	// Containerd
 	ContainerdSocket    string
@@ -24,6 +30,7 @@ type Config struct {
 	MaxInputSizeMB          int
 	MaxConcurrentContainers int
 	MaxConcurrentJudges     int
+	JudgeLimits             model.JudgeLimits
 	ExternalDataDir         string
 
 	// Security
@@ -59,6 +66,18 @@ func Load() (*Config, error) {
 	}
 	cfg.HTTPPort = httpPort
 
+	httpReadTimeoutMs, err := getEnvInt("HTTP_READ_TIMEOUT_MS", int((30 * time.Second).Milliseconds()))
+	if err != nil {
+		return nil, err
+	}
+	cfg.HTTPReadTimeoutMs = httpReadTimeoutMs
+
+	httpWriteTimeoutMs, err := getEnvInt("HTTP_WRITE_TIMEOUT_MS", int((120 * time.Second).Milliseconds()))
+	if err != nil {
+		return nil, err
+	}
+	cfg.HTTPWriteTimeoutMs = httpWriteTimeoutMs
+
 	maxInputSizeMB, err := getEnvInt("MAX_INPUT_SIZE_MB", 256)
 	if err != nil {
 		return nil, err
@@ -76,6 +95,29 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.MaxConcurrentJudges = maxJudges
+
+	judgeLimits := model.DefaultJudgeLimits()
+	judgeLimits.MaxTimeLimitMs, err = getEnvInt("MAX_TIME_LIMIT_MS", judgeLimits.MaxTimeLimitMs)
+	if err != nil {
+		return nil, err
+	}
+	judgeLimits.MaxMemoryMB, err = getEnvInt("MAX_MEMORY_MB", judgeLimits.MaxMemoryMB)
+	if err != nil {
+		return nil, err
+	}
+	judgeLimits.MaxTestCases, err = getEnvInt("MAX_TEST_CASES", judgeLimits.MaxTestCases)
+	if err != nil {
+		return nil, err
+	}
+	maxSourceSizeKB, err := getEnvInt("MAX_SOURCE_SIZE_KB", judgeLimits.MaxSourceBytes/1024)
+	if err != nil {
+		return nil, err
+	}
+	if maxSourceSizeKB > math.MaxInt/1024 {
+		return nil, fmt.Errorf("MAX_SOURCE_SIZE_KB is too large, got %d", maxSourceSizeKB)
+	}
+	judgeLimits.MaxSourceBytes = maxSourceSizeKB * 1024
+	cfg.JudgeLimits = judgeLimits
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -96,6 +138,12 @@ func (cfg *Config) Validate() error {
 	if cfg.HTTPPort <= 0 || cfg.HTTPPort > 65535 {
 		return fmt.Errorf("HTTP_PORT must be between 1 and 65535, got %d", cfg.HTTPPort)
 	}
+	if cfg.HTTPReadTimeoutMs <= 0 {
+		return fmt.Errorf("HTTP_READ_TIMEOUT_MS must be positive, got %d", cfg.HTTPReadTimeoutMs)
+	}
+	if cfg.HTTPWriteTimeoutMs <= 0 {
+		return fmt.Errorf("HTTP_WRITE_TIMEOUT_MS must be positive, got %d", cfg.HTTPWriteTimeoutMs)
+	}
 	if cfg.ContainerdSocket == "" {
 		return errors.New("CONTAINERD_SOCKET must not be empty")
 	}
@@ -111,16 +159,15 @@ func (cfg *Config) Validate() error {
 	if cfg.MaxConcurrentJudges <= 0 {
 		return fmt.Errorf("MAX_CONCURRENT_JUDGES must be positive, got %d", cfg.MaxConcurrentJudges)
 	}
+	if err := cfg.JudgeLimits.ValidateConfig(); err != nil {
+		return err
+	}
 	if cfg.ExternalDataDir != "" {
 		if err := validateDirectory("EXTERNAL_DATA_DIR", cfg.ExternalDataDir); err != nil {
 			return err
 		}
 	}
-	if err := validateLogLevel(cfg.LogLevel); err != nil {
-		return err
-	}
-
-	return nil
+	return validateLogLevel(cfg.LogLevel)
 }
 
 // getEnv retrieves a string environment variable or returns a default value.

@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	httpReadTimeout     = 30 * time.Second
-	httpWriteTimeout    = 30 * time.Second
 	httpShutdownTimeout = 10 * time.Second
 )
 
@@ -26,7 +24,7 @@ type Server struct {
 
 // NewServer creates a new HTTP server.
 func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logger) *Server {
-	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB)
+	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB, cfg.JudgeLimits)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/execute", handler.HandleExecute)
@@ -43,8 +41,8 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      finalHandler,
-		ReadTimeout:  httpReadTimeout,
-		WriteTimeout: httpWriteTimeout,
+		ReadTimeout:  time.Duration(cfg.HTTPReadTimeoutMs) * time.Millisecond,
+		WriteTimeout: time.Duration(cfg.HTTPWriteTimeoutMs) * time.Millisecond,
 	}
 
 	return &Server{

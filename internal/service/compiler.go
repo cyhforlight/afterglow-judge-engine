@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 )
 
@@ -19,7 +19,7 @@ type CompileRequest struct {
 	ImageRef     string
 	Command      []string
 	ArtifactName string
-	Limits       sandbox.ResourceLimits
+	Limits       execution.Limits
 }
 
 // CompileOutput is the generic compiler output.
@@ -35,14 +35,14 @@ type Compiler interface {
 
 // compiler compiles files inside containers.
 type compiler struct {
-	sandbox sandbox.Sandbox
+	executor execution.Executor
 }
 
 // NewCompiler creates a generic compiler primitive without caching.
 // Use NewCachedCompiler to add caching capability.
-func NewCompiler(sb sandbox.Sandbox) Compiler {
+func NewCompiler(executor execution.Executor) Compiler {
 	return &compiler{
-		sandbox: sb,
+		executor: executor,
 	}
 }
 
@@ -84,30 +84,18 @@ func validateCompileRequest(req CompileRequest) error {
 	return nil
 }
 
-//nolint:funlen // Compilation requires setup, execution, and artifact handling.
 func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (CompileOutput, error) {
 	var out CompileOutput
 
-	ws, err := workspace.New()
-	if err != nil {
-		return out, fmt.Errorf("create workspace: %w", err)
-	}
-	defer func() { _ = ws.Cleanup() }()
-
-	if err := ws.WriteFiles(req.Files); err != nil {
-		return out, fmt.Errorf("write compile files: %w", err)
-	}
-
-	result, err := c.sandbox.Execute(ctx, sandbox.ExecuteRequest{
-		ImageRef: req.ImageRef,
-		Command:  req.Command,
-		MountDir: &sandbox.Mount{
-			HostPath:      ws.Dir(),
-			ContainerPath: compileMountDir,
-			ReadOnly:      false,
-		},
+	result, err := c.executor.Execute(ctx, execution.Job{
+		Files:         req.Files,
+		ImageRef:      req.ImageRef,
+		Command:       req.Command,
+		MountPath:     compileMountDir,
+		ReadOnlyMount: false,
 		Limits:        req.Limits,
 		EnableSeccomp: false, // Compilation needs fork for shell scripts
+		Artifacts:     []execution.ArtifactSpec{{Name: req.ArtifactName}},
 	})
 	if err != nil {
 		return out, fmt.Errorf("execute compilation: %w", err)
@@ -121,7 +109,7 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		compileLog += result.Stderr
 	}
 
-	if result.ExitCode != 0 || result.Verdict != sandbox.VerdictOK {
+	if result.ExitCode != 0 || result.Verdict != execution.VerdictOK {
 		out.Result = model.CompileResult{
 			Succeeded: false,
 			Log:       compileLog,
@@ -134,27 +122,22 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		Log:       compileLog,
 	}
 
-	artifact, err := loadCompiledArtifact(ws, req.ArtifactName)
+	artifact, err := compiledArtifactFromResult(result, req.ArtifactName)
 	if err != nil {
-		return out, fmt.Errorf("read compiled artifact: %w", err)
+		return out, err
 	}
 	out.Artifact = &artifact
 	return out, nil
 }
 
-func loadCompiledArtifact(ws *workspace.Workspace, name string) (model.CompiledArtifact, error) {
-	info, err := ws.Stat(name)
-	if err != nil {
-		return model.CompiledArtifact{}, err
-	}
-
-	data, err := ws.ReadFile(name)
-	if err != nil {
-		return model.CompiledArtifact{}, err
+func compiledArtifactFromResult(result execution.Result, name string) (model.CompiledArtifact, error) {
+	artifact, ok := result.Artifacts[name]
+	if !ok {
+		return model.CompiledArtifact{}, fmt.Errorf("compiled artifact %q was not collected", name)
 	}
 
 	return model.CompiledArtifact{
-		Data: data,
-		Mode: info.Mode().Perm(),
+		Data: artifact.Data,
+		Mode: artifact.Mode,
 	}, nil
 }

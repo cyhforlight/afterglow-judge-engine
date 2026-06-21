@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/service"
 )
 
@@ -15,14 +16,16 @@ type Handler struct {
 	judge   service.JudgeService
 	logger  *slog.Logger
 	maxSize int64 // max request body size in bytes
+	limits  model.JudgeLimits
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(judge service.JudgeService, logger *slog.Logger, maxSizeMB int) *Handler {
+func NewHandler(judge service.JudgeService, logger *slog.Logger, maxSizeMB int, limits model.JudgeLimits) *Handler {
 	return &Handler{
 		judge:   judge,
 		logger:  logger,
 		maxSize: int64(maxSizeMB) * 1024 * 1024,
+		limits:  limits,
 	}
 }
 
@@ -44,7 +47,7 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := req.Validate(); err != nil {
+	if err := req.ValidateWithLimits(h.limits); err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}

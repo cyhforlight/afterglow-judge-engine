@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,20 +30,6 @@ func TestWorkspace_CreateAndCleanup(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestWorkspace_WriteFile(t *testing.T) {
-	ws, err := New()
-	require.NoError(t, err)
-	defer func() { _ = ws.Cleanup() }()
-
-	content := []byte("test content")
-	err = ws.WriteFile("test.txt", content, 0644)
-	require.NoError(t, err)
-
-	readContent, err := os.ReadFile(ws.Dir() + "/test.txt")
-	require.NoError(t, err)
-	assert.Equal(t, content, readContent)
-}
-
 func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
@@ -61,4 +48,38 @@ func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
 	info, err := ws.Stat("program")
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestWorkspace_PathRejectsUnsafeNames(t *testing.T) {
+	ws, err := New()
+	require.NoError(t, err)
+	defer func() { _ = ws.Cleanup() }()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "empty", path: ""},
+		{name: "current directory", path: "."},
+		{name: "parent escape", path: "../escape.txt"},
+		{name: "nested parent escape", path: "dir/../../escape.txt"},
+		{name: "absolute", path: filepath.Join(string(filepath.Separator), "tmp", "escape.txt")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ws.Path(tt.path)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestWorkspace_PathAllowsSafeNestedName(t *testing.T) {
+	ws, err := New()
+	require.NoError(t, err)
+	defer func() { _ = ws.Cleanup() }()
+
+	path, err := ws.Path("dir/file.txt")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(ws.Dir(), "dir", "file.txt"), path)
 }

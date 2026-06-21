@@ -2,9 +2,11 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // File describes a file to be stored in a workspace.
@@ -33,14 +35,17 @@ func (w *Workspace) Dir() string {
 	return w.dir
 }
 
-// Path resolves a relative workspace path to an absolute path in the workspace.
-func (w *Workspace) Path(name string) string {
-	return filepath.Join(w.dir, name)
+// Path resolves a safe relative workspace path to an absolute path in the workspace.
+func (w *Workspace) Path(name string) (string, error) {
+	return w.resolvePath(name)
 }
 
 // WriteFile writes a file to the workspace with the given name, content, and permissions.
 func (w *Workspace) WriteFile(name string, content []byte, mode os.FileMode) error {
-	path := w.Path(name)
+	path, err := w.resolvePath(name)
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(path, content, mode); err != nil {
 		return fmt.Errorf("write file %q: %w", name, err)
 	}
@@ -52,7 +57,7 @@ func (w *Workspace) WriteFiles(files []File) error {
 	for _, file := range files {
 		fileMode := file.Mode
 		if fileMode == 0 {
-			fileMode = 0644
+			fileMode = 0o644
 		}
 		if err := w.WriteFile(file.Name, file.Content, fileMode); err != nil {
 			return err
@@ -63,7 +68,11 @@ func (w *Workspace) WriteFiles(files []File) error {
 
 // ReadFile reads a file from the workspace.
 func (w *Workspace) ReadFile(name string) ([]byte, error) {
-	data, err := os.ReadFile(w.Path(name))
+	path, err := w.resolvePath(name)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file %q: %w", name, err)
 	}
@@ -72,7 +81,11 @@ func (w *Workspace) ReadFile(name string) ([]byte, error) {
 
 // Stat returns file info for a file in the workspace.
 func (w *Workspace) Stat(name string) (os.FileInfo, error) {
-	info, err := os.Stat(w.Path(name))
+	path, err := w.resolvePath(name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat file %q: %w", name, err)
 	}
@@ -85,4 +98,18 @@ func (w *Workspace) Cleanup() error {
 		return fmt.Errorf("cleanup workspace: %w", err)
 	}
 	return nil
+}
+
+func (w *Workspace) resolvePath(name string) (string, error) {
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || strings.TrimSpace(cleaned) == "" {
+		return "", errors.New("workspace path is required")
+	}
+	if filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("workspace path must be relative: %q", name)
+	}
+	if !filepath.IsLocal(cleaned) {
+		return "", fmt.Errorf("workspace path escapes base directory: %q", name)
+	}
+	return filepath.Join(w.dir, cleaned), nil
 }

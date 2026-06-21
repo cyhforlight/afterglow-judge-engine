@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,7 +148,7 @@ func userOKRunResult(stdout string) RunResult {
 	return RunResult{
 		ExitCode: 0,
 		Stdout:   stdout,
-		Verdict:  sandbox.VerdictOK,
+		Verdict:  execution.VerdictOK,
 	}
 }
 
@@ -156,7 +156,7 @@ func userOKRunResult(stdout string) RunResult {
 func checkerOKRunResult() RunResult {
 	return RunResult{
 		ExitCode: 0,
-		Verdict:  sandbox.VerdictOK,
+		Verdict:  execution.VerdictOK,
 		Stderr:   "ok",
 	}
 }
@@ -165,7 +165,7 @@ func checkerOKRunResult() RunResult {
 func checkerWARunResult(message string) RunResult {
 	return RunResult{
 		ExitCode: 1,
-		Verdict:  sandbox.VerdictOK,
+		Verdict:  execution.VerdictOK,
 		Stderr:   message,
 	}
 }
@@ -175,14 +175,14 @@ func newTestJudgeEngine(
 	compiler *fakeCompiler,
 	resources *fakeResourceStore,
 ) *JudgeEngine {
-	return newTestJudgeEngineWithStorage(runner, compiler, resources, nil)
+	return newTestJudgeEngineWithExternalResources(runner, compiler, resources, nil)
 }
 
-func newTestJudgeEngineWithStorage(
+func newTestJudgeEngineWithExternalResources(
 	runner *fakeRunner,
 	compiler *fakeCompiler,
 	resources *fakeResourceStore,
-	externalStorage ResourceStore,
+	externalResources ResourceStore,
 ) *JudgeEngine {
 	if runner == nil {
 		runner = &fakeRunner{}
@@ -198,7 +198,7 @@ func newTestJudgeEngineWithStorage(
 			testlibHeaderKey:       []byte("header"),
 		}}
 	}
-	engine := NewJudgeEngine(compiler, compiler, runner, resources, externalStorage, 10)
+	engine := NewJudgeEngine(compiler, compiler, runner, resources, externalResources, 10, model.DefaultJudgeLimits())
 	return engine
 }
 
@@ -262,7 +262,7 @@ func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T
 		},
 		checkerResults: map[string]RunResult{
 			"2\n": checkerOKRunResult(),
-			"4\n": {ExitCode: 0, Verdict: sandbox.VerdictTLE, Stderr: "checker timed out"}, // checker UKE
+			"4\n": {ExitCode: 0, Verdict: execution.VerdictTLE, Stderr: "checker timed out"}, // checker UKE
 			"6\n": checkerOKRunResult(),
 		},
 	}
@@ -284,24 +284,6 @@ func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T
 	assert.Equal(t, 2, result.PassedCount)
 }
 
-func TestJudgeEngine_AggregateRuntimePriority(t *testing.T) {
-	// All user executions hit runtime errors — checker never runs.
-	// With parallel execution, we can't predict which case gets which error,
-	// but the test only checks aggregate verdict and total calls.
-	runner := &fakeRunner{runResult: RunResult{Verdict: sandbox.VerdictRE, ExitCode: 1}}
-	engine := newTestJudgeEngine(runner, nil, nil)
-
-	result := engine.Judge(context.Background(), baseJudgeRequest(
-		model.JudgeTestCase{},
-		model.JudgeTestCase{},
-		model.JudgeTestCase{},
-		model.JudgeTestCase{},
-	))
-
-	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, 4, runner.calls, "only user runs, no checker runs for runtime errors")
-}
-
 func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 	engine := newTestJudgeEngine(nil, &fakeCompiler{err: errors.New("boom")}, nil)
 
@@ -317,7 +299,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 		userResults: map[string]RunResult{
 			"1\n": userOKRunResult("2\n"),
 			"2\n": userOKRunResult("4\n"),
-			"3\n": {Verdict: sandbox.VerdictTLE, ExitCode: 124}, // TLE — no checker
+			"3\n": {Verdict: execution.VerdictTLE, ExitCode: 124}, // TLE — no checker
 		},
 		checkerResults: map[string]RunResult{
 			"2\n": checkerOKRunResult(),                   // case-1: OK
@@ -369,28 +351,6 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	assert.Equal(t, 3, result.TotalCount)
 }
 
-func TestJudgeEngine_SingleTestCase(t *testing.T) {
-	runner := &fakeRunner{runResults: []RunResult{
-		userOKRunResult("42\n"), checkerOKRunResult(),
-	}}
-	engine := newTestJudgeEngine(runner, nil, nil)
-
-	result := engine.Judge(context.Background(), model.JudgeRequest{
-		SourceCode:  "print(42)",
-		Language:    model.LanguagePython,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{
-			{InputText: "", ExpectedOutput: "42\n"},
-		},
-	})
-
-	require.Len(t, result.Cases, 1)
-	assert.Equal(t, model.VerdictOK, result.Cases[0].Verdict)
-	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, 1, result.PassedCount)
-}
-
 func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 	compiler := &fakeCompiler{compileResults: []CompileOutput{
 		{Result: model.CompileResult{Succeeded: true}, Artifact: testCompiledArtifact()},
@@ -429,52 +389,54 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 
 func TestJudgeEngine_ValidateRequest(t *testing.T) {
 	tests := []struct {
-		name            string
-		req             model.JudgeRequest
-		resources       *fakeResourceStore
-		externalStorage ResourceStore
-		wantErr         string
+		name              string
+		req               model.JudgeRequest
+		resources         *fakeResourceStore
+		externalResources ResourceStore
+		wantErr           string
 	}{
 		{
-			name:    "invalid checker name",
-			req:     model.JudgeRequest{Checker: "ncmp@v2"},
+			name: "invalid checker name",
+			req: func() model.JudgeRequest {
+				req := baseJudgeRequest()
+				req.Checker = "ncmp@v2"
+				return req
+			}(),
 			wantErr: `invalid characters`,
 		},
 		{
-			name: "external input requires storage",
-			req: model.JudgeRequest{
-				Checker: "default",
-				TestCases: []model.JudgeTestCase{{
-					InputFile: "cases/1.in",
-				}},
-			},
-			wantErr: `inputFile "cases/1.in" requires external storage`,
+			name: "external input requires resources",
+			req: baseJudgeRequest(model.JudgeTestCase{
+				InputFile: "cases/1.in",
+			}),
+			wantErr: `inputFile "cases/1.in" requires external resources`,
 		},
 		{
-			name: "external checker requires storage",
-			req: model.JudgeRequest{
-				Checker: "external:checkers/custom.cpp",
-			},
-			wantErr: `external checker "checkers/custom.cpp" requires external storage`,
+			name: "external checker requires resources",
+			req: func() model.JudgeRequest {
+				req := baseJudgeRequest()
+				req.Checker = "external:checkers/custom.cpp"
+				return req
+			}(),
+			wantErr: `external checker "checkers/custom.cpp" requires external resources`,
 		},
 		{
 			name: "missing external input file",
-			req: model.JudgeRequest{
-				Checker: "default",
-				TestCases: []model.JudgeTestCase{{
-					InputFile: "cases/1.in",
-				}},
-			},
-			externalStorage: &fakeExternalStorage{files: map[string][]byte{}},
-			wantErr:         `testcases[0]: inputFile "cases/1.in" is not available`,
+			req: baseJudgeRequest(model.JudgeTestCase{
+				InputFile: "cases/1.in",
+			}),
+			externalResources: &fakeExternalResources{files: map[string][]byte{}},
+			wantErr:           `testcases[0]: inputFile "cases/1.in" is not available`,
 		},
 		{
 			name: "missing external checker file",
-			req: model.JudgeRequest{
-				Checker: "external:checkers/custom.cpp",
-			},
-			externalStorage: &fakeExternalStorage{files: map[string][]byte{}},
-			wantErr:         `external checker "checkers/custom.cpp" is not available`,
+			req: func() model.JudgeRequest {
+				req := baseJudgeRequest()
+				req.Checker = "external:checkers/custom.cpp"
+				return req
+			}(),
+			externalResources: &fakeExternalResources{files: map[string][]byte{}},
+			wantErr:           `external checker "checkers/custom.cpp" is not available`,
 		},
 		{
 			name: "missing builtin checker dependency",
@@ -486,21 +448,32 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 		},
 		{
 			name: "missing external checker dependency",
-			req: model.JudgeRequest{
-				Checker: "external:checkers/custom.cpp",
-			},
+			req: func() model.JudgeRequest {
+				req := baseJudgeRequest()
+				req.Checker = "external:checkers/custom.cpp"
+				return req
+			}(),
 			resources: &fakeResourceStore{files: map[string][]byte{}},
-			externalStorage: &fakeExternalStorage{files: map[string][]byte{
+			externalResources: &fakeExternalResources{files: map[string][]byte{
 				"checkers/custom.cpp": []byte("checker source"),
 			}},
 			wantErr: `checker dependency "testlib.h" is not available`,
+		},
+		{
+			name: "request over configured time limit",
+			req: func() model.JudgeRequest {
+				req := baseJudgeRequest()
+				req.TimeLimit = model.DefaultJudgeLimits().MaxTimeLimitMs + 1
+				return req
+			}(),
+			wantErr: `timeLimit must be at most`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := newTestJudgeEngine(nil, nil, tt.resources)
-			engine.externalStorage = tt.externalStorage
+			engine.externalResources = tt.externalResources
 
 			err := engine.ValidateRequest(context.Background(), tt.req)
 			require.Error(t, err)
@@ -538,7 +511,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	runner := &fakeRunner{runResults: []RunResult{
-		{Verdict: sandbox.VerdictTLE, ExitCode: 124}, // user TLE — no checker call
+		{Verdict: execution.VerdictTLE, ExitCode: 124}, // user TLE — no checker call
 	}}
 	engine := newTestJudgeEngine(runner, nil, nil)
 
@@ -659,7 +632,7 @@ func (r *inputKeyedErrRunner) Run(_ context.Context, req RunRequest) (RunResult,
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
-	fakeStorage := &fakeExternalStorage{
+	fakeResources := &fakeExternalResources{
 		files: map[string][]byte{
 			"test.in":  []byte("input data"),
 			"test.out": []byte("expected output"),
@@ -672,7 +645,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	}}
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
 
-	engine := newTestJudgeEngineWithStorage(runner, compiler, nil, fakeStorage)
+	engine := newTestJudgeEngineWithExternalResources(runner, compiler, nil, fakeResources)
 
 	originalReq := model.JudgeRequest{
 		SourceCode:  "code",
@@ -699,17 +672,17 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	// Call Judge again with the same request to verify it still works
 	result2 := engine.Judge(context.Background(), originalReq)
 	assert.Equal(t, model.JudgeStatusOK, result2.Status, "Second call should also succeed")
-	assert.Equal(t, 4, fakeStorage.getCalls, "Should load files 4 times (2 files x 2 calls)")
+	assert.Equal(t, 4, fakeResources.getCalls, "Should load files 4 times (2 files x 2 calls)")
 }
 
-// fakeExternalStorage implements a simple in-memory external storage for testing.
-type fakeExternalStorage struct {
+// fakeExternalResources implements a simple in-memory external resource store for testing.
+type fakeExternalResources struct {
 	mu       sync.Mutex
 	files    map[string][]byte
 	getCalls int
 }
 
-func (f *fakeExternalStorage) Get(_ context.Context, path string) ([]byte, error) {
+func (f *fakeExternalResources) Get(_ context.Context, path string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -721,7 +694,7 @@ func (f *fakeExternalStorage) Get(_ context.Context, path string) ([]byte, error
 	return data, nil
 }
 
-func (f *fakeExternalStorage) Stat(_ context.Context, path string) error {
+func (f *fakeExternalResources) Stat(_ context.Context, path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

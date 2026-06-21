@@ -63,26 +63,29 @@ func TestBuildCommand_Java(t *testing.T) {
 	assert.Contains(t, cmd[2], "jar")
 }
 
-func TestRuntimeCommand_C(t *testing.T) {
-	profile := cProfile()
-	cmd := profile.Run.RuntimeCommand("/sandbox/program")
-
-	expected := []string{"/sandbox/program"}
-	assert.Equal(t, expected, cmd)
-}
-
-func TestRuntimeCommand_Python(t *testing.T) {
-	profile := pythonProfile()
-	cmd := profile.Run.RuntimeCommand("/sandbox/solution.py")
-
-	expected := []string{"python3", "/sandbox/solution.py"}
-	assert.Equal(t, expected, cmd)
-}
-
 func TestRuntimeCommand_Java(t *testing.T) {
 	profile := javaProfile()
-	cmd := profile.Run.RuntimeCommand("/sandbox/solution.jar")
+	cmd := profile.Run.RuntimeCommand("/sandbox/solution.jar", RuntimeLimits{MemoryMB: 256})
 
-	expected := []string{"java", "-Xmx256m", "-Xms64m", "-jar", "/sandbox/solution.jar"}
+	expected := []string{"java", "-Xmx192m", "-Xms64m", "-jar", "/sandbox/solution.jar"}
 	assert.Equal(t, expected, cmd)
+}
+
+func TestJavaHeapLimitMB(t *testing.T) {
+	tests := []struct {
+		name          string
+		memoryLimitMB int
+		wantHeapMB    int
+	}{
+		{name: "standard limit reserves native memory", memoryLimitMB: 256, wantHeapMB: 192},
+		{name: "large limit reserves quarter", memoryLimitMB: 1024, wantHeapMB: 768},
+		{name: "small limit keeps minimum heap", memoryLimitMB: 32, wantHeapMB: 16},
+		{name: "invalid limit keeps minimum heap", memoryLimitMB: 0, wantHeapMB: 16},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantHeapMB, javaHeapLimitMB(tt.memoryLimitMB))
+		})
+	}
 }

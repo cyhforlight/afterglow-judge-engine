@@ -22,7 +22,7 @@ func TestRecoveryMiddleware_ReturnsJSON(t *testing.T) {
 
 	wrapped := RecoveryMiddleware(logger)(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, req)
@@ -112,7 +112,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 			wrapped := AuthMiddleware(logger, tt.apiKey)(handler)
 
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}

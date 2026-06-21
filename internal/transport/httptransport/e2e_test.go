@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"afterglow-judge-engine/internal/cache"
+	"afterglow-judge-engine/internal/execution"
+	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/service"
@@ -163,21 +165,19 @@ func newE2EHandler(t *testing.T) *Handler {
 	externalResources, err := resource.NewExternal(testdataDir)
 	require.NoError(t, err)
 
-	baseCompiler := service.NewThrottledCompiler(service.NewCompiler(sb), testContainerSem)
-	checkerCompiler := service.NewCachedCompiler(
-		service.NewThrottledCompiler(service.NewCompiler(sb), testContainerSem),
-		compileCache,
-	)
-	baseRunner := service.NewThrottledRunner(service.NewRunner(sb), testContainerSem)
+	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
+	baseCompiler := service.NewCompiler(executor)
+	checkerCompiler := service.NewCachedCompiler(service.NewCompiler(executor), compileCache)
+	baseRunner := service.NewRunner(executor)
 	judge := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
-		bundledResources, externalResources, 10)
+		bundledResources, externalResources, 10, model.DefaultJudgeLimits())
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {
 		t.Skipf("Containerd not available: %v", err)
 	}
 
-	return NewHandler(judge, slog.Default(), 256)
+	return NewHandler(judge, slog.Default(), 256, model.DefaultJudgeLimits())
 }
 
 func decodeJudgeResponse(body *bytes.Buffer) (JudgeResponseDTO, error) {

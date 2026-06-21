@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"afterglow-judge-engine/internal/model"
+	"afterglow-judge-engine/internal/service"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,10 +61,18 @@ func validJudgeRequest() JudgeRequestDTO {
 	}
 }
 
-func TestHandleHealth_Success(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 256)
+func newTestHandler(judge service.JudgeService) *Handler {
+	return newTestHandlerWithSize(judge, 256)
+}
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+func newTestHandlerWithSize(judge service.JudgeService, maxSizeMB int) *Handler {
+	return NewHandler(judge, slog.Default(), maxSizeMB, model.DefaultJudgeLimits())
+}
+
+func TestHandleHealth_Success(t *testing.T) {
+	handler := newTestHandler(&mockJudgeService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.HandleHealth(w, req)
 
@@ -72,9 +81,9 @@ func TestHandleHealth_Success(t *testing.T) {
 }
 
 func TestHandleHealth_Unhealthy(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{preflightErr: errors.New("down")}, slog.Default(), 256)
+	handler := newTestHandler(&mockJudgeService{preflightErr: errors.New("down")})
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	handler.HandleHealth(w, req)
 
@@ -82,7 +91,7 @@ func TestHandleHealth_Unhealthy(t *testing.T) {
 }
 
 func TestHandleExecute_Success(t *testing.T) {
-	service := &mockJudgeService{result: model.JudgeResult{
+	judge := &mockJudgeService{result: model.JudgeResult{
 		Status:  model.JudgeStatusOK,
 		Compile: model.CompileResult{Succeeded: true, Log: "ok"},
 		Cases: []model.JudgeCaseResult{{
@@ -94,7 +103,7 @@ func TestHandleExecute_Success(t *testing.T) {
 		PassedCount: 1,
 		TotalCount:  1,
 	}}
-	handler := NewHandler(service, slog.Default(), 256)
+	handler := newTestHandler(judge)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, validJudgeRequest()))
 	req.Header.Set("Content-Type", "application/json")
@@ -109,12 +118,12 @@ func TestHandleExecute_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "OK", resp.Status)
 	assert.Equal(t, 1, resp.PassedCount)
-	assert.Equal(t, "Python", service.lastRequest.Language.String())
-	assert.Equal(t, "default", service.lastRequest.Checker)
+	assert.Equal(t, "Python", judge.lastRequest.Language.String())
+	assert.Equal(t, "default", judge.lastRequest.Checker)
 }
 
 func TestHandleExecute_InvalidJSON(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 256)
+	handler := newTestHandler(&mockJudgeService{})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader([]byte("invalid")))
 	w := httptest.NewRecorder()
@@ -124,7 +133,7 @@ func TestHandleExecute_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleExecute_UnknownField(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 256)
+	handler := newTestHandler(&mockJudgeService{})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader([]byte(`{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`)))
 	w := httptest.NewRecorder()
@@ -134,7 +143,7 @@ func TestHandleExecute_UnknownField(t *testing.T) {
 }
 
 func TestHandleExecute_MissingFields(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 256)
+	handler := newTestHandler(&mockJudgeService{})
 
 	dto := validJudgeRequest()
 	dto.SourceCode = ""
@@ -147,7 +156,7 @@ func TestHandleExecute_MissingFields(t *testing.T) {
 }
 
 func TestHandleExecute_InvalidLanguage(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 256)
+	handler := newTestHandler(&mockJudgeService{})
 
 	dto := validJudgeRequest()
 	dto.Language = "Ruby"
@@ -159,9 +168,30 @@ func TestHandleExecute_InvalidLanguage(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestHandleExecute_RequestLimitExceeded(t *testing.T) {
+	judge := &mockJudgeService{}
+	handler := NewHandler(judge, slog.Default(), 256, model.JudgeLimits{
+		MaxTimeLimitMs: 999,
+		MaxMemoryMB:    128,
+		MaxTestCases:   1,
+		MaxSourceBytes: 1024,
+	})
+
+	dto := validJudgeRequest()
+	dto.TimeLimit = 1000
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	w := httptest.NewRecorder()
+	handler.HandleExecute(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, 0, judge.judgeCalls)
+	assert.Empty(t, judge.lastRequest.SourceCode)
+}
+
 func TestHandleExecute_InvalidChecker(t *testing.T) {
-	service := &mockJudgeService{validateErr: errors.New(`checker "ncmp" is not allowed`)}
-	handler := NewHandler(service, slog.Default(), 256)
+	judge := &mockJudgeService{validateErr: errors.New(`checker "ncmp" is not allowed`)}
+	handler := newTestHandler(judge)
 
 	dto := validJudgeRequest()
 	dto.Checker = "ncmp"
@@ -171,7 +201,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	handler.HandleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, 0, service.judgeCalls)
+	assert.Equal(t, 0, judge.judgeCalls)
 
 	var resp ErrorResponseDTO
 	err := json.NewDecoder(w.Body).Decode(&resp)
@@ -181,9 +211,9 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 
 func TestHandleExecute_MissingExternalDependency(t *testing.T) {
 	judge := &mockJudgeService{
-		validateErr: errors.New(`testcases[0]: inputFile "cases/1.in" requires external storage`),
+		validateErr: errors.New(`testcases[0]: inputFile "cases/1.in" requires external resources`),
 	}
-	handler := NewHandler(judge, slog.Default(), 256)
+	handler := newTestHandler(judge)
 
 	dto := validJudgeRequest()
 	dto.TestCases = []JudgeTestCaseDTO{{
@@ -201,11 +231,11 @@ func TestHandleExecute_MissingExternalDependency(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "INVALID_REQUEST", resp.Code)
-	assert.Contains(t, resp.Details, `inputFile "cases/1.in" requires external storage`)
+	assert.Contains(t, resp.Details, `inputFile "cases/1.in" requires external resources`)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {
-	handler := NewHandler(&mockJudgeService{}, slog.Default(), 0)
+	handler := newTestHandlerWithSize(&mockJudgeService{}, 0)
 
 	dto := validJudgeRequest()
 	dto.SourceCode = "abcdefghijklmnopqrstuvwxyz"

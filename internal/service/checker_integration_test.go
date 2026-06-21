@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
-	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -64,8 +64,7 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, exter
 	testlibHeader, err := resourceStore.Get(ctx, testlibHeaderKey)
 	require.NoError(t, err)
 
-	sb := sandbox.NewContainerdSandbox("", "")
-	compiler := NewThrottledCompiler(NewCompiler(sb), testContainerSem)
+	compiler := NewCompiler(newExecutorForTest(t))
 
 	profile := checkerProfile()
 	out, err := compiler.Compile(ctx, CompileRequest{
@@ -76,11 +75,11 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, exter
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
 		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	})
 	require.NoError(t, err)
@@ -98,8 +97,7 @@ func runCheckerForTest(
 ) (model.Verdict, string) {
 	t.Helper()
 
-	sb := sandbox.NewContainerdSandbox("", "")
-	runner := NewThrottledRunner(NewRunner(sb), testContainerSem)
+	runner := NewRunner(newExecutorForTest(t))
 
 	profile := checkerProfile()
 	runOut, err := runner.Run(ctx, RunRequest{
@@ -128,13 +126,13 @@ func runCheckerForTest(
 	}
 
 	switch runOut.Verdict {
-	case sandbox.VerdictTLE, sandbox.VerdictMLE, sandbox.VerdictOLE:
+	case execution.VerdictTLE, execution.VerdictMLE, execution.VerdictOLE:
 		return model.VerdictUKE, message
 	}
 
 	switch runOut.ExitCode {
 	case 0:
-		if runOut.Verdict != sandbox.VerdictOK {
+		if runOut.Verdict != execution.VerdictOK {
 			return model.VerdictUKE, message
 		}
 		return model.VerdictOK, message

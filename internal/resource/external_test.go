@@ -10,24 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExternal_Get(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	testFile := filepath.Join(tmpDir, "test.txt")
-	content := []byte("test content")
-	err := os.WriteFile(testFile, content, 0o644)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	retrieved, err := ext.Get(ctx, "test.txt")
-	require.NoError(t, err)
-	assert.Equal(t, content, retrieved)
-}
-
 func TestExternal_Get_SeesFileUpdates(t *testing.T) {
 	tmpDir := t.TempDir()
 

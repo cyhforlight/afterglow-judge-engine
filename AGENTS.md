@@ -83,8 +83,9 @@
 
 - `transport/httptransport`：负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
 - `service`：负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、聚合 verdict
+- `execution`：负责通用容器执行任务：准备 workspace、写入文件、表达资源限制、调用 sandbox、收集产物和限制容器并发
 - `sandbox`：负责通过 containerd 在受限环境中执行编译和运行动作
-- `storage`：负责内部资源和外部文件的只读访问
+- `resource`：负责内部资源和外部文件的只读访问
 - `model`：负责领域对象和枚举类型
 
 ### 依赖方向
@@ -92,7 +93,9 @@
 依赖方向保持单向：
 
 ```text
-transport -> service -> model / sandbox / Storage
+transport -> service -> model
+                    -> resource
+                    -> execution -> sandbox
 ```
 
 不能出现反向依赖或循环依赖，保持各模块或层次的低耦合。
@@ -169,7 +172,8 @@ transport -> service -> model / sandbox / Storage
 
 ```bash
 goimports -w .
-golangci-lint run
+golangci-lint config verify
+golangci-lint run ./...
 go test -cover ./...
 ```
 

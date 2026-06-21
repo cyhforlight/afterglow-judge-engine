@@ -4,11 +4,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
-	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/workspace"
 )
 
@@ -21,7 +20,7 @@ type RunRequest struct {
 	Command  []string
 	Cwd      string
 	Stdin    io.Reader
-	Limits   sandbox.ResourceLimits
+	Limits   execution.Limits
 }
 
 // RunResult contains the raw execution outcome from the runner primitive.
@@ -31,7 +30,7 @@ type RunResult struct {
 	Stderr    string
 	CPUTimeMs int
 	MemoryMB  int
-	Verdict   sandbox.Verdict
+	Verdict   execution.Verdict
 	ExtraInfo string
 }
 
@@ -43,17 +42,17 @@ type Runner interface {
 
 // runner executes files in isolated containers.
 type runner struct {
-	sandbox sandbox.Sandbox
+	executor execution.Executor
 }
 
 // NewRunner creates a generic runner primitive.
-func NewRunner(sb sandbox.Sandbox) Runner {
-	return &runner{sandbox: sb}
+func NewRunner(executor execution.Executor) Runner {
+	return &runner{executor: executor}
 }
 
 // PreflightCheck verifies that cgroup v2 and containerd are available.
 func (r *runner) PreflightCheck(ctx context.Context) error {
-	return r.sandbox.PreflightCheck(ctx)
+	return r.executor.PreflightCheck(ctx)
 }
 
 // Run executes the given request and returns the raw execution result.
@@ -68,36 +67,24 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("at least one run file is required")
 	}
 
-	ws, err := workspace.New()
-	if err != nil {
-		return RunResult{}, fmt.Errorf("create workspace: %w", err)
-	}
-	defer func() { _ = ws.Cleanup() }()
-
-	if err := ws.WriteFiles(req.Files); err != nil {
-		return RunResult{}, fmt.Errorf("write run files: %w", err)
-	}
-
 	cwd := req.Cwd
 	if strings.TrimSpace(cwd) == "" {
 		cwd = runMountDir
 	}
 
-	result, err := r.sandbox.Execute(ctx, sandbox.ExecuteRequest{
-		ImageRef: req.ImageRef,
-		Command:  req.Command,
-		MountDir: &sandbox.Mount{
-			HostPath:      ws.Dir(),
-			ContainerPath: runMountDir,
-			ReadOnly:      true,
-		},
-		Cwd:           &cwd,
+	result, err := r.executor.Execute(ctx, execution.Job{
+		Files:         req.Files,
+		ImageRef:      req.ImageRef,
+		Command:       req.Command,
+		MountPath:     runMountDir,
+		ReadOnlyMount: true,
+		Cwd:           cwd,
 		Stdin:         req.Stdin,
 		Limits:        req.Limits,
 		EnableSeccomp: true, // User code execution requires seccomp restrictions
 	})
 	if err != nil {
-		return RunResult{}, fmt.Errorf("sandbox execute: %w", err)
+		return RunResult{}, err
 	}
 
 	return RunResult{

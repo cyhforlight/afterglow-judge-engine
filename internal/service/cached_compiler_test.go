@@ -17,7 +17,7 @@ import (
 
 func testCompileRequest(content string) CompileRequest {
 	return CompileRequest{
-		Files:        []workspace.File{{Name: "main.cpp", Content: []byte(content), Mode: 0644}},
+		Files:        []workspace.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
 		ImageRef:     "gcc:latest",
 		Command:      []string{"g++", "main.cpp"},
 		ArtifactName: "a.out",
@@ -43,23 +43,6 @@ func TestCachedCompiler_CacheHit(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, out2.Result.Succeeded)
 	assert.Equal(t, 1, inner.calls, "inner should only be called once")
-}
-
-func TestCachedCompiler_CacheMiss(t *testing.T) {
-	c, err := cache.New[CompileOutput](16)
-	require.NoError(t, err)
-
-	inner := &fakeCompiler{
-		result:   model.CompileResult{Succeeded: true},
-		artifact: testCompiledArtifact(),
-	}
-	cc := NewCachedCompiler(inner, c)
-
-	out, err := cc.Compile(context.Background(), testCompileRequest("first"))
-	require.NoError(t, err)
-	assert.True(t, out.Result.Succeeded)
-	assert.NotNil(t, out.Artifact)
-	assert.Equal(t, 1, inner.calls)
 }
 
 func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {

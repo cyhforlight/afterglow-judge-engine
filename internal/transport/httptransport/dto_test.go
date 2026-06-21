@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//nolint:funlen // Comprehensive table-driven validation coverage.
 func TestJudgeRequestDTO_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -136,6 +135,27 @@ func TestJudgeRequestDTO_Validate(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestJudgeRequestDTO_ValidateWithLimits(t *testing.T) {
+	dto := JudgeRequestDTO{
+		SourceCode:  "print(42)",
+		Language:    "Python",
+		TimeLimit:   1000,
+		MemoryLimit: 128,
+		TestCases:   []JudgeTestCaseDTO{{}},
+	}
+	limits := model.JudgeLimits{
+		MaxTimeLimitMs: 999,
+		MaxMemoryMB:    128,
+		MaxTestCases:   1,
+		MaxSourceBytes: 1024,
+	}
+
+	err := dto.ValidateWithLimits(limits)
+
+	require.Error(t, err)
+	assert.Equal(t, "timeLimit must be at most 999 ms", err.Error())
 }
 
 func TestJudgeRequestDTO_ToModel(t *testing.T) {

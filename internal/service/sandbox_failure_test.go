@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -28,14 +28,14 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 			Mode:    artifact.Mode,
 		}},
 		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath),
+		Command:  profile.Run.RuntimeCommand(containerPath, RuntimeLimits{MemoryMB: memoryLimit}),
 		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
-			WallTimeMs:  timeLimit * sandbox.WallTimeMultiplier,
+			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
 			MemoryMB:    memoryLimit,
-			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+			OutputBytes: execution.DefaultRunOutputLimitBytes,
 		},
 	})
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestSandboxFailure_TimeLimit(t *testing.T) {
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 1000, 256)
-			assert.Equal(t, sandbox.VerdictTLE, runOut.Verdict, "expected TLE verdict")
+			assert.Equal(t, execution.VerdictTLE, runOut.Verdict, "expected TLE verdict")
 		})
 	}
 }
@@ -126,7 +126,7 @@ func TestSandboxFailure_MemoryLimit(t *testing.T) {
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 64)
-			assert.Equal(t, sandbox.VerdictMLE, runOut.Verdict, "expected MLE verdict")
+			assert.Equal(t, execution.VerdictMLE, runOut.Verdict, "expected MLE verdict")
 		})
 	}
 }
@@ -158,7 +158,7 @@ func TestSandboxFailure_RuntimeError(t *testing.T) {
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
-			assert.Equal(t, sandbox.VerdictRE, runOut.Verdict, "expected RE verdict")
+			assert.Equal(t, execution.VerdictRE, runOut.Verdict, "expected RE verdict")
 		})
 	}
 }
@@ -186,7 +186,7 @@ func TestSandboxFailure_OutputLimit(t *testing.T) {
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
-			assert.Equal(t, sandbox.VerdictOLE, runOut.Verdict, "expected OLE verdict")
+			assert.Equal(t, execution.VerdictOLE, runOut.Verdict, "expected OLE verdict")
 		})
 	}
 }
@@ -222,7 +222,7 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 
 			// With seccomp blocking socket, programs should handle the error gracefully
 			// and exit with code 0 (printing "blocked" message) or non-zero (error)
-			assert.Equal(t, sandbox.VerdictOK, runOut.Verdict, "program should complete normally")
+			assert.Equal(t, execution.VerdictOK, runOut.Verdict, "program should complete normally")
 			assert.Contains(t, runOut.Stdout, "blocked", "should report socket was blocked by seccomp")
 		})
 	}

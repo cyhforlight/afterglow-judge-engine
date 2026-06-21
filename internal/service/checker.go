@@ -16,13 +16,13 @@ const (
 
 	testlibHeaderKey = "testlib.h"
 
-	// Checker execution file names
+	// Checker execution file names.
 	checkerSourceFileName = "checker.cpp"
 	checkerInputFileName  = "input.txt"
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
 
-	// Checker execution limits
+	// Checker execution limits.
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
 )

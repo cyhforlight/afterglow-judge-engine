@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,7 +50,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 
 	baseRunner := &fakeRunner{
 		runResult: RunResult{
-			Verdict:   sandbox.VerdictOK,
+			Verdict:   execution.VerdictOK,
 			Stdout:    "output",
 			CPUTimeMs: 10,
 			MemoryMB:  10,
@@ -71,7 +71,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 	}}
 
 	maxConcurrent := 2
-	engine := NewJudgeEngine(compiler, compiler, slowRunnerWrapper, resources, nil, maxConcurrent)
+	engine := NewJudgeEngine(compiler, compiler, slowRunnerWrapper, resources, nil, maxConcurrent, model.DefaultJudgeLimits())
 
 	ctx := context.Background()
 	req := baseJudgeRequest()
@@ -99,7 +99,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 	blockingRunner := &fakeRunner{
 		runResult: RunResult{
-			Verdict:   sandbox.VerdictOK,
+			Verdict:   execution.VerdictOK,
 			Stdout:    "output",
 			CPUTimeMs: 10,
 			MemoryMB:  10,
@@ -120,7 +120,7 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 		testlibHeaderKey:       []byte("header"),
 	}}
 
-	engine := NewJudgeEngine(compiler, compiler, slowRunnerWrapper, resources, nil, 1)
+	engine := NewJudgeEngine(compiler, compiler, slowRunnerWrapper, resources, nil, 1, model.DefaultJudgeLimits())
 
 	req := baseJudgeRequest()
 
@@ -156,7 +156,7 @@ func TestJudgeEngine_ConcurrencyRaceCondition(t *testing.T) {
 
 	trackingRunner := &fakeRunner{
 		runResult: RunResult{
-			Verdict:   sandbox.VerdictOK,
+			Verdict:   execution.VerdictOK,
 			Stdout:    "output",
 			CPUTimeMs: 10,
 			MemoryMB:  10,
@@ -177,7 +177,7 @@ func TestJudgeEngine_ConcurrencyRaceCondition(t *testing.T) {
 		testlibHeaderKey:       []byte("header"),
 	}}
 
-	engine := NewJudgeEngine(compiler, compiler, countingRunner, resources, nil, 1)
+	engine := NewJudgeEngine(compiler, compiler, countingRunner, resources, nil, 1, model.DefaultJudgeLimits())
 
 	req := baseJudgeRequest()
 

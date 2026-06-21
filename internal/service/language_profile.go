@@ -2,8 +2,16 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 
 	"afterglow-judge-engine/internal/model"
+)
+
+const (
+	gccImage            = "docker.io/library/gcc:12-bookworm"
+	staticRuntimeImage  = "gcr.io/distroless/static-debian12:latest"
+	defaultArtifactName = "program"
+	minJavaHeapMB       = 16
 )
 
 // LanguageProfile groups the compile-time and run-time settings for a language.
@@ -27,7 +35,12 @@ type CompileConfig struct {
 type RunConfig struct {
 	ImageRef       string
 	ArtifactName   string
-	RuntimeCommand func(artifactPath string) []string
+	RuntimeCommand func(artifactPath string, limits RuntimeLimits) []string
+}
+
+// RuntimeLimits carries request-level runtime policy into language-specific commands.
+type RuntimeLimits struct {
+	MemoryMB int
 }
 
 // ProfileForLanguage returns the language profile for the given language.
@@ -50,12 +63,12 @@ func ProfileForLanguage(lang model.Language) (LanguageProfile, error) {
 func cProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			ImageRef:     gccImage,
 			SourceFiles:  []string{"main.c"},
-			ArtifactName: "program",
+			ArtifactName: defaultArtifactName,
 			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 9+len(sources))
-				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/program")
+				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/"+defaultArtifactName)
 				for _, src := range sources {
 					args = append(args, compileMountDir+"/"+src)
 				}
@@ -66,9 +79,9 @@ func cProfile() LanguageProfile {
 			MemoryMB:  512,
 		},
 		Run: RunConfig{
-			ImageRef:       "gcr.io/distroless/static-debian12:latest",
-			ArtifactName:   "program",
-			RuntimeCommand: func(p string) []string { return []string{p} },
+			ImageRef:       staticRuntimeImage,
+			ArtifactName:   defaultArtifactName,
+			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
 		},
 	}
 }
@@ -77,12 +90,12 @@ func cProfile() LanguageProfile {
 func cppProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			ImageRef:     gccImage,
 			SourceFiles:  []string{"main.cpp"},
-			ArtifactName: "program",
+			ArtifactName: defaultArtifactName,
 			BuildCommand: func(sources []string) []string {
 				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/program")
+				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/"+defaultArtifactName)
 				for _, src := range sources {
 					args = append(args, compileMountDir+"/"+src)
 				}
@@ -93,9 +106,9 @@ func cppProfile() LanguageProfile {
 			MemoryMB:  512,
 		},
 		Run: RunConfig{
-			ImageRef:       "gcr.io/distroless/static-debian12:latest",
-			ArtifactName:   "program",
-			RuntimeCommand: func(p string) []string { return []string{p} },
+			ImageRef:       staticRuntimeImage,
+			ArtifactName:   defaultArtifactName,
+			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
 		},
 	}
 }
@@ -105,7 +118,7 @@ func cppProfile() LanguageProfile {
 func checkerProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			ImageRef:     gccImage,
 			SourceFiles:  []string{"checker.cpp"},
 			ArtifactName: "checker",
 			BuildCommand: func(sources []string) []string {
@@ -123,7 +136,7 @@ func checkerProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       "gcr.io/distroless/static-debian12:latest",
 			ArtifactName:   "checker",
-			RuntimeCommand: func(p string) []string { return []string{p} },
+			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
 		},
 	}
 }
@@ -145,11 +158,33 @@ func javaProfile() LanguageProfile {
 			MemoryMB:  512,
 		},
 		Run: RunConfig{
-			ImageRef:       "gcr.io/distroless/java21-debian12:latest",
-			ArtifactName:   "solution.jar",
-			RuntimeCommand: func(p string) []string { return []string{"java", "-Xmx256m", "-Xms64m", "-jar", p} },
+			ImageRef:     "gcr.io/distroless/java21-debian12:latest",
+			ArtifactName: "solution.jar",
+			RuntimeCommand: func(p string, limits RuntimeLimits) []string {
+				heapMB := javaHeapLimitMB(limits.MemoryMB)
+				initialHeapMB := min(heapMB, 64)
+				return []string{
+					"java",
+					"-Xmx" + strconv.Itoa(heapMB) + "m",
+					"-Xms" + strconv.Itoa(initialHeapMB) + "m",
+					"-jar",
+					p,
+				}
+			},
 		},
 	}
+}
+
+func javaHeapLimitMB(memoryLimitMB int) int {
+	if memoryLimitMB <= 0 {
+		return minJavaHeapMB
+	}
+
+	nativeReserveMB := max(64, memoryLimitMB/4)
+	if memoryLimitMB <= nativeReserveMB+minJavaHeapMB {
+		return minJavaHeapMB
+	}
+	return memoryLimitMB - nativeReserveMB
 }
 
 // pythonProfile returns the profile for Python language.
@@ -172,7 +207,7 @@ func pythonProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       "gcr.io/distroless/python3-debian12:latest",
 			ArtifactName:   "solution.pyc",
-			RuntimeCommand: func(p string) []string { return []string{"python3", p} },
+			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{"python3", p} },
 		},
 	}
 }

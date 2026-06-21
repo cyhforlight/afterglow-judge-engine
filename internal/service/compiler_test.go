@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -30,16 +30,16 @@ func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte("int main() { return 1; }"),
-			Mode:    0644,
+			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
 		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	}
 

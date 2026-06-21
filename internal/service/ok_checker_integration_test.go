@@ -6,15 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-engine/internal/sandbox"
+	"afterglow-judge-engine/internal/execution"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestOKAndChecker_AllTestcases tests all testcases in testdata/ok-and-checker-cases.
-//
-//nolint:funlen // Table-driven integration test with 20 testcases
 func TestOKAndChecker_AllTestcases(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
@@ -43,7 +41,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 
 			// Execute user program
 			runOut := runUserProgram(t, env, artifact, lang, inputData, 2000, 256)
-			require.Equal(t, sandbox.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
+			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
 			// Compile and run checker
 			checkerName := checkerNameMap[tcNum]

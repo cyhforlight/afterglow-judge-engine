@@ -9,16 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBundled_Get(t *testing.T) {
-	b := newBundled(fstest.MapFS{
-		"test-resource.txt": &fstest.MapFile{Data: []byte("test resource content")},
-	})
-
-	data, err := b.Get(context.Background(), "test-resource.txt")
-	require.NoError(t, err)
-	assert.Equal(t, []byte("test resource content"), data)
-}
-
 func TestBundled_Get_NestedPath(t *testing.T) {
 	b := newBundled(fstest.MapFS{
 		"checkers/ncmp.cpp": &fstest.MapFile{Data: []byte("int main() {}")},

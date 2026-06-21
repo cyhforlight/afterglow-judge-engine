@@ -11,6 +11,7 @@ import (
 
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/config"
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/resource"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/service"
@@ -80,14 +81,12 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		externalResources = ext
 	}
 
-	// 5. Create base compiler and runner primitives, throttled by a shared semaphore.
+	// 5. Create a shared executor throttled by a container semaphore.
 	containerSem := make(chan struct{}, cfg.MaxConcurrentContainers)
-	compiler := service.NewThrottledCompiler(service.NewCompiler(sb), containerSem)
-	checkerCompiler := service.NewCachedCompiler(
-		service.NewThrottledCompiler(service.NewCompiler(sb), containerSem),
-		compileCache,
-	)
-	runner := service.NewThrottledRunner(service.NewRunner(sb), containerSem)
+	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), containerSem)
+	compiler := service.NewCompiler(executor)
+	checkerCompiler := service.NewCachedCompiler(service.NewCompiler(executor), compileCache)
+	runner := service.NewRunner(executor)
 
 	// 6. Create judge engine with internal checker resources.
 	judge := service.NewJudgeEngine(
@@ -97,6 +96,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		bundledResources,
 		externalResources,
 		cfg.MaxConcurrentJudges,
+		cfg.JudgeLimits,
 	)
 
 	ctx := context.Background()

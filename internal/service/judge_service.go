@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
 )
 
@@ -22,12 +22,13 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	compiler        Compiler
-	checkerCompiler Compiler
-	runner          Runner
-	resources       ResourceStore
-	externalStorage ResourceStore
-	concurrencySem  chan struct{}
+	compiler          Compiler
+	checkerCompiler   Compiler
+	runner            Runner
+	resources         ResourceStore
+	externalResources ResourceStore
+	concurrencySem    chan struct{}
+	limits            model.JudgeLimits
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -36,16 +37,22 @@ func NewJudgeEngine(
 	checkerCompiler Compiler,
 	runner Runner,
 	resources ResourceStore,
-	externalStorage ResourceStore,
+	externalResources ResourceStore,
 	maxConcurrent int,
+	limits model.JudgeLimits,
 ) *JudgeEngine {
+	if limits == (model.JudgeLimits{}) {
+		limits = model.DefaultJudgeLimits()
+	}
+
 	return &JudgeEngine{
-		compiler:        compiler,
-		checkerCompiler: checkerCompiler,
-		runner:          runner,
-		resources:       resources,
-		externalStorage: externalStorage,
-		concurrencySem:  make(chan struct{}, maxConcurrent),
+		compiler:          compiler,
+		checkerCompiler:   checkerCompiler,
+		runner:            runner,
+		resources:         resources,
+		externalResources: externalResources,
+		concurrencySem:    make(chan struct{}, maxConcurrent),
+		limits:            limits,
 	}
 }
 
@@ -56,6 +63,10 @@ func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
 
 // ValidateRequest verifies whether the request can be handled by the judge.
 func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeRequest) error {
+	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
+		return err
+	}
+
 	checkerLoc, err := ResolveChecker(req.Checker)
 	if err != nil {
 		return err
@@ -101,10 +112,10 @@ func (s *JudgeEngine) validateCheckerDependencies(ctx context.Context, checkerLo
 }
 
 func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, label string) error {
-	if s.externalStorage == nil {
-		return fmt.Errorf("%s %q requires external storage", label, path)
+	if s.externalResources == nil {
+		return fmt.Errorf("%s %q requires external resources", label, path)
 	}
-	if err := s.externalStorage.Stat(ctx, path); err != nil {
+	if err := s.externalResources.Stat(ctx, path); err != nil {
 		return fmt.Errorf("%s %q is not available: %w", label, path, err)
 	}
 	return nil
@@ -112,6 +123,10 @@ func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, labe
 
 // Judge compiles source code and evaluates all test cases.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
+	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
+		return failedBeforeRun(req.TestCases, err.Error())
+	}
+
 	// Acquire concurrency semaphore with context timeout
 	select {
 	case s.concurrencySem <- struct{}{}:
@@ -215,12 +230,11 @@ func (s *JudgeEngine) runAllCases(
 // loadTestCaseData resolves file paths to actual content strings.
 // Modifies testCase in-place, converting file paths to text.
 func (s *JudgeEngine) loadTestCaseData(ctx context.Context, testCase *model.JudgeTestCase) error {
-	// Load input data
 	if testCase.InputFile != "" {
-		if s.externalStorage == nil {
-			return fmt.Errorf("external storage not configured, cannot load inputFile: %s", testCase.InputFile)
+		if s.externalResources == nil {
+			return fmt.Errorf("external resources not configured, cannot load inputFile: %s", testCase.InputFile)
 		}
-		data, err := s.externalStorage.Get(ctx, testCase.InputFile)
+		data, err := s.externalResources.Get(ctx, testCase.InputFile)
 		if err != nil {
 			return fmt.Errorf("load inputFile %q: %w", testCase.InputFile, err)
 		}
@@ -228,12 +242,11 @@ func (s *JudgeEngine) loadTestCaseData(ctx context.Context, testCase *model.Judg
 		testCase.InputFile = "" // Clear after loading
 	}
 
-	// Load expected output data
 	if testCase.ExpectedOutputFile != "" {
-		if s.externalStorage == nil {
-			return fmt.Errorf("external storage not configured, cannot load expectedOutputFile: %s", testCase.ExpectedOutputFile)
+		if s.externalResources == nil {
+			return fmt.Errorf("external resources not configured, cannot load expectedOutputFile: %s", testCase.ExpectedOutputFile)
 		}
-		data, err := s.externalStorage.Get(ctx, testCase.ExpectedOutputFile)
+		data, err := s.externalResources.Get(ctx, testCase.ExpectedOutputFile)
 		if err != nil {
 			return fmt.Errorf("load expectedOutputFile %q: %w", testCase.ExpectedOutputFile, err)
 		}
@@ -259,16 +272,16 @@ func (s *JudgeEngine) compileUserCode(
 		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte(sourceCode),
-			Mode:    0644,
+			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
 		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	}
 
@@ -291,18 +304,18 @@ func (s *JudgeEngine) prepareChecker(
 	var err error
 
 	if loc.IsExternal {
-		if s.externalStorage == nil {
-			return nil, model.CompileResult{}, errors.New("external storage not configured")
+		if s.externalResources == nil {
+			return nil, model.CompileResult{}, errors.New("external resources not configured")
 		}
-		checkerSource, err = s.externalStorage.Get(ctx, loc.Path)
+		checkerSource, err = s.externalResources.Get(ctx, loc.Path)
 		if err != nil {
 			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
 		}
 	} else {
-		storageKey := builtinCheckerPath(loc.Path)
-		checkerSource, err = s.resources.Get(ctx, storageKey)
+		checkerSourceKey := builtinCheckerPath(loc.Path)
+		checkerSource, err = s.resources.Get(ctx, checkerSourceKey)
 		if err != nil {
-			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, storageKey, err)
+			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, checkerSourceKey, err)
 		}
 	}
 
@@ -316,17 +329,17 @@ func (s *JudgeEngine) prepareChecker(
 	profile := checkerProfile()
 	compileOut, err := s.checkerCompiler.Compile(ctx, CompileRequest{
 		Files: []workspace.File{
-			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0644},
-			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0644},
+			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
+			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
 		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	})
 	if err != nil {
@@ -355,6 +368,11 @@ func (s *JudgeEngine) executeUserCode(
 	}
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
+	wallLimitMs, err := wallTimeLimitMs(timeLimit)
+	if err != nil {
+		return model.ExecuteResult{}, err
+	}
+
 	runOut, err := s.runner.Run(ctx, RunRequest{
 		Files: []workspace.File{{
 			Name:    profile.Run.ArtifactName,
@@ -362,14 +380,14 @@ func (s *JudgeEngine) executeUserCode(
 			Mode:    artifact.Mode,
 		}},
 		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath),
+		Command:  profile.Run.RuntimeCommand(containerPath, RuntimeLimits{MemoryMB: memoryLimit}),
 		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
-			WallTimeMs:  timeLimit * sandbox.WallTimeMultiplier,
+			WallTimeMs:  wallLimitMs,
 			MemoryMB:    memoryLimit,
-			OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+			OutputBytes: execution.DefaultRunOutputLimitBytes,
 		},
 	})
 	if err != nil {
@@ -390,17 +408,17 @@ func convertRunResult(runOut RunResult) model.ExecuteResult {
 	}
 }
 
-func convertVerdict(v sandbox.Verdict) model.Verdict {
+func convertVerdict(v execution.Verdict) model.Verdict {
 	switch v {
-	case sandbox.VerdictOK:
+	case execution.VerdictOK:
 		return model.VerdictOK
-	case sandbox.VerdictTLE:
+	case execution.VerdictTLE:
 		return model.VerdictTLE
-	case sandbox.VerdictMLE:
+	case execution.VerdictMLE:
 		return model.VerdictMLE
-	case sandbox.VerdictOLE:
+	case execution.VerdictOLE:
 		return model.VerdictOLE
-	case sandbox.VerdictRE:
+	case execution.VerdictRE:
 		return model.VerdictRE
 	default:
 		return model.VerdictUKE
@@ -423,9 +441,9 @@ func (s *JudgeEngine) runChecker(
 	runOut, err := s.runner.Run(ctx, RunRequest{
 		Files: []workspace.File{
 			{Name: profile.Run.ArtifactName, Content: checkerArtifact.Data, Mode: checkerArtifact.Mode},
-			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0644},
-			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0644},
-			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0644},
+			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0o644},
+			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},
+			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0o644},
 		},
 		ImageRef: profile.Run.ImageRef,
 		Command: []string{
@@ -452,14 +470,14 @@ func (s *JudgeEngine) runChecker(
 
 	// Check for sandbox failures
 	switch runOut.Verdict {
-	case sandbox.VerdictTLE, sandbox.VerdictMLE, sandbox.VerdictOLE:
+	case execution.VerdictTLE, execution.VerdictMLE, execution.VerdictOLE:
 		return model.VerdictUKE, message, nil
 	}
 
 	// Parse exit code
 	switch runOut.ExitCode {
 	case 0:
-		if runOut.Verdict != sandbox.VerdictOK {
+		if runOut.Verdict != execution.VerdictOK {
 			return model.VerdictUKE, message, nil
 		}
 		return model.VerdictOK, message, nil
@@ -470,12 +488,12 @@ func (s *JudgeEngine) runChecker(
 	}
 }
 
-func checkerRunLimits() sandbox.ResourceLimits {
-	return sandbox.ResourceLimits{
+func checkerRunLimits() execution.Limits {
+	return execution.Limits{
 		CPUTimeMs:   checkerCPUTimeLimitMs,
-		WallTimeMs:  checkerCPUTimeLimitMs * sandbox.WallTimeMultiplier,
+		WallTimeMs:  checkerCPUTimeLimitMs * execution.WallTimeMultiplier,
 		MemoryMB:    checkerMemoryLimitMB,
-		OutputBytes: sandbox.DefaultExecutionOutputLimitBytes,
+		OutputBytes: execution.DefaultRunOutputLimitBytes,
 	}
 }
 
@@ -530,7 +548,7 @@ func (s *JudgeEngine) runSingleCase(
 	return judgeCaseResultFromExecution(runResult, checkerVerdict, message)
 }
 
-func (s *JudgeEngine) unknownJudgeResult(
+func (*JudgeEngine) unknownJudgeResult(
 	testCases []model.JudgeTestCase,
 	compileResult model.CompileResult,
 	message string,

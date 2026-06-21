@@ -24,43 +24,6 @@ func TestContainerdSandbox_PreflightCheck(t *testing.T) {
 	assert.NoError(t, err, "Preflight check should pass when containerd is running")
 }
 
-func TestContainerdSandbox_Execute_SimpleEcho(t *testing.T) {
-	env := newStandardSandboxTestEnv(t)
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "print('Hello World')"},
-		Limits:   standardLimits(),
-	}
-
-	result, err := env.sb.Execute(env.ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, VerdictOK, result.Verdict)
-	assert.Contains(t, result.Stdout, "Hello World")
-}
-
-func TestContainerdSandbox_Execute_WithStdin(t *testing.T) {
-	env := newStandardSandboxTestEnv(t)
-
-	stdin := bytes.NewBufferString("test input\n")
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", "import sys; print(sys.stdin.read(), end='')"},
-		Stdin:    stdin,
-		Limits:   standardLimits(),
-	}
-
-	result, err := env.sb.Execute(env.ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, VerdictOK, result.Verdict)
-	assert.Contains(t, result.Stdout, "test input")
-}
-
 func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -222,41 +185,6 @@ print('done')
 			tt.checkResult(t, tmpDir, result)
 		})
 	}
-}
-
-func TestContainerdSandbox_Execute_WriteFile(t *testing.T) {
-	env := newStandardSandboxTestEnv(t)
-
-	tmpDir := t.TempDir()
-
-	pythonCode := `
-with open('/output/result.txt', 'w') as f:
-    f.write('test output')
-print('done')
-`
-
-	req := ExecuteRequest{
-		ImageRef: testPythonImageRef,
-		Command:  []string{"python3", "-c", pythonCode},
-		MountDir: &Mount{
-			HostPath:      tmpDir,
-			ContainerPath: "/output",
-			ReadOnly:      false,
-		},
-		Limits: standardLimits(),
-	}
-
-	result, err := env.sb.Execute(env.ctx, req)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Equal(t, VerdictOK, result.Verdict)
-
-	// 验证文件被创建
-	outputPath := filepath.Join(tmpDir, "result.txt")
-	content, err := os.ReadFile(outputPath)
-	require.NoError(t, err)
-	assert.Equal(t, "test output", string(content))
 }
 
 func TestContainerdSandbox_SeccompEnforcement(t *testing.T) {

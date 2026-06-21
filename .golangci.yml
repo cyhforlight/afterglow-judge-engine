@@ -15,7 +15,7 @@ formatters:
 
 linters:
   enable:
-    # 基础检查（原有）
+    # 基础正确性检查
     - copyloopvar      # 检测循环变量复制
     - errcheck         # 检查未处理的错误
     - errorlint        # 错误包装检查（Go 1.13+）
@@ -31,34 +31,33 @@ linters:
     - usestdlibvars    # 检测可用标准库常量的地方
     - wastedassign     # 检测浪费的赋值
 
-    # 代码质量（新增）
+    # 代码复杂度检查
     - gocognit         # 认知复杂度检查
     - gocyclo          # 圈复杂度检查
     - funlen           # 函数长度检查
     - nestif           # 嵌套 if 深度检查
     - maintidx         # 可维护性指数
 
-    # 错误处理（新增）
-    # - err113           # 错误处理表达式检查（对 CLI 工具过于严格，已禁用）
+    # 错误处理
     - errname          # 错误命名规范（Err 前缀、Error 后缀）
     - nilnil           # 检查同时返回 nil error 和 nil value
 
-    # 现代化检查（新增）
+    # 现代化检查
     - intrange         # 检测可用整数 range 的地方
     - mirror           # 检测 bytes/strings 的错误使用模式
     - modernize        # 建议使用现代语言特性
     - exptostd         # 检测可用标准库替代 x/exp 的地方
 
-    # 性能优化（新增）
+    # 性能检查
     - perfsprint       # 检测可优化的 fmt.Sprintf
     - prealloc         # 检测可预分配的切片
     - makezero         # 检测非零初始长度的切片声明
 
-    # 安全性（新增）
-    # - gosec            # 安全问题检查（已禁用：对开发阶段过于严格）
+    # 安全检查
+    - gosec            # 安全问题检查
     - bidichk          # 检测危险的 Unicode 字符序列
 
-    # 代码风格（新增）
+    # 代码风格
     - godot            # 检查注释是否以句号结尾
     - goconst          # 检测可提取为常量的重复字符串
     - gocritic         # 全面的代码诊断
@@ -66,16 +65,14 @@ linters:
     - reassign         # 检查包变量重新赋值
     - sloglint         # log/slog 使用规范检查
 
-    # 接口和类型（新增）
+    # 接口和类型
     - iface            # 检测接口使用不当
-    - ireturn          # 接受接口，返回具体类型
     - interfacebloat   # 检查接口方法数量
 
-    # 测试相关（新增）
+    # 测试相关
     - testifylint      # testify 使用规范检查
-    - testpackage      # 检查测试包命名
 
-    # 注释和文档（新增）
+    # 注释和文档
     - godox            # 检测 FIXME、TODO 等关键词
 
   disable:
@@ -89,214 +86,180 @@ linters:
     - paralleltest     # 不强制 t.Parallel()
     - nlreturn         # 不强制 return 前空行
     - wsl              # 不强制空行规则
-    - testpackage      # 不强制 _test 包名（允许白盒测试）
-    - ireturn          # 不强制返回具体类型（接口也可以）
+    - testpackage      # 允许白盒测试
+    - ireturn          # 接口返回在 service/resource 边界有真实表达力
 
-linters-settings:
-  # 圈复杂度限制
-  gocyclo:
-    min-complexity: 15
+  settings:
+    # 圈复杂度限制
+    gocyclo:
+      min-complexity: 15
 
-  # 认知复杂度限制
-  gocognit:
-    min-complexity: 20
+    # 认知复杂度限制
+    gocognit:
+      min-complexity: 20
 
-  # 函数长度限制
-  funlen:
-    lines: 120        # 增加到 120 行（测试函数可能较长）
-    statements: 60    # 增加到 60 条语句
-    ignore-comments: true
+    # 函数长度限制
+    funlen:
+      lines: 120        # 允许编排函数保持直线叙事，不为数字强拆
+      statements: 60    # 测试文件另有更宽松的排除规则
+      ignore-comments: true
 
-  # 嵌套深度限制
-  nestif:
-    min-complexity: 5
+    # 嵌套深度限制
+    nestif:
+      min-complexity: 5
 
-  # 可维护性指数
-  maintidx:
-    under: 20
+    # 可维护性指数
+    maintidx:
+      under: 20
 
-  # 错误命名规范
-  errname:
+    # gosec 安全检查配置
+    gosec:
+      excludes:
+        - G104 # 允许在某些情况下忽略错误（如 defer）
+        - G404 # 允许使用 math/rand/v2（非加密场景）
+        - G304 # 路径已经在 resource/workspace 边界集中校验
+      config:
+        G301: "0644" # 允许的文件权限
+        G302: "0755" # 允许的目录权限
+        G304: "0644" # 允许文件包含（已验证路径）
+        G306: "0644" # 允许的写入权限
+
+    # gocritic 配置
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - experimental
+        - opinionated
+      disabled-checks:
+        - hugeParam      # 请求/结果结构按值传递更直观，当前规模下复制成本可接受
+        - unnamedResult  # 允许未命名返回值
+
+    # revive 配置
+    revive:
+      rules:
+        # 基础规则
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: increment-decrement
+        - name: var-naming
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: unused-parameter
+        - name: redefines-builtin-id
+
+        - name: atomic
+        - name: bool-literal-in-expr
+        - name: constant-logical-expr
+        - name: context-keys-type
+        - name: deep-exit
+        - name: defer
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: empty-lines
+        - name: error-naming
+        - name: errorf
+        - name: identical-branches
+        - name: if-return
+        - name: import-shadowing
+        - name: indent-error-flow
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: string-of-int
+        - name: superfluous-else
+        - name: time-equal
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-receiver
+        - name: use-any
+        - name: useless-break
+        - name: waitgroup-by-value
+
+        # 代码复杂度
+        - name: cognitive-complexity
+          arguments: [20]
+        - name: cyclomatic
+          arguments: [15]
+        - name: function-length
+          arguments: [50, 100]
+
+    # sloglint 配置（log/slog 规范）
+    sloglint:
+      no-mixed-args: true
+      kv-only: false
+      attr-only: false
+      no-global: ""
+      context: ""
+
+    # 性能优化配置
+    perfsprint:
+      int-conversion: true
+      err-error: true
+      errorf: true
+      sprintf1: true
+      strconcat: true
+
+    # 预分配检查
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
+
+    # 常量提取
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
+
+    # 接口检查
+    interfacebloat:
+      max: 10
+
+  exclusions:
     rules:
-      - name: errcheck
-        pattern: ^(Err[A-Z]|err[A-Z])
-      - name: errortype
-        pattern: ^[A-Z][a-zA-Z]*Error$
+      # 测试文件放宽限制：测试数据和表格用例不应被重构成一堆常量。
+      - path: _test\.go
+        linters:
+          - errcheck
+          - funlen
+          - gocognit
+          - gocyclo
+          - gosec
+          - maintidx
+          - goconst
+          - revive
 
-  # gosec 安全检查配置
-  gosec:
-    excludes:
-      - G104 # 允许在某些情况下忽略错误（如 defer）
-      - G404 # 允许使用 math/rand/v2（非加密场景）
-    config:
-      G301: "0644" # 允许的文件权限
-      G302: "0755" # 允许的目录权限
-      G304: "0644" # 允许文件包含（已验证路径）
-      G306: "0644" # 允许的写入权限
+      # 排除特定消息。
+      - linters: [revive]
+        text: "exported:|package-comments:"
 
-  # gocritic 配置
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-      - experimental
-      - opinionated
-    disabled-checks:
-      - whyNoLint      # 不要求解释 nolint
-      - unnamedResult  # 允许未命名返回值
+      # 允许 float 比较（测试中）。
+      - linters: [testifylint]
+        text: "float-compare"
+        path: _test\.go
 
-  # revive 配置
-  revive:
-    rules:
-      # 基础规则
-      - name: blank-imports
-      - name: context-as-argument
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: increment-decrement
-      - name: var-naming
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: unreachable-code
-      - name: unused-parameter
-      - name: redefines-builtin-id
+      # main 函数可以更长。
+      - path: cmd/
+        linters:
+          - funlen
+          - gocognit
 
-      # 新增规则
-      - name: atomic
-      - name: bool-literal-in-expr
-      - name: constant-logical-expr
-      - name: context-keys-type
-      - name: deep-exit
-      - name: defer
-      - name: duplicated-imports
-      - name: early-return
-      - name: empty-block
-      - name: empty-lines
-      - name: error-naming
-      - name: errorf
-      - name: identical-branches
-      - name: if-return
-      - name: import-shadowing
-      - name: indent-error-flow
-      - name: modifies-parameter
-      - name: modifies-value-receiver
-      - name: range-val-address
-      - name: range-val-in-closure
-      - name: string-of-int
-      - name: superfluous-else
-      - name: time-equal
-      - name: unconditional-recursion
-      - name: unexported-naming
-      - name: unnecessary-stmt
-      - name: unreachable-code
-      - name: unused-receiver
-      - name: use-any
-      - name: useless-break
-      - name: waitgroup-by-value
-
-      # 代码复杂度
-      - name: cognitive-complexity
-        arguments: [20]
-      - name: cyclomatic
-        arguments: [15]
-      - name: function-length
-        arguments: [50, 100]
-
-  # sloglint 配置（log/slog 规范）
-  sloglint:
-    no-mixed-args: true
-    kv-only: false
-    attr-only: false
-    no-global: "default"
-    context: "all"
-
-  # 性能优化配置
-  perfsprint:
-    int-conversion: true
-    err-error: true
-    errorf: true
-    sprintf1: true
-    strconcat: true
-
-  # 预分配检查
-  prealloc:
-    simple: true
-    range-loops: true
-    for-loops: true
-
-  # 常量提取
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-    ignore-tests: true
-
-  # 接口检查
-  interfacebloat:
-    max: 10
-
-  # ireturn 配置
-  ireturn:
-    allow:
-      - anon
-      - error
-      - empty
-      - stdlib
-      - generic
+      # 允许在 defer 中忽略错误。
+      - source: "defer.*\\.(Close|Unlock)\\(\\)"
+        linters:
+          - errcheck
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-
-  # 排除规则
-  exclude-rules:
-    # 测试文件放宽限制
-    - path: _test\.go
-      linters:
-        - errcheck
-        - funlen
-        - gocognit
-        - gocyclo
-        - gosec
-        - maintidx
-        - err113
-        - goconst
-
-    # CLI 层允许动态错误（用户友好的错误消息）
-    - path: internal/(cli|app)/
-      linters:
-        - err113
-
-    # 排除特定消息
-    - linters: [revive]
-      text: "exported:|package-comments:"
-
-    - linters: [godot]
-      text: "Comment should end in a period"
-      path: _test\.go
-
-    # 允许 float 比较（测试中）
-    - linters: [testifylint]
-      text: "float-compare"
-      path: _test\.go
-
-    # main 函数可以更长
-    - path: cmd/
-      linters:
-        - funlen
-        - gocognit
-
-    # 允许在 defer 中忽略错误
-    - source: "defer.*\\.(Close|Unlock)\\(\\)"
-      linters:
-        - errcheck
-
-  # 不排除默认排除项
-  exclude-use-default: false
-
-  # 显示所有问题
-  exclude-dirs: []
-  exclude-files: []

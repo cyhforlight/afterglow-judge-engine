@@ -2,7 +2,9 @@
 
 一个基于 containerd 的代码评测引擎。它接收源代码和多组测试数据，完成编译、隔离执行、输出比对和聚合判定，并通过 HTTP 提供统一入口。
 
-这个项目的默认定位不是公网开放平台，而是大型项目中的内部评测微服务。因此整体设计强调边界清晰、实现简洁、可维护性优先，不追求“通用平台化”的过度包装。
+这个项目当前阶段更准确地说是一个**单机同步判题引擎**：一次 HTTP 请求完成编译、运行、checker 校验和结果聚合。它未来可以演进为异步评测 worker 或更完整的内部评测微服务，但当前代码没有引入队列、数据库、任务状态机或多 worker 调度。
+
+这个项目的默认定位不是公网开放平台，而是大型项目中的内部评测组件。因此整体设计强调边界清晰、实现简洁、可维护性优先，不追求“通用平台化”的过度包装。
 
 这个项目还有一个同样重要的原始目的：作为 Go 语言工程实践的入门学习和训练项目。也正因此，这个仓库不仅关注”功能是否可用”，也同样重视项目风格是否优雅、架构是否清晰、代码是否易读易学、是否符合主流 Go 风格、测试是否诚实、规范是否便于长期演进。
 
@@ -21,18 +23,19 @@
 
 ## 当前实现范围
 
-当前代码已经实现了最核心的一条评测链路：
+当前代码实现了最核心的一条评测链路：
 
 1. HTTP 层接收并校验请求
 2. service 层加载测试数据、解析 checker、编译用户代码
-3. 对每个测试点执行程序并运行 checker
-4. 聚合逐点结果，返回最终 verdict
+3. execution 层准备临时工作目录、调用 sandbox 并收集编译产物
+4. 对每个测试点执行程序并运行 checker
+5. 聚合逐点结果，返回最终 verdict
 
-期望的一些更大规模能力目前还没有展开实现，例如独立的“编排层/消息队列/并发”等，有待后续完善。
+更大规模的能力目前没有展开实现，例如异步任务队列、评测结果持久化和多 worker 调度等。
 
 ## 特性
 
-- 安全隔离：基于 containerd 运行编译和执行流程
+- 受限执行：基于 containerd、cgroup 和 seccomp 运行编译与执行流程
 - 多语言：C / C++ / Java / Python
 - 多测试点：逐点评测并返回明细
 - 多种判定：`OK` / `WrongAnswer` / `CompileError` / `TimeLimitExceeded` / `MemoryLimitExceeded` / `OutputLimitExceeded` / `RuntimeError` / `UnknownError`
@@ -45,7 +48,19 @@
 - HTTP 边界保护：
   - Bearer Token 鉴权（仅当配置了 `API_KEY`）
   - 请求体大小限制
+  - 单次请求的时间、内存、测试点数量和源码大小上限
   - 严格 JSON 解码，拒绝未知字段
+
+## 安全边界
+
+本项目使用 containerd、cgroup、只读 rootfs、能力裁剪和 seccomp 黑名单来约束用户程序运行。它适合学习和内部受控系统场景，但不应被理解为公网级强隔离沙箱。
+
+当前需要诚实看待的边界：
+
+- 编译阶段没有启用 seccomp，因为编译器和语言工具链需要创建进程
+- 运行阶段的 seccomp 仍是黑名单策略，不是完整 allowlist
+- 请求取消、容器 kill 和 cleanup 语义是重点打磨方向
+- 外部测试数据和外部 checker 只从 `EXTERNAL_DATA_DIR` 指定的资源根目录读取，并做路径穿越和 symlink escape 检查
 
 ## 快速开始
 
@@ -110,6 +125,8 @@ curl -X POST http://localhost:8080/v1/execute \
   - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
 - `service`
   - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、聚合 verdict
+- `execution`
+  - 负责通用容器执行任务：准备临时 workspace、写入文件、表达资源限制、调用 sandbox、收集产物，并集中限制容器并发
 - `sandbox`
   - 负责通过 containerd 在受限环境中执行编译和运行动作
 - `resource`
@@ -121,8 +138,8 @@ curl -X POST http://localhost:8080/v1/execute \
 
 ```text
 transport -> service -> model
-                    -> sandbox
                     -> resource
+                    -> execution -> sandbox
 ```
 
 ### 请求处理流程
@@ -130,14 +147,16 @@ transport -> service -> model
 一次 `POST /v1/execute` 的处理流程如下：
 
 1. HTTP 层限制请求体大小并做严格 JSON 解码
-2. DTO 校验字段合法性，并转换为领域模型
-3. service 层解析 checker
-4. 如果 testcase 使用了 `inputFile` / `expectedOutputFile`，先从外部存储加载文件内容
-5. 编译用户代码
-6. 准备 checker
-7. 逐个测试点执行用户程序，并用 checker 判定结果
-8. 根据逐点结果聚合最终 verdict
-9. 返回 JSON 响应
+2. DTO 校验字段合法性和请求资源上限，并转换为领域模型
+3. service 层再次做防御性请求校验，避免绕过 HTTP 时产生超大任务
+4. service 层解析 checker
+5. 如果 testcase 使用了 `inputFile` / `expectedOutputFile`，先从外部资源加载文件内容
+6. 编译用户代码
+7. 准备 checker
+8. compiler / runner 通过 execution 层执行容器任务
+9. 逐个测试点执行用户程序，并用 checker 判定结果
+10. 根据逐点结果聚合最终 verdict
+11. 返回 JSON 响应
 
 ### 目录结构
 
@@ -148,10 +167,11 @@ cmd/
 internal/
 ├── cache/                      简单缓存，用于 checker 编译结果
 ├── config/                     环境变量配置加载
+├── execution/                  通用容器执行任务、资源限制、workspace 准备和产物收集
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
+├── resource/                   内置资源和外部文件的只读访问
 ├── sandbox/                    containerd 沙箱适配层
 ├── service/                    编译、运行、checker、判题编排
-├── storage/                    internal resources 和外部文件存储
 ├── transport/httptransport/    HTTP server / handler / dto / middleware
 └── workspace/                  临时工作目录管理
 
@@ -322,10 +342,17 @@ external:relative/path/to/checker.cpp
 |------|--------|------|
 | `HTTP_ADDR` | `0.0.0.0` | HTTP 监听地址 |
 | `HTTP_PORT` | `8080` | HTTP 监听端口 |
+| `HTTP_READ_TIMEOUT_MS` | `30000` | HTTP 读取请求的超时时间 |
+| `HTTP_WRITE_TIMEOUT_MS` | `120000` | HTTP 写响应的超时时间 |
 | `CONTAINERD_SOCKET` | `/run/containerd/containerd.sock` | containerd 套接字 |
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |
-| `MAX_CONCURRENT_CONTAINERS` | `8` | 同时运行的最大容器数（编译+执行共享） |
+| `MAX_CONCURRENT_CONTAINERS` | `8` | execution 层同时运行的最大容器数（编译、运行、checker 共享） |
+| `MAX_CONCURRENT_JUDGES` | `4` | 同时处理的最大判题请求数 |
+| `MAX_TIME_LIMIT_MS` | `10000` | 单测试点 CPU 时间上限 |
+| `MAX_MEMORY_MB` | `1024` | 单测试点内存上限 |
+| `MAX_TEST_CASES` | `64` | 单次请求测试点数量上限 |
+| `MAX_SOURCE_SIZE_KB` | `256` | 源代码大小上限 |
 | `EXTERNAL_DATA_DIR` | 空 | 外部测试数据和外部 checker 根目录；未配置时关闭该能力 |
 | `API_KEY` | 空 | Bearer Token；非空时自动启用鉴权 |
 | `LOG_LEVEL` | `info` | 日志级别；当前支持 `info` 和 `debug` |
@@ -348,13 +375,16 @@ sudo -n go test -count=1 ./internal/transport/httptransport -run TestE2E_HTTP_Ex
 
 ```bash
 goimports -w .
-golangci-lint run
+golangci-lint config verify
+golangci-lint run ./...
 ```
 
 ## 文档说明
 
 - `README.md`：项目总览、当前架构、API、配置和运行方式
 - `AGENTS.md`：项目开发规范
+- `docs/CODE_QUALITY_AUDIT.md`：当前代码质量、测试门禁和重点风险审查
+- `docs/ARCHITECTURE_QUALITY_REVIEW.md`：当前架构、抽象克制程度和学习价值审查
 
 ## 未来演化方向（功能性）
 

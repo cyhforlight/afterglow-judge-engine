@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
@@ -83,14 +84,18 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 
 func newCompilerForTest(t *testing.T) Compiler {
 	t.Helper()
-	sb := sandbox.NewContainerdSandbox("", "")
-	return NewThrottledCompiler(NewCompiler(sb), testContainerSem)
+	return NewCompiler(newExecutorForTest(t))
 }
 
 func newRunnerForTest(t *testing.T) Runner {
 	t.Helper()
+	return NewRunner(newExecutorForTest(t))
+}
+
+func newExecutorForTest(t *testing.T) execution.Executor {
+	t.Helper()
 	sb := sandbox.NewContainerdSandbox("", "")
-	return NewThrottledRunner(NewRunner(sb), testContainerSem)
+	return execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
 }
 
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {
@@ -113,16 +118,16 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 		Files: []workspace.File{{
 			Name:    profile.Compile.SourceFiles[0],
 			Content: []byte(sourceCode),
-			Mode:    0644,
+			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
 		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
 		ArtifactName: profile.Compile.ArtifactName,
-		Limits: sandbox.ResourceLimits{
+		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * sandbox.WallTimeMultiplier,
+			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
 			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: sandbox.DefaultCompileOutputLimitBytes,
+			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	}
 
