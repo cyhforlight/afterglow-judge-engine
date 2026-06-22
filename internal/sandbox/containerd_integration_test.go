@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,42 @@ func TestContainerdSandbox_PreflightCheck(t *testing.T) {
 
 	err := sb.PreflightCheck(ctx)
 	assert.NoError(t, err, "Preflight check should pass when containerd is running")
+}
+
+func TestContainerdSandbox_Cancellation(t *testing.T) {
+	requireSandboxIntegrationTest(t)
+
+	sb := newTestSandbox(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	// Ensure image setup is not part of the cancellation window under test.
+	warmupCtx := newSandboxTestContext(t, 30*time.Second)
+	_, err := sb.Execute(warmupCtx, ExecuteRequest{
+		ImageRef: testPythonImageRef,
+		Command:  []string{"python3", "-c", "pass"},
+		Limits:   standardLimits(),
+	})
+	require.NoError(t, err)
+
+	cancelAfter := 200 * time.Millisecond
+	cancelTimer := time.AfterFunc(cancelAfter, cancel)
+	defer cancelTimer.Stop()
+
+	startedAt := time.Now()
+	_, err = sb.Execute(ctx, ExecuteRequest{
+		ImageRef: testPythonImageRef,
+		Command:  []string{"python3", "-c", "while True: pass"},
+		Limits: ResourceLimits{
+			CPUTimeMs:   30_000,
+			WallTimeMs:  30_000,
+			MemoryMB:    128,
+			OutputBytes: 1024,
+		},
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(startedAt), 5*time.Second)
 }
 
 func TestContainerdSandbox_VerdictScenarios(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"math"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
-	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/api/types"
 	typeurl "github.com/containerd/typeurl/v2"
 )
 
@@ -16,6 +16,10 @@ type cgroupMetrics struct {
 	peakMemBytes    uint64
 	memoryLimitHit  bool
 	oomKillDetected bool
+}
+
+type metricsReader interface {
+	Metrics(context.Context) (*types.Metric, error)
 }
 
 func (m cgroupMetrics) cpuMillis() int {
@@ -33,7 +37,7 @@ func uint64ToInt(value uint64) int {
 	return int(value)
 }
 
-func collectMetrics(ctx context.Context, task containerd.Task) cgroupMetrics {
+func collectMetrics(ctx context.Context, task metricsReader) cgroupMetrics {
 	metric, err := task.Metrics(ctx)
 	if err != nil {
 		return cgroupMetrics{}

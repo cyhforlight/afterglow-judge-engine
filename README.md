@@ -59,7 +59,7 @@
 
 - 编译阶段没有启用 seccomp，因为编译器和语言工具链需要创建进程
 - 运行阶段的 seccomp 仍是黑名单策略，不是完整 allowlist
-- 请求取消、容器 kill 和 cleanup 语义是重点打磨方向
+- 请求取消会立即停止 task；kill、wait 和 cleanup 使用独立的有界 context，避免请求取消阻断资源释放
 - 外部测试数据和外部 checker 只从 `EXTERNAL_DATA_DIR` 指定的资源根目录读取，并做路径穿越和 symlink escape 检查
 
 ## 快速开始
