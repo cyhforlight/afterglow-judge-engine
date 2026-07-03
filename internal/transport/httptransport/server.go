@@ -24,7 +24,7 @@ type Server struct {
 
 // NewServer creates a new HTTP server.
 func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logger) *Server {
-	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB, cfg.JudgeLimits)
+	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/execute", handler.HandleExecute)

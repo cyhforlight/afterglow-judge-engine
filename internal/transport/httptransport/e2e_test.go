@@ -177,7 +177,7 @@ func newE2EHandler(t *testing.T) *Handler {
 		t.Skipf("Containerd not available: %v", err)
 	}
 
-	return NewHandler(judge, slog.Default(), 256, model.DefaultJudgeLimits())
+	return NewHandler(judge, slog.Default(), 256)
 }
 
 func decodeJudgeResponse(body *bytes.Buffer) (JudgeResponseDTO, error) {

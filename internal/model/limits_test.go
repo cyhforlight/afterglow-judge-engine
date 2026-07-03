@@ -64,6 +64,26 @@ func TestValidateJudgeRequest(t *testing.T) {
 			},
 			wantErr: "testcases must contain at most 2 cases",
 		},
+		{
+			name: "both input text and file",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{
+					InputText: "1\n",
+					InputFile: "cases/1.in",
+				}}
+			},
+			wantErr: "testcases[0]: cannot provide both inputText and inputFile",
+		},
+		{
+			name: "both expected output text and file",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{
+					ExpectedOutput:     "1\n",
+					ExpectedOutputFile: "cases/1.out",
+				}}
+			},
+			wantErr: "testcases[0]: cannot provide both expectedOutputText and expectedOutputFile",
+		},
 	}
 
 	for _, tt := range tests {

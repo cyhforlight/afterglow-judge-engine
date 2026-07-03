@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/service"
 )
 
@@ -16,16 +15,14 @@ type Handler struct {
 	judge   service.JudgeService
 	logger  *slog.Logger
 	maxSize int64 // max request body size in bytes
-	limits  model.JudgeLimits
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(judge service.JudgeService, logger *slog.Logger, maxSizeMB int, limits model.JudgeLimits) *Handler {
+func NewHandler(judge service.JudgeService, logger *slog.Logger, maxSizeMB int) *Handler {
 	return &Handler{
 		judge:   judge,
 		logger:  logger,
 		maxSize: int64(maxSizeMB) * 1024 * 1024,
-		limits:  limits,
 	}
 }
 
@@ -44,11 +41,6 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "request body must contain exactly one JSON object")
-		return
-	}
-
-	if err := req.ValidateWithLimits(h.limits); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 

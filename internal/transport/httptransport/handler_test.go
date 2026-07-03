@@ -66,7 +66,7 @@ func newTestHandler(judge service.JudgeService) *Handler {
 }
 
 func newTestHandlerWithSize(judge service.JudgeService, maxSizeMB int) *Handler {
-	return NewHandler(judge, slog.Default(), maxSizeMB, model.DefaultJudgeLimits())
+	return NewHandler(judge, slog.Default(), maxSizeMB)
 }
 
 func TestHandleHealth_Success(t *testing.T) {
@@ -143,7 +143,7 @@ func TestHandleExecute_UnknownField(t *testing.T) {
 }
 
 func TestHandleExecute_MissingFields(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{})
+	handler := newTestHandler(&mockJudgeService{validateErr: errors.New("sourceCode is required")})
 
 	dto := validJudgeRequest()
 	dto.SourceCode = ""
@@ -169,13 +169,8 @@ func TestHandleExecute_InvalidLanguage(t *testing.T) {
 }
 
 func TestHandleExecute_RequestLimitExceeded(t *testing.T) {
-	judge := &mockJudgeService{}
-	handler := NewHandler(judge, slog.Default(), 256, model.JudgeLimits{
-		MaxTimeLimitMs: 999,
-		MaxMemoryMB:    128,
-		MaxTestCases:   1,
-		MaxSourceBytes: 1024,
-	})
+	judge := &mockJudgeService{validateErr: errors.New("timeLimit must be at most 999 ms")}
+	handler := NewHandler(judge, slog.Default(), 256)
 
 	dto := validJudgeRequest()
 	dto.TimeLimit = 1000
@@ -186,7 +181,7 @@ func TestHandleExecute_RequestLimitExceeded(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, 0, judge.judgeCalls)
-	assert.Empty(t, judge.lastRequest.SourceCode)
+	assert.Equal(t, "print(42)", judge.lastRequest.SourceCode)
 }
 
 func TestHandleExecute_InvalidChecker(t *testing.T) {

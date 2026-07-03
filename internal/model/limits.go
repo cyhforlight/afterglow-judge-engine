@@ -79,5 +79,23 @@ func ValidateJudgeRequest(req JudgeRequest, limits JudgeLimits) error {
 	if len(req.TestCases) > limits.MaxTestCases {
 		return fmt.Errorf("testcases must contain at most %d cases", limits.MaxTestCases)
 	}
+	for index, testCase := range req.TestCases {
+		if err := validateJudgeTestCase(index, testCase); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateJudgeTestCase(index int, testCase JudgeTestCase) error {
+	hasInputFile := strings.TrimSpace(testCase.InputFile) != ""
+	hasOutputFile := strings.TrimSpace(testCase.ExpectedOutputFile) != ""
+
+	if hasInputFile && testCase.InputText != "" {
+		return fmt.Errorf("testcases[%d]: cannot provide both inputText and inputFile", index)
+	}
+	if hasOutputFile && testCase.ExpectedOutput != "" {
+		return fmt.Errorf("testcases[%d]: cannot provide both expectedOutputText and expectedOutputFile", index)
+	}
 	return nil
 }

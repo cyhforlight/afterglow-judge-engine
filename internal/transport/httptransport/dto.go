@@ -2,8 +2,6 @@
 package httptransport
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 
 	"afterglow-judge-engine/internal/model"
@@ -57,72 +55,6 @@ type ErrorResponseDTO struct {
 	Error   string `json:"error"`
 	Code    string `json:"code"`
 	Details string `json:"details,omitempty"`
-}
-
-// Validate checks whether request is valid.
-func (dto *JudgeRequestDTO) Validate() error {
-	return dto.validate(model.JudgeLimits{})
-}
-
-// ValidateWithLimits checks request shape and configured request limits.
-func (dto *JudgeRequestDTO) ValidateWithLimits(limits model.JudgeLimits) error {
-	return dto.validate(limits)
-}
-
-func (dto *JudgeRequestDTO) validate(limits model.JudgeLimits) error {
-	if strings.TrimSpace(dto.SourceCode) == "" {
-		return errors.New("sourceCode is required")
-	}
-	if strings.TrimSpace(dto.Language) == "" {
-		return errors.New("language is required")
-	}
-	if dto.TimeLimit <= 0 {
-		return errors.New("timeLimit must be positive")
-	}
-	if dto.MemoryLimit <= 0 {
-		return errors.New("memoryLimit must be positive")
-	}
-	if len(dto.TestCases) == 0 {
-		return errors.New("testcases must not be empty")
-	}
-	if limits != (model.JudgeLimits{}) {
-		if len(dto.SourceCode) > limits.MaxSourceBytes {
-			return fmt.Errorf("sourceCode must be at most %d bytes", limits.MaxSourceBytes)
-		}
-		if dto.TimeLimit > limits.MaxTimeLimitMs {
-			return fmt.Errorf("timeLimit must be at most %d ms", limits.MaxTimeLimitMs)
-		}
-		if dto.MemoryLimit > limits.MaxMemoryMB {
-			return fmt.Errorf("memoryLimit must be at most %d MB", limits.MaxMemoryMB)
-		}
-		if len(dto.TestCases) > limits.MaxTestCases {
-			return fmt.Errorf("testcases must contain at most %d cases", limits.MaxTestCases)
-		}
-	}
-
-	for i, tc := range dto.TestCases {
-		if err := tc.ValidateTestCase(i); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// ValidateTestCase checks mutual exclusivity of text vs file fields.
-func (tc *JudgeTestCaseDTO) ValidateTestCase(index int) error {
-	hasInputFile := strings.TrimSpace(tc.InputFile) != ""
-	hasOutputFile := strings.TrimSpace(tc.ExpectedOutputFile) != ""
-
-	// Check mutual exclusivity
-	if hasInputFile && tc.InputText != "" {
-		return fmt.Errorf("testcases[%d]: cannot provide both inputText and inputFile", index)
-	}
-	if hasOutputFile && tc.ExpectedOutputText != "" {
-		return fmt.Errorf("testcases[%d]: cannot provide both expectedOutputText and expectedOutputFile", index)
-	}
-
-	return nil
 }
 
 // ToModel converts HTTP DTO into model request.
