@@ -89,7 +89,6 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, exter
 	return *out.Artifact
 }
 
-// runCheckerForTest runs a compiled checker against one testcase using Runner directly.
 func runCheckerForTest(
 	ctx context.Context, t *testing.T,
 	checker model.CompiledArtifact,
@@ -97,50 +96,10 @@ func runCheckerForTest(
 ) (model.Verdict, string) {
 	t.Helper()
 
-	runner := NewRunner(newExecutorForTest(t))
-
-	profile := checkerProfile()
-	runOut, err := runner.Run(ctx, RunRequest{
-		Files: []workspace.File{
-			{Name: profile.Run.ArtifactName, Content: checker.Data, Mode: checker.Mode},
-			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0o644},
-			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},
-			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0o644},
-		},
-		ImageRef: profile.Run.ImageRef,
-		Command: []string{
-			runMountDir + "/" + profile.Run.ArtifactName,
-			runMountDir + "/" + checkerInputFileName,
-			runMountDir + "/" + checkerOutputFileName,
-			runMountDir + "/" + checkerAnswerFileName,
-		},
-		Cwd:    runMountDir,
-		Limits: checkerRunLimits(),
-	})
+	engine := &JudgeEngine{runner: NewRunner(newExecutorForTest(t))}
+	verdict, message, err := engine.runChecker(ctx, &checker, inputText, actualOutput, expectedOutput)
 	require.NoError(t, err)
-
-	// Interpret exit code (same logic as JudgeEngine.runChecker)
-	message := strings.TrimSpace(runOut.Stderr)
-	if message == "" {
-		message = strings.TrimSpace(runOut.Stdout)
-	}
-
-	switch runOut.Verdict {
-	case execution.VerdictTLE, execution.VerdictMLE, execution.VerdictOLE:
-		return model.VerdictUKE, message
-	}
-
-	switch runOut.ExitCode {
-	case 0:
-		if runOut.Verdict != execution.VerdictOK {
-			return model.VerdictUKE, message
-		}
-		return model.VerdictOK, message
-	case 1, 2:
-		return model.VerdictWA, message
-	default:
-		return model.VerdictUKE, message
-	}
+	return verdict, message
 }
 
 func checkerScenarios() []checkerScenario {

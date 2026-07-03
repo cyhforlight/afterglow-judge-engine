@@ -180,12 +180,6 @@ func newE2EHandler(t *testing.T) *Handler {
 	return NewHandler(judge, slog.Default(), 256)
 }
 
-func decodeJudgeResponse(body *bytes.Buffer) (JudgeResponseDTO, error) {
-	var resp JudgeResponseDTO
-	err := json.NewDecoder(body).Decode(&resp)
-	return resp, err
-}
-
 func executeJudgeRequest(t *testing.T, handler *Handler, reqBody JudgeRequestDTO) JudgeResponseDTO {
 	t.Helper()
 
@@ -198,7 +192,8 @@ func executeJudgeRequest(t *testing.T, handler *Handler, reqBody JudgeRequestDTO
 	handler.HandleExecute(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	resp, err := decodeJudgeResponse(w.Body)
+	var resp JudgeResponseDTO
+	err = json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	return resp
 }
