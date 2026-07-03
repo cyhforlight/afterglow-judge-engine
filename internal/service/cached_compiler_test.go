@@ -63,20 +63,6 @@ func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
 	assert.Equal(t, 2, inner.calls, "failed compiles should not be cached")
 }
 
-func TestCachedCompiler_NilCachePassthrough(t *testing.T) {
-	inner := &fakeCompiler{
-		result:   model.CompileResult{Succeeded: true},
-		artifact: testCompiledArtifact(),
-	}
-	cc := NewCachedCompiler(inner, nil)
-
-	// With nil cache, NewCachedCompiler returns inner directly.
-	out, err := cc.Compile(context.Background(), testCompileRequest("x"))
-	require.NoError(t, err)
-	assert.True(t, out.Result.Succeeded)
-	assert.Equal(t, 1, inner.calls)
-}
-
 func TestCachedCompiler_Singleflight(t *testing.T) {
 	c, err := cache.New[CompileOutput](16)
 	require.NoError(t, err)

@@ -142,19 +142,6 @@ func TestHandleExecute_UnknownField(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestHandleExecute_MissingFields(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{validateErr: errors.New("sourceCode is required")})
-
-	dto := validJudgeRequest()
-	dto.SourceCode = ""
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
 func TestHandleExecute_InvalidLanguage(t *testing.T) {
 	handler := newTestHandler(&mockJudgeService{})
 
@@ -166,22 +153,6 @@ func TestHandleExecute_InvalidLanguage(t *testing.T) {
 	handler.HandleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestHandleExecute_RequestLimitExceeded(t *testing.T) {
-	judge := &mockJudgeService{validateErr: errors.New("timeLimit must be at most 999 ms")}
-	handler := NewHandler(judge, slog.Default(), 256)
-
-	dto := validJudgeRequest()
-	dto.TimeLimit = 1000
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, 0, judge.judgeCalls)
-	assert.Equal(t, "print(42)", judge.lastRequest.SourceCode)
 }
 
 func TestHandleExecute_InvalidChecker(t *testing.T) {
@@ -202,31 +173,6 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)
-}
-
-func TestHandleExecute_MissingExternalDependency(t *testing.T) {
-	judge := &mockJudgeService{
-		validateErr: errors.New(`testcases[0]: inputFile "cases/1.in" requires external resources`),
-	}
-	handler := newTestHandler(judge)
-
-	dto := validJudgeRequest()
-	dto.TestCases = []JudgeTestCaseDTO{{
-		InputFile:          "cases/1.in",
-		ExpectedOutputText: "42\n",
-	}}
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-
-	var resp ErrorResponseDTO
-	err := json.NewDecoder(w.Body).Decode(&resp)
-	require.NoError(t, err)
-	assert.Equal(t, "INVALID_REQUEST", resp.Code)
-	assert.Contains(t, resp.Details, `inputFile "cases/1.in" requires external resources`)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {

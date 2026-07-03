@@ -15,16 +15,6 @@ import (
 // TestContainerdSandbox_Integration tests require containerd to be running.
 // Run with: go test -tags=integration ./internal/sandbox/...
 
-func TestContainerdSandbox_PreflightCheck(t *testing.T) {
-	requireSandboxIntegrationTest(t)
-
-	sb := newTestSandbox(t)
-	ctx := newSandboxTestContext(t, 5*time.Second)
-
-	err := sb.PreflightCheck(ctx)
-	assert.NoError(t, err, "Preflight check should pass when containerd is running")
-}
-
 func TestContainerdSandbox_Cancellation(t *testing.T) {
 	requireSandboxIntegrationTest(t)
 

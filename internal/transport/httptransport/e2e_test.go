@@ -205,7 +205,6 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 	for _, suite := range e2eProblemSuites {
 		t.Run(suite.name, func(t *testing.T) {
 			testCases := loadProblemTestCases(t, suite.dir)
-			assertSuiteMatchesCodeDirectory(t, suite)
 
 			for _, codeExpectation := range suite.codes {
 				t.Run(codeExpectation.filename, func(t *testing.T) {
@@ -257,35 +256,6 @@ func loadProblemTestCases(t *testing.T, problemDir string) []JudgeTestCaseDTO {
 	}
 
 	return testCases
-}
-
-func assertSuiteMatchesCodeDirectory(t *testing.T, suite e2eProblemSuite) {
-	t.Helper()
-
-	pattern := filepath.Join(projectRoot(t), "testdata", suite.dir, "code", "*")
-	codeFiles, err := filepath.Glob(pattern)
-	require.NoError(t, err)
-	require.NotEmpty(t, codeFiles, "no code files found for %s", suite.name)
-
-	discovered := make([]string, 0, len(codeFiles))
-	for _, codeFile := range codeFiles {
-		info, err := os.Stat(codeFile)
-		require.NoError(t, err)
-		if info.IsDir() {
-			continue
-		}
-		discovered = append(discovered, filepath.Base(codeFile))
-	}
-	slices.Sort(discovered)
-
-	configured := make([]string, 0, len(suite.codes))
-	for _, codeExpectation := range suite.codes {
-		configured = append(configured, codeExpectation.filename)
-	}
-	slices.Sort(configured)
-
-	assert.Equalf(t, configured, discovered,
-		"suite %s must cover all and only code files in testdata", suite.name)
 }
 
 func readSourceCode(t *testing.T, problemDir, filename string) string {

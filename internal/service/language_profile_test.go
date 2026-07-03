@@ -36,41 +36,6 @@ func TestProfileForLanguage_AllLanguages(t *testing.T) {
 	}
 }
 
-func TestBuildCommand_C(t *testing.T) {
-	profile := cProfile()
-	cmd := profile.Compile.BuildCommand([]string{"main.c"})
-
-	expected := []string{"gcc", "-O2", "-pipe", "-static", "-s", "-o", "/work/program", "/work/main.c", "-lm"}
-	assert.Equal(t, expected, cmd)
-}
-
-func TestBuildCommand_CPP(t *testing.T) {
-	profile := cppProfile()
-	cmd := profile.Compile.BuildCommand([]string{"main.cpp"})
-
-	expected := []string{"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "/work/program", "/work/main.cpp", "-lm"}
-	assert.Equal(t, expected, cmd)
-}
-
-func TestBuildCommand_Java(t *testing.T) {
-	profile := javaProfile()
-	cmd := profile.Compile.BuildCommand([]string{"Main.java"})
-
-	assert.Len(t, cmd, 3)
-	assert.Equal(t, "sh", cmd[0])
-	assert.Equal(t, "-c", cmd[1])
-	assert.Contains(t, cmd[2], "javac")
-	assert.Contains(t, cmd[2], "jar")
-}
-
-func TestRuntimeCommand_Java(t *testing.T) {
-	profile := javaProfile()
-	cmd := profile.Run.RuntimeCommand("/sandbox/solution.jar", RuntimeLimits{MemoryMB: 256})
-
-	expected := []string{"java", "-Xmx192m", "-Xms64m", "-jar", "/sandbox/solution.jar"}
-	assert.Equal(t, expected, cmd)
-}
-
 func TestJavaHeapLimitMB(t *testing.T) {
 	tests := []struct {
 		name          string

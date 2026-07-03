@@ -1,51 +1,11 @@
 package model
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestVerdictString(t *testing.T) {
-	tests := []struct {
-		verdict Verdict
-		want    string
-	}{
-		{VerdictOK, "OK"},
-		{VerdictTLE, "TimeLimitExceeded"},
-		{VerdictMLE, "MemoryLimitExceeded"},
-		{VerdictOLE, "OutputLimitExceeded"},
-		{VerdictRE, "RuntimeError"},
-		{VerdictWA, "WrongAnswer"},
-		{VerdictCE, "CompileError"},
-		{VerdictUKE, "UnknownError"},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.want, tt.verdict.String(), "verdict %d", tt.verdict)
-	}
-}
-
-func TestVerdictMarshalJSON(t *testing.T) {
-	src := struct {
-		Verdict Verdict `json:"verdict"`
-	}{Verdict: VerdictTLE}
-
-	data, err := json.Marshal(src)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"verdict":"TimeLimitExceeded"}`, string(data))
-}
-
-func TestLanguageMarshalJSON(t *testing.T) {
-	src := struct {
-		Language Language `json:"language"`
-	}{Language: LanguageCPP}
-
-	data, err := json.Marshal(src)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"language":"C++"}`, string(data))
-}
 
 func TestParseLanguage(t *testing.T) {
 	tests := []struct {

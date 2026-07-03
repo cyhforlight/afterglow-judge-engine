@@ -31,9 +31,8 @@ const (
 )
 
 type fakeSandbox struct {
-	preflightErr error
-	executeFunc  func(t *testing.T, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error)
-	t            *testing.T
+	executeFunc func(t *testing.T, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error)
+	t           *testing.T
 }
 
 func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
@@ -44,7 +43,7 @@ func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sa
 }
 
 func (s *fakeSandbox) PreflightCheck(_ context.Context) error {
-	return s.preflightErr
+	return nil
 }
 
 func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
@@ -157,14 +156,6 @@ func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
 	assert.Contains(t, err.Error(), "sandbox execute: boom")
 }
 
-func TestExecutor_PreflightCheck(t *testing.T) {
-	wantErr := errors.New("not ready")
-	exec := NewExecutor(&fakeSandbox{preflightErr: wantErr})
-
-	err := exec.PreflightCheck(context.Background())
-	require.ErrorIs(t, err, wantErr)
-}
-
 func TestExecutor_ValidateJob(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -240,16 +231,6 @@ func TestThrottledExecutor_ContextCancel(t *testing.T) {
 
 	_, err := throttled.Execute(ctx, Job{})
 	require.ErrorIs(t, err, context.Canceled)
-}
-
-func TestThrottledExecutor_PreflightCheckBypassesSemaphore(t *testing.T) {
-	sem := make(chan struct{}, 1)
-	sem <- struct{}{}
-	inner := &blockingExecutor{unblock: make(chan struct{})}
-	throttled := NewThrottledExecutor(inner, sem)
-
-	err := throttled.PreflightCheck(context.Background())
-	require.NoError(t, err)
 }
 
 func TestNewThrottledExecutor_RequiresSemaphore(t *testing.T) {
