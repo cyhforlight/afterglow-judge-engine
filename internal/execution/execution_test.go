@@ -270,7 +270,7 @@ func validJobWithArtifact(name string) Job {
 			MemoryMB:    128,
 			OutputBytes: DefaultCompileOutputLimitBytes,
 		},
-		Artifacts: []ArtifactSpec{{Name: name}},
+		Artifacts: []string{name},
 	}
 }
 
@@ -296,7 +296,7 @@ func compileJobWithArtifact() Job {
 			MemoryMB:    128,
 			OutputBytes: DefaultCompileOutputLimitBytes,
 		},
-		Artifacts: []ArtifactSpec{{Name: testProgramName}},
+		Artifacts: []string{testProgramName},
 	}
 }
 

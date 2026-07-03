@@ -368,11 +368,6 @@ func (s *JudgeEngine) executeUserCode(
 	}
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
-	wallLimitMs, err := wallTimeLimitMs(timeLimit)
-	if err != nil {
-		return model.ExecuteResult{}, err
-	}
-
 	runOut, err := s.runner.Run(ctx, RunRequest{
 		Files: []workspace.File{{
 			Name:    profile.Run.ArtifactName,
@@ -385,7 +380,7 @@ func (s *JudgeEngine) executeUserCode(
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
-			WallTimeMs:  wallLimitMs,
+			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
 			MemoryMB:    memoryLimit,
 			OutputBytes: execution.DefaultRunOutputLimitBytes,
 		},

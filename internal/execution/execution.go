@@ -13,11 +13,6 @@ import (
 	"afterglow-judge-engine/internal/workspace"
 )
 
-// ArtifactSpec describes one file to collect from the workspace after execution.
-type ArtifactSpec struct {
-	Name string
-}
-
 // Artifact is a file produced by an execution job.
 type Artifact struct {
 	Data []byte
@@ -58,7 +53,7 @@ type Job struct {
 	Stdin         io.Reader
 	Limits        Limits
 	EnableSeccomp bool
-	Artifacts     []ArtifactSpec
+	Artifacts     []string
 }
 
 // Result contains the raw sandbox result and any collected artifacts.
@@ -207,24 +202,24 @@ func validateJob(job Job) error {
 	return nil
 }
 
-func collectArtifacts(ws *workspace.Workspace, specs []ArtifactSpec) (map[string]Artifact, error) {
-	artifacts := make(map[string]Artifact, len(specs))
-	for _, spec := range specs {
-		if strings.TrimSpace(spec.Name) == "" {
+func collectArtifacts(ws *workspace.Workspace, names []string) (map[string]Artifact, error) {
+	artifacts := make(map[string]Artifact, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
 			return nil, errors.New("artifact name is required")
 		}
 
-		info, err := ws.Stat(spec.Name)
+		info, err := ws.Stat(name)
 		if err != nil {
-			return nil, fmt.Errorf("stat artifact %q: %w", spec.Name, err)
+			return nil, fmt.Errorf("stat artifact %q: %w", name, err)
 		}
 
-		data, err := ws.ReadFile(spec.Name)
+		data, err := ws.ReadFile(name)
 		if err != nil {
-			return nil, fmt.Errorf("read artifact %q: %w", spec.Name, err)
+			return nil, fmt.Errorf("read artifact %q: %w", name, err)
 		}
 
-		artifacts[spec.Name] = Artifact{
+		artifacts[name] = Artifact{
 			Data: data,
 			Mode: info.Mode().Perm(),
 		}

@@ -95,7 +95,7 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		ReadOnlyMount: false,
 		Limits:        req.Limits,
 		EnableSeccomp: false, // Compilation needs fork for shell scripts
-		Artifacts:     []execution.ArtifactSpec{{Name: req.ArtifactName}},
+		Artifacts:     []string{req.ArtifactName},
 	})
 	if err != nil {
 		return out, fmt.Errorf("execute compilation: %w", err)

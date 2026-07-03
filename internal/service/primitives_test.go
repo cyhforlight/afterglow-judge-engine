@@ -39,7 +39,7 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 			assert.Equal(t, compileMountDir, job.MountPath)
 			assert.False(t, job.ReadOnlyMount)
 			assert.False(t, job.EnableSeccomp)
-			assert.Equal(t, []execution.ArtifactSpec{{Name: "program"}}, job.Artifacts)
+			assert.Equal(t, []string{"program"}, job.Artifacts)
 			require.Len(t, job.Files, 1)
 			assert.Equal(t, "main.c", job.Files[0].Name)
 			assert.Equal(t, []byte("int main() { return 0; }"), job.Files[0].Content)
