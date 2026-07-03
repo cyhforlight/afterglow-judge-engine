@@ -383,8 +383,6 @@ golangci-lint run ./...
 
 - `README.md`：项目总览、当前架构、API、配置和运行方式
 - `AGENTS.md`：项目开发规范
-- `docs/CODE_QUALITY_AUDIT.md`：当前代码质量、测试门禁和重点风险审查
-- `docs/ARCHITECTURE_QUALITY_REVIEW.md`：当前架构、抽象克制程度和学习价值审查
 
 ## 未来演化方向（功能性）
 
