@@ -35,8 +35,3 @@ func (c *Cache[V]) Get(key string) (V, bool) {
 func (c *Cache[V]) Set(key string, value V) {
 	c.cache.Add(key, value)
 }
-
-// Len returns the number of entries in the cache.
-func (c *Cache[V]) Len() int {
-	return c.cache.Len()
-}

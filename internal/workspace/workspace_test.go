@@ -50,7 +50,7 @@ func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
 
-func TestWorkspace_PathRejectsUnsafeNames(t *testing.T) {
+func TestWorkspace_ResolvePathRejectsUnsafeNames(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
 	defer func() { _ = ws.Cleanup() }()
@@ -68,18 +68,18 @@ func TestWorkspace_PathRejectsUnsafeNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ws.Path(tt.path)
+			_, err := ws.resolvePath(tt.path)
 			require.Error(t, err)
 		})
 	}
 }
 
-func TestWorkspace_PathAllowsSafeNestedName(t *testing.T) {
+func TestWorkspace_ResolvePathAllowsSafeNestedName(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
 	defer func() { _ = ws.Cleanup() }()
 
-	path, err := ws.Path("dir/file.txt")
+	path, err := ws.resolvePath("dir/file.txt")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(ws.Dir(), "dir", "file.txt"), path)
 }

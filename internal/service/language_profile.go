@@ -9,7 +9,8 @@ import (
 
 const (
 	gccImage            = "docker.io/library/gcc:12-bookworm"
-	staticRuntimeImage  = "gcr.io/distroless/static-debian12:latest"
+	staticRuntimeImage  = "docker.io/library/debian:12-slim"
+	pythonImage         = "docker.io/library/python:3.11-slim-bookworm"
 	defaultArtifactName = "program"
 	minJavaHeapMB       = 16
 )
@@ -134,7 +135,7 @@ func checkerProfile() LanguageProfile {
 			MemoryMB:  512,
 		},
 		Run: RunConfig{
-			ImageRef:       "gcr.io/distroless/static-debian12:latest",
+			ImageRef:       staticRuntimeImage,
 			ArtifactName:   "checker",
 			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
 		},
@@ -158,7 +159,7 @@ func javaProfile() LanguageProfile {
 			MemoryMB:  512,
 		},
 		Run: RunConfig{
-			ImageRef:     "gcr.io/distroless/java21-debian12:latest",
+			ImageRef:     "docker.io/library/eclipse-temurin:21-jre-jammy",
 			ArtifactName: "solution.jar",
 			RuntimeCommand: func(p string, limits RuntimeLimits) []string {
 				heapMB := javaHeapLimitMB(limits.MemoryMB)
@@ -192,7 +193,7 @@ func javaHeapLimitMB(memoryLimitMB int) int {
 func pythonProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
-			ImageRef:     "docker.io/library/python:3.11-slim-bookworm",
+			ImageRef:     pythonImage,
 			SourceFiles:  []string{"solution.py"},
 			ArtifactName: "solution.pyc",
 			BuildCommand: func(_ []string) []string {
@@ -205,7 +206,7 @@ func pythonProfile() LanguageProfile {
 			MemoryMB:  256,
 		},
 		Run: RunConfig{
-			ImageRef:       "gcr.io/distroless/python3-debian12:latest",
+			ImageRef:       pythonImage,
 			ArtifactName:   "solution.pyc",
 			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{"python3", p} },
 		},

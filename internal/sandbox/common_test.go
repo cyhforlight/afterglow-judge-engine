@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	testPythonImageRef = "gcr.io/distroless/python3-debian12:latest"
-	testStaticImageRef = "gcr.io/distroless/static-debian12:latest"
+	testPythonImageRef = "docker.io/library/python:3.11-slim-bookworm"
+	testStaticImageRef = "docker.io/library/debian:12-slim"
 )
 
 func requireSandboxIntegrationTest(t *testing.T) {

@@ -18,7 +18,7 @@
 
 - 提供一个简单直接的 HTTP 评测入口
 - 支持多语言编译与隔离执行
-- 支持多测试点、逐点结果和最终聚合判定
+- 支持多测试点、逐点 verdict、通过数量和判题流程状态
 - 支持内置 checker，以及基于外部文件的测试数据和 checker
 
 ## 当前实现范围
@@ -29,7 +29,7 @@
 2. service 层加载测试数据、解析 checker、编译用户代码
 3. execution 层准备临时工作目录、调用 sandbox 并收集编译产物
 4. 对每个测试点执行程序并运行 checker
-5. 聚合逐点结果，返回最终 verdict
+5. 汇总逐点结果、通过数量和判题流程状态
 
 更大规模的能力目前没有展开实现，例如异步任务队列、评测结果持久化和多 worker 调度等。
 
@@ -84,6 +84,7 @@ go build -o server ./cmd/server
 默认情况下：
 
 - 内置 checker、`testlib.h` 等 internal resources 会在构建时 embed 进二进制，运行时不需要额外放在可执行文件旁边
+- 编译和运行镜像在首次使用时按需拉取
 - 外部测试数据和外部 checker 默认关闭；如需启用，可通过 `EXTERNAL_DATA_DIR` 显式指定根目录
 
 因此最简单的用法仍然是在仓库根目录直接构建并运行。
@@ -124,7 +125,7 @@ curl -X POST http://localhost:8080/v1/execute \
 - `transport/httptransport`
   - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
 - `service`
-  - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、聚合 verdict
+  - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`
   - 负责通用容器执行任务：准备临时 workspace、写入文件、表达资源限制、调用 sandbox、收集产物，并集中限制容器并发
 - `sandbox`
@@ -155,7 +156,7 @@ transport -> service -> model
 7. 准备 checker
 8. compiler / runner 通过 execution 层执行容器任务
 9. 逐个测试点执行用户程序，并用 checker 判定结果
-10. 根据逐点结果聚合最终 verdict
+10. 汇总逐点结果、通过数量和判题流程状态
 11. 返回 JSON 响应
 
 ### 目录结构
@@ -264,7 +265,7 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "verdict": "WrongAnswer",
+  "status": "OK",
   "compile": {
     "succeeded": true,
     "log": ""
@@ -283,6 +284,8 @@ Authorization: Bearer <token>
   "totalCount": 1
 }
 ```
+
+顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`、`passedCount` 和 `totalCount`。
 
 错误响应示例：
 
@@ -343,7 +346,7 @@ external:relative/path/to/checker.cpp
 | `HTTP_ADDR` | `0.0.0.0` | HTTP 监听地址 |
 | `HTTP_PORT` | `8080` | HTTP 监听端口 |
 | `HTTP_READ_TIMEOUT_MS` | `30000` | HTTP 读取请求的超时时间 |
-| `HTTP_WRITE_TIMEOUT_MS` | `120000` | HTTP 写响应的超时时间 |
+| `HTTP_WRITE_TIMEOUT_MS` | `600000` | HTTP 写响应的超时时间 |
 | `CONTAINERD_SOCKET` | `/run/containerd/containerd.sock` | containerd 套接字 |
 | `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
 | `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |

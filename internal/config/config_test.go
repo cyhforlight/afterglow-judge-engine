@@ -22,7 +22,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "0.0.0.0", cfg.HTTPAddr)
 	assert.Equal(t, 8080, cfg.HTTPPort)
 	assert.Equal(t, int((30 * time.Second).Milliseconds()), cfg.HTTPReadTimeoutMs)
-	assert.Equal(t, int((120 * time.Second).Milliseconds()), cfg.HTTPWriteTimeoutMs)
+	assert.Equal(t, int((10 * time.Minute).Milliseconds()), cfg.HTTPWriteTimeoutMs)
 	assert.Equal(t, "/run/containerd/containerd.sock", cfg.ContainerdSocket)
 	assert.Equal(t, model.DefaultJudgeLimits(), cfg.JudgeLimits)
 	assert.Empty(t, cfg.ExternalDataDir)

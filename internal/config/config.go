@@ -72,7 +72,7 @@ func Load() (*Config, error) {
 	}
 	cfg.HTTPReadTimeoutMs = httpReadTimeoutMs
 
-	httpWriteTimeoutMs, err := getEnvInt("HTTP_WRITE_TIMEOUT_MS", int((120 * time.Second).Milliseconds()))
+	httpWriteTimeoutMs, err := getEnvInt("HTTP_WRITE_TIMEOUT_MS", int((10 * time.Minute).Milliseconds()))
 	if err != nil {
 		return nil, err
 	}

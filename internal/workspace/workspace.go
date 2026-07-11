@@ -35,11 +35,6 @@ func (w *Workspace) Dir() string {
 	return w.dir
 }
 
-// Path resolves a safe relative workspace path to an absolute path in the workspace.
-func (w *Workspace) Path(name string) (string, error) {
-	return w.resolvePath(name)
-}
-
 // WriteFile writes a file to the workspace with the given name, content, and permissions.
 func (w *Workspace) WriteFile(name string, content []byte, mode os.FileMode) error {
 	path, err := w.resolvePath(name)

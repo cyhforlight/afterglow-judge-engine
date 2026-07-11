@@ -18,7 +18,7 @@ import (
 func testCompileRequest(content string) CompileRequest {
 	return CompileRequest{
 		Files:        []workspace.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
-		ImageRef:     "gcc:latest",
+		ImageRef:     "gcc:12",
 		Command:      []string{"g++", "main.cpp"},
 		ArtifactName: "a.out",
 	}
