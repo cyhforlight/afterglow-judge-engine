@@ -4,23 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
+	"github.com/containerd/cgroups/v3"
 	containerd "github.com/containerd/containerd/v2/client"
 )
 
-const cgroupV2CheckPath = "/sys/fs/cgroup/cgroup.controllers"
-
 func ensureCgroupV2Enabled() error {
-	_, err := os.Stat(cgroupV2CheckPath)
-	if err == nil {
-		return nil
+	if cgroups.Mode() != cgroups.Unified {
+		return errors.New("cgroup v2 unified mode is required")
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("cgroup v2 is required: missing /sys/fs/cgroup/cgroup.controllers")
-	}
-	return fmt.Errorf("check cgroup v2 mount: %w", err)
+	return nil
 }
 
 func ensureContainerdAvailable(ctx context.Context, socketPath string) error {
