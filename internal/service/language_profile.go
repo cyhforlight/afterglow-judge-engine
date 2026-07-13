@@ -12,7 +12,7 @@ const (
 	staticRuntimeImage  = "docker.io/library/debian:12-slim"
 	pythonImage         = "docker.io/library/python:3.11-slim-bookworm"
 	defaultArtifactName = "program"
-	minJavaHeapMB       = 16
+	javaNativeReserveMB = 64
 )
 
 // LanguageProfile groups the compile-time and run-time settings for a language.
@@ -162,7 +162,7 @@ func javaProfile() LanguageProfile {
 			ImageRef:     "docker.io/library/eclipse-temurin:21-jre-jammy",
 			ArtifactName: "solution.jar",
 			RuntimeCommand: func(p string, limits RuntimeLimits) []string {
-				heapMB := javaHeapLimitMB(limits.MemoryMB)
+				heapMB := limits.MemoryMB
 				initialHeapMB := min(heapMB, 64)
 				return []string{
 					"java",
@@ -176,16 +176,11 @@ func javaProfile() LanguageProfile {
 	}
 }
 
-func javaHeapLimitMB(memoryLimitMB int) int {
-	if memoryLimitMB <= 0 {
-		return minJavaHeapMB
+func sandboxMemoryLimitMB(lang model.Language, memoryLimitMB int) int {
+	if lang != model.LanguageJava {
+		return memoryLimitMB
 	}
-
-	nativeReserveMB := max(64, memoryLimitMB/4)
-	if memoryLimitMB <= nativeReserveMB+minJavaHeapMB {
-		return minJavaHeapMB
-	}
-	return memoryLimitMB - nativeReserveMB
+	return memoryLimitMB + max(javaNativeReserveMB, memoryLimitMB/4)
 }
 
 // pythonProfile returns the profile for Python language.

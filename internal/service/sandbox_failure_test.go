@@ -34,12 +34,12 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
 			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
-			MemoryMB:    memoryLimit,
+			MemoryMB:    sandboxMemoryLimitMB(lang, memoryLimit),
 			OutputBytes: execution.DefaultRunOutputLimitBytes,
 		},
 	})
 	require.NoError(t, err)
-	return runOut
+	return normalizeUserRunResult(lang, runOut)
 }
 
 // TestSandboxFailure_CompileError tests compilation errors.
@@ -129,6 +129,27 @@ func TestSandboxFailure_MemoryLimit(t *testing.T) {
 			assert.Equal(t, execution.VerdictMLE, runOut.Verdict, "expected MLE verdict")
 		})
 	}
+}
+
+func TestJavaHeapMatchesRequestedMemoryLimit(t *testing.T) {
+	requireServiceIntegrationTest(t)
+	env := newServiceIntegrationEnv(t, 120*time.Second)
+
+	const sourceCode = `
+public class Main {
+    public static void main(String[] args) {
+        byte[] data = new byte[64 * 1024 * 1024];
+        data[data.length - 1] = 1;
+        System.out.println(data.length);
+    }
+}
+`
+	artifact, result := compileProgram(t, env, model.LanguageJava, sourceCode)
+	require.True(t, result.Succeeded, "compilation should succeed")
+
+	runOut := runUserProgram(t, env, artifact, model.LanguageJava, "", 2000, 128)
+	require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %s", runOut.ExtraInfo)
+	assert.Equal(t, "67108864\n", runOut.Stdout)
 }
 
 // TestSandboxFailure_RuntimeError tests runtime errors.

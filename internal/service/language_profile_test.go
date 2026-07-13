@@ -36,21 +36,33 @@ func TestProfileForLanguage_AllLanguages(t *testing.T) {
 	}
 }
 
-func TestJavaHeapLimitMB(t *testing.T) {
+func TestJavaRuntimeCommandUsesRequestedHeapLimit(t *testing.T) {
+	command := javaProfile().Run.RuntimeCommand("/sandbox/solution.jar", RuntimeLimits{MemoryMB: 128})
+
+	assert.Equal(t, []string{
+		"java",
+		"-Xmx128m",
+		"-Xms64m",
+		"-jar",
+		"/sandbox/solution.jar",
+	}, command)
+}
+
+func TestSandboxMemoryLimitMB(t *testing.T) {
 	tests := []struct {
 		name          string
+		language      model.Language
 		memoryLimitMB int
-		wantHeapMB    int
+		wantLimitMB   int
 	}{
-		{name: "standard limit reserves native memory", memoryLimitMB: 256, wantHeapMB: 192},
-		{name: "large limit reserves quarter", memoryLimitMB: 1024, wantHeapMB: 768},
-		{name: "small limit keeps minimum heap", memoryLimitMB: 32, wantHeapMB: 16},
-		{name: "invalid limit keeps minimum heap", memoryLimitMB: 0, wantHeapMB: 16},
+		{name: "Java adds minimum native reserve", language: model.LanguageJava, memoryLimitMB: 128, wantLimitMB: 192},
+		{name: "Java reserve grows with heap", language: model.LanguageJava, memoryLimitMB: 1024, wantLimitMB: 1280},
+		{name: "C++ keeps requested limit", language: model.LanguageCPP, memoryLimitMB: 128, wantLimitMB: 128},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantHeapMB, javaHeapLimitMB(tt.memoryLimitMB))
+			assert.Equal(t, tt.wantLimitMB, sandboxMemoryLimitMB(tt.language, tt.memoryLimitMB))
 		})
 	}
 }

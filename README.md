@@ -205,7 +205,7 @@ Authorization: Bearer <token>
 | `sourceCode` | string | 是 | 源代码文本 |
 | `language` | string | 是 | `C` / `C++` / `Java` / `Python` |
 | `timeLimit` | int | 是 | 单测试点时间限制，单位毫秒 |
-| `memoryLimit` | int | 是 | 单测试点内存限制，单位 MB |
+| `memoryLimit` | int | 是 | 单测试点内存限制，单位 MB；Java 中对应最大堆容量（`-Xmx`） |
 | `checker` | string | 否 | 内置 checker 短名，或 `external:<path>.cpp` |
 | `testcases` | array | 是 | 测试点列表 |
 
@@ -224,6 +224,8 @@ Authorization: Bearer <token>
 - `expectedOutputText` 和 `expectedOutputFile` 不能同时出现
 - 请求体必须是且只能是一个 JSON 对象
 - 未知字段会被直接拒绝
+- Java 的 JVM 堆外开销由 Judge Engine 额外预留，不从 `memoryLimit` 中扣除
+- `memoryUsed` 表示容器整体内存峰值；Java 中包含 JVM 堆外内存，可能高于 `memoryLimit`
 
 文本型 testcase 示例：
 

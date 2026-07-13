@@ -524,6 +524,54 @@ func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	assert.Equal(t, 1, runner.calls, "only user run, no checker run")
 }
 
+func TestNormalizeUserRunResult_JavaOutOfMemory(t *testing.T) {
+	tests := []struct {
+		name        string
+		language    model.Language
+		verdict     execution.Verdict
+		stderr      string
+		wantVerdict execution.Verdict
+	}{
+		{
+			name:        "Java out of memory becomes MLE",
+			language:    model.LanguageJava,
+			verdict:     execution.VerdictRE,
+			stderr:      "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space",
+			wantVerdict: execution.VerdictMLE,
+		},
+		{
+			name:        "ordinary Java exception stays RE",
+			language:    model.LanguageJava,
+			verdict:     execution.VerdictRE,
+			stderr:      "Exception in thread \"main\" java.lang.NullPointerException",
+			wantVerdict: execution.VerdictRE,
+		},
+		{
+			name:        "other languages are unchanged",
+			language:    model.LanguageCPP,
+			verdict:     execution.VerdictRE,
+			stderr:      "java.lang.OutOfMemoryError",
+			wantVerdict: execution.VerdictRE,
+		},
+		{
+			name:        "existing Java MLE stays MLE",
+			language:    model.LanguageJava,
+			verdict:     execution.VerdictMLE,
+			wantVerdict: execution.VerdictMLE,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeUserRunResult(tt.language, RunResult{
+				Verdict: tt.verdict,
+				Stderr:  tt.stderr,
+			})
+			assert.Equal(t, tt.wantVerdict, got.Verdict)
+		})
+	}
+}
+
 func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
 	customRunner := &inputKeyedErrRunner{
 		userResults: map[string]runCallResult{

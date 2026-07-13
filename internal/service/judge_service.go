@@ -381,7 +381,7 @@ func (s *JudgeEngine) executeUserCode(
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
 			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
-			MemoryMB:    memoryLimit,
+			MemoryMB:    sandboxMemoryLimitMB(lang, memoryLimit),
 			OutputBytes: execution.DefaultRunOutputLimitBytes,
 		},
 	})
@@ -389,7 +389,16 @@ func (s *JudgeEngine) executeUserCode(
 		return model.ExecuteResult{}, err
 	}
 
-	return convertRunResult(runOut), nil
+	return convertRunResult(normalizeUserRunResult(lang, runOut)), nil
+}
+
+func normalizeUserRunResult(lang model.Language, runOut RunResult) RunResult {
+	if lang == model.LanguageJava &&
+		runOut.Verdict == execution.VerdictRE &&
+		strings.Contains(runOut.Stderr, "java.lang.OutOfMemoryError") {
+		runOut.Verdict = execution.VerdictMLE
+	}
+	return runOut
 }
 
 func convertRunResult(runOut RunResult) model.ExecuteResult {
