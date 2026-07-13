@@ -162,10 +162,8 @@ func (cfg *Config) Validate() error {
 	if err := cfg.JudgeLimits.ValidateConfig(); err != nil {
 		return err
 	}
-	if cfg.ExternalDataDir != "" {
-		if err := validateDirectory("EXTERNAL_DATA_DIR", cfg.ExternalDataDir); err != nil {
-			return err
-		}
+	if cfg.ExternalDataDir != "" && !filepath.IsAbs(cfg.ExternalDataDir) {
+		return fmt.Errorf("EXTERNAL_DATA_DIR must be an absolute path, got %q", cfg.ExternalDataDir)
 	}
 	return validateLogLevel(cfg.LogLevel)
 }
@@ -195,21 +193,6 @@ func getEnvInt(key string, defaultValue int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer, got %q", key, value)
 	}
 	return intVal, nil
-}
-
-func validateDirectory(key, dir string) error {
-	if !filepath.IsAbs(dir) {
-		return fmt.Errorf("%s must be an absolute path, got %q", key, dir)
-	}
-
-	info, err := os.Stat(dir)
-	if err != nil {
-		return fmt.Errorf("%s is not accessible: %w", key, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s must point to a directory, got %q", key, dir)
-	}
-	return nil
 }
 
 func validateLogLevel(level string) error {

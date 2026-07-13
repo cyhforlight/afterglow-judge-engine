@@ -75,6 +75,18 @@ func TestLoad_ExternalDataDirDisabledWhenBlank(t *testing.T) {
 	assert.Empty(t, cfg.ExternalDataDir)
 }
 
+func TestLoad_DoesNotAccessExternalDataDir(t *testing.T) {
+	clearEnv()
+
+	missingDir := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("EXTERNAL_DATA_DIR", missingDir)
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, missingDir, cfg.ExternalDataDir)
+}
+
 func TestLoad_InvalidConfig(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -147,12 +159,6 @@ func TestLoad_InvalidConfig(t *testing.T) {
 			key:         "EXTERNAL_DATA_DIR",
 			value:       filepath.Join("relative", "testdata"),
 			wantMessage: `EXTERNAL_DATA_DIR must be an absolute path`,
-		},
-		{
-			name:        "missing external data dir is rejected",
-			key:         "EXTERNAL_DATA_DIR",
-			value:       "/tmp/afterglow-config-test-missing-dir",
-			wantMessage: `EXTERNAL_DATA_DIR is not accessible`,
 		},
 	}
 

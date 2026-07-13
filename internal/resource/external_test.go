@@ -10,6 +10,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewExternal_RejectsInvalidMountPoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "file.txt")
+	err := os.WriteFile(filePath, nil, 0o644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		mountPoint  string
+		wantMessage string
+	}{
+		{name: "missing", mountPoint: filepath.Join(tmpDir, "missing"), wantMessage: "not accessible"},
+		{name: "file", mountPoint: filePath, wantMessage: "not a directory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ext, err := NewExternal(tt.mountPoint)
+
+			assert.Nil(t, ext)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantMessage)
+		})
+	}
+}
+
 func TestExternal_Get_SeesFileUpdates(t *testing.T) {
 	tmpDir := t.TempDir()
 
