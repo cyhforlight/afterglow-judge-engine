@@ -370,7 +370,6 @@ func (s *JudgeEngine) executeUserCode(
 		}},
 		ImageRef: profile.Run.ImageRef,
 		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
-		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,
@@ -439,7 +438,6 @@ func (s *JudgeEngine) runChecker(
 			runMountDir + "/" + checkerOutputFileName,
 			runMountDir + "/" + checkerAnswerFileName,
 		},
-		Cwd:    runMountDir,
 		Limits: checkerRunLimits(),
 	})
 	if err != nil {

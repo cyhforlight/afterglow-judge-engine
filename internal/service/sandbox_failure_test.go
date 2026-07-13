@@ -28,7 +28,6 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 		}},
 		ImageRef: profile.Run.ImageRef,
 		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
-		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimit,

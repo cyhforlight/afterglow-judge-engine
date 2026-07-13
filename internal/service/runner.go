@@ -18,7 +18,6 @@ type RunRequest struct {
 	Files    []workspace.File
 	ImageRef string
 	Command  []string
-	Cwd      string
 	Stdin    io.Reader
 	Limits   execution.Limits
 }
@@ -59,18 +58,12 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, errors.New("at least one run file is required")
 	}
 
-	cwd := req.Cwd
-	if strings.TrimSpace(cwd) == "" {
-		cwd = runMountDir
-	}
-
 	result, err := r.executor.Execute(ctx, execution.Job{
 		Files:         req.Files,
 		ImageRef:      req.ImageRef,
 		Command:       req.Command,
 		MountPath:     runMountDir,
 		ReadOnlyMount: true,
-		Cwd:           cwd,
 		Stdin:         req.Stdin,
 		Limits:        req.Limits,
 		EnableSeccomp: true, // User code execution requires seccomp restrictions

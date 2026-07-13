@@ -88,8 +88,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 			require.NotNil(t, req.MountDir)
 			assert.Equal(t, testSandboxMount, req.MountDir.ContainerPath)
 			assert.True(t, req.MountDir.ReadOnly)
-			require.NotNil(t, req.Cwd)
-			assert.Equal(t, testSandboxMount, *req.Cwd)
+			assert.Nil(t, req.Cwd)
 			assert.True(t, req.EnableSeccomp)
 			assert.NotNil(t, req.Stdin)
 
@@ -112,7 +111,6 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 		Command:       []string{testSandboxMount + "/" + testProgramName},
 		MountPath:     testSandboxMount,
 		ReadOnlyMount: true,
-		Cwd:           testSandboxMount,
 		Stdin:         strings.NewReader("input"),
 		Limits: Limits{
 			CPUTimeMs:   1000,
@@ -255,7 +253,6 @@ func compileJobWithArtifact() Job {
 		Command:       []string{"build"},
 		MountPath:     testWorkMount,
 		ReadOnlyMount: false,
-		Cwd:           testWorkMount,
 		Limits: Limits{
 			CPUTimeMs:   1000,
 			WallTimeMs:  3000,
@@ -274,8 +271,7 @@ func assertCompileSandboxRequest(t *testing.T, req sandbox.ExecuteRequest) {
 	assert.False(t, req.MountDir.ReadOnly)
 	assert.Equal(t, testImageRef, req.ImageRef)
 	assert.Equal(t, []string{"build"}, req.Command)
-	require.NotNil(t, req.Cwd)
-	assert.Equal(t, testWorkMount, *req.Cwd)
+	assert.Nil(t, req.Cwd)
 	assert.False(t, req.EnableSeccomp)
 	assert.Equal(t, sandbox.ResourceLimits{
 		CPUTimeMs:   1000,

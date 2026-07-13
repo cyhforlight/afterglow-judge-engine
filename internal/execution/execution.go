@@ -46,7 +46,6 @@ type Job struct {
 	Command       []string
 	MountPath     string
 	ReadOnlyMount bool
-	Cwd           string
 	Stdin         io.Reader
 	Limits        Limits
 	EnableSeccomp bool
@@ -122,11 +121,6 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 		Stdin:         job.Stdin,
 		Limits:        sandboxLimits(job.Limits),
 		EnableSeccomp: job.EnableSeccomp,
-	}
-
-	if strings.TrimSpace(job.Cwd) != "" {
-		cwd := job.Cwd
-		sandboxReq.Cwd = &cwd
 	}
 
 	sandboxResult, err := e.sandbox.Execute(ctx, sandboxReq)

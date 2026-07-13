@@ -86,7 +86,6 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 			assert.Equal(t, "runtime-image", job.ImageRef)
 			assert.Equal(t, []string{"/sandbox/program"}, job.Command)
 			assert.Equal(t, runMountDir, job.MountPath)
-			assert.Equal(t, runMountDir, job.Cwd)
 			assert.True(t, job.ReadOnlyMount)
 			assert.True(t, job.EnableSeccomp)
 			require.Len(t, job.Files, 1)
@@ -116,7 +115,6 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 		}},
 		ImageRef: "runtime-image",
 		Command:  []string{"/sandbox/program"},
-		Cwd:      runMountDir,
 		Limits: execution.Limits{
 			CPUTimeMs:   1000,
 			WallTimeMs:  3000,
