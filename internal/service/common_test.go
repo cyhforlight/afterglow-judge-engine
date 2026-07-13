@@ -105,12 +105,12 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 
 	req := CompileRequest{
 		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFiles[0],
+			Name:    profile.Compile.SourceFile,
 			Content: []byte(sourceCode),
 			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
+		Command:      profile.Compile.BuildCommand,
 		ArtifactName: profile.Compile.ArtifactName,
 		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,

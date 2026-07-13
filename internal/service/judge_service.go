@@ -268,12 +268,12 @@ func (s *JudgeEngine) compileUserCode(
 
 	compileReq := CompileRequest{
 		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFiles[0],
+			Name:    profile.Compile.SourceFile,
 			Content: []byte(sourceCode),
 			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
+		Command:      profile.Compile.BuildCommand,
 		ArtifactName: profile.Compile.ArtifactName,
 		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
@@ -327,11 +327,11 @@ func (s *JudgeEngine) prepareChecker(
 	profile := checkerProfile()
 	compileOut, err := s.checkerCompiler.Compile(ctx, CompileRequest{
 		Files: []workspace.File{
-			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
+			{Name: profile.Compile.SourceFile, Content: checkerSource, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
+		Command:      profile.Compile.BuildCommand,
 		ArtifactName: profile.Compile.ArtifactName,
 		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,
@@ -373,7 +373,7 @@ func (s *JudgeEngine) executeUserCode(
 			Mode:    artifact.Mode,
 		}},
 		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath, RuntimeLimits{MemoryMB: memoryLimit}),
+		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
 		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{

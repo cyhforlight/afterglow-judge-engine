@@ -13,6 +13,10 @@ const (
 	pythonImage         = "docker.io/library/python:3.11-slim-bookworm"
 	defaultArtifactName = "program"
 	javaNativeReserveMB = 64
+	optimizationFlag    = "-O2"
+	pipeFlag            = "-pipe"
+	staticLinkFlag      = "-static"
+	mathLibraryFlag     = "-lm"
 )
 
 // LanguageProfile groups the compile-time and run-time settings for a language.
@@ -25,9 +29,9 @@ type LanguageProfile struct {
 // CompileConfig describes how to compile source code in a container.
 type CompileConfig struct {
 	ImageRef     string
-	SourceFiles  []string
+	SourceFile   string
 	ArtifactName string
-	BuildCommand func(sources []string) []string
+	BuildCommand []string
 	TimeoutMs    int
 	MemoryMB     int
 }
@@ -36,12 +40,7 @@ type CompileConfig struct {
 type RunConfig struct {
 	ImageRef       string
 	ArtifactName   string
-	RuntimeCommand func(artifactPath string, limits RuntimeLimits) []string
-}
-
-// RuntimeLimits carries request-level runtime policy into language-specific commands.
-type RuntimeLimits struct {
-	MemoryMB int
+	RuntimeCommand func(artifactPath string, memoryMB int) []string
 }
 
 // ProfileForLanguage returns the language profile for the given language.
@@ -65,16 +64,12 @@ func cProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
 			ImageRef:     gccImage,
-			SourceFiles:  []string{"main.c"},
+			SourceFile:   "main.c",
 			ArtifactName: defaultArtifactName,
-			BuildCommand: func(sources []string) []string {
-				args := make([]string, 0, 9+len(sources))
-				args = append(args, "gcc", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/"+defaultArtifactName)
-				for _, src := range sources {
-					args = append(args, compileMountDir+"/"+src)
-				}
-				args = append(args, "-lm")
-				return args
+			BuildCommand: []string{
+				"gcc", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
+				"-o", compileMountDir + "/" + defaultArtifactName,
+				compileMountDir + "/main.c", mathLibraryFlag,
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -82,7 +77,7 @@ func cProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       staticRuntimeImage,
 			ArtifactName:   defaultArtifactName,
-			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
+			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
 }
@@ -92,16 +87,12 @@ func cppProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
 			ImageRef:     gccImage,
-			SourceFiles:  []string{"main.cpp"},
+			SourceFile:   "main.cpp",
 			ArtifactName: defaultArtifactName,
-			BuildCommand: func(sources []string) []string {
-				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/"+defaultArtifactName)
-				for _, src := range sources {
-					args = append(args, compileMountDir+"/"+src)
-				}
-				args = append(args, "-lm")
-				return args
+			BuildCommand: []string{
+				"g++", "-std=c++20", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
+				"-o", compileMountDir + "/" + defaultArtifactName,
+				compileMountDir + "/main.cpp", mathLibraryFlag,
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -109,7 +100,7 @@ func cppProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       staticRuntimeImage,
 			ArtifactName:   defaultArtifactName,
-			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
+			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
 }
@@ -120,16 +111,12 @@ func checkerProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
 			ImageRef:     gccImage,
-			SourceFiles:  []string{"checker.cpp"},
+			SourceFile:   "checker.cpp",
 			ArtifactName: "checker",
-			BuildCommand: func(sources []string) []string {
-				args := make([]string, 0, 11+len(sources))
-				args = append(args, "g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", compileMountDir+"/checker")
-				for _, src := range sources {
-					args = append(args, compileMountDir+"/"+src)
-				}
-				args = append(args, "-lm")
-				return args
+			BuildCommand: []string{
+				"g++", "-std=c++20", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
+				"-o", compileMountDir + "/checker",
+				compileMountDir + "/checker.cpp", mathLibraryFlag,
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -137,7 +124,7 @@ func checkerProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       staticRuntimeImage,
 			ArtifactName:   "checker",
-			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{p} },
+			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
 }
@@ -147,13 +134,13 @@ func javaProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
 			ImageRef:     "docker.io/library/eclipse-temurin:21-jdk-jammy",
-			SourceFiles:  []string{"Main.java"},
+			SourceFile:   "Main.java",
 			ArtifactName: "solution.jar",
-			BuildCommand: func(_ []string) []string {
-				return []string{"sh", "-c",
-					"mkdir -p " + compileMountDir + "/classes && " +
-						"javac -encoding UTF-8 -d " + compileMountDir + "/classes " + compileMountDir + "/Main.java && " +
-						"jar --create --file " + compileMountDir + "/solution.jar --main-class Main -C " + compileMountDir + "/classes ."}
+			BuildCommand: []string{
+				"sh", "-c",
+				"mkdir -p " + compileMountDir + "/classes && " +
+					"javac -encoding UTF-8 -d " + compileMountDir + "/classes " + compileMountDir + "/Main.java && " +
+					"jar --create --file " + compileMountDir + "/solution.jar --main-class Main -C " + compileMountDir + "/classes .",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -161,12 +148,11 @@ func javaProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:     "docker.io/library/eclipse-temurin:21-jre-jammy",
 			ArtifactName: "solution.jar",
-			RuntimeCommand: func(p string, limits RuntimeLimits) []string {
-				heapMB := limits.MemoryMB
-				initialHeapMB := min(heapMB, 64)
+			RuntimeCommand: func(p string, memoryMB int) []string {
+				initialHeapMB := min(memoryMB, 64)
 				return []string{
 					"java",
-					"-Xmx" + strconv.Itoa(heapMB) + "m",
+					"-Xmx" + strconv.Itoa(memoryMB) + "m",
 					"-Xms" + strconv.Itoa(initialHeapMB) + "m",
 					"-jar",
 					p,
@@ -189,13 +175,11 @@ func pythonProfile() LanguageProfile {
 	return LanguageProfile{
 		Compile: CompileConfig{
 			ImageRef:     pythonImage,
-			SourceFiles:  []string{"solution.py"},
+			SourceFile:   "solution.py",
 			ArtifactName: "solution.pyc",
-			BuildCommand: func(_ []string) []string {
-				return []string{
-					"sh", "-c",
-					"python3 -c 'import py_compile; py_compile.compile(\"" + compileMountDir + "/solution.py\", cfile=\"" + compileMountDir + "/solution.pyc\", doraise=True)' || exit 1",
-				}
+			BuildCommand: []string{
+				"sh", "-c",
+				"python3 -c 'import py_compile; py_compile.compile(\"" + compileMountDir + "/solution.py\", cfile=\"" + compileMountDir + "/solution.pyc\", doraise=True)' || exit 1",
 			},
 			TimeoutMs: 10000,
 			MemoryMB:  256,
@@ -203,7 +187,7 @@ func pythonProfile() LanguageProfile {
 		Run: RunConfig{
 			ImageRef:       pythonImage,
 			ArtifactName:   "solution.pyc",
-			RuntimeCommand: func(p string, _ RuntimeLimits) []string { return []string{"python3", p} },
+			RuntimeCommand: func(p string, _ int) []string { return []string{"python3", p} },
 		},
 	}
 }

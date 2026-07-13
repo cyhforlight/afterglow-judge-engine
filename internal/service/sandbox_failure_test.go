@@ -28,7 +28,7 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 			Mode:    artifact.Mode,
 		}},
 		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath, RuntimeLimits{MemoryMB: memoryLimit}),
+		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
 		Cwd:      runMountDir,
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{

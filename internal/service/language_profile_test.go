@@ -37,7 +37,7 @@ func TestProfileForLanguage_AllLanguages(t *testing.T) {
 }
 
 func TestJavaRuntimeCommandUsesRequestedHeapLimit(t *testing.T) {
-	command := javaProfile().Run.RuntimeCommand("/sandbox/solution.jar", RuntimeLimits{MemoryMB: 128})
+	command := javaProfile().Run.RuntimeCommand("/sandbox/solution.jar", 128)
 
 	assert.Equal(t, []string{
 		"java",

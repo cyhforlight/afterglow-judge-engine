@@ -28,12 +28,12 @@ func TestCompiler_WorkspaceCleanedAfterCompile(t *testing.T) {
 
 	req := CompileRequest{
 		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFiles[0],
+			Name:    profile.Compile.SourceFile,
 			Content: []byte("int main() { return 1; }"),
 			Mode:    0o644,
 		}},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand(profile.Compile.SourceFiles),
+		Command:      profile.Compile.BuildCommand,
 		ArtifactName: profile.Compile.ArtifactName,
 		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,

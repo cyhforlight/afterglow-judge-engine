@@ -69,11 +69,11 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, exter
 	profile := checkerProfile()
 	out, err := compiler.Compile(ctx, CompileRequest{
 		Files: []workspace.File{
-			{Name: checkerSourceFileName, Content: checkerSource, Mode: 0o644},
+			{Name: profile.Compile.SourceFile, Content: checkerSource, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand([]string{checkerSourceFileName}),
+		Command:      profile.Compile.BuildCommand,
 		ArtifactName: profile.Compile.ArtifactName,
 		Limits: execution.Limits{
 			CPUTimeMs:   profile.Compile.TimeoutMs,

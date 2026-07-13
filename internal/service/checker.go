@@ -17,7 +17,6 @@ const (
 	testlibHeaderKey = "testlib.h"
 
 	// Checker execution file names.
-	checkerSourceFileName = "checker.cpp"
 	checkerInputFileName  = "input.txt"
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
