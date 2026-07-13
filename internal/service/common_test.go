@@ -123,5 +123,5 @@ func findSourceFile(t *testing.T, testcaseDir string) (string, model.Language) {
 	}
 
 	t.Fatalf("no source file found in %s", testcaseDir)
-	return "", 0
+	return "", model.LanguageUnknown
 }

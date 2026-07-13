@@ -9,31 +9,27 @@ import (
 
 const unknownString = "Unknown"
 
+func stringOrUnknown(value string) string {
+	if value == "" {
+		return unknownString
+	}
+	return value
+}
+
 // Language represents a supported programming language.
-type Language int
+type Language string
 
 // Supported programming languages.
 const (
-	LanguageUnknown Language = iota
-	LanguageC
-	LanguageCPP
-	LanguageJava
-	LanguagePython
+	LanguageUnknown Language = ""
+	LanguageC       Language = "C"
+	LanguageCPP     Language = "C++"
+	LanguageJava    Language = "Java"
+	LanguagePython  Language = "Python"
 )
 
 func (l Language) String() string {
-	switch l {
-	case LanguageC:
-		return "C"
-	case LanguageCPP:
-		return "C++"
-	case LanguageJava:
-		return "Java"
-	case LanguagePython:
-		return "Python"
-	default:
-		return unknownString
-	}
+	return stringOrUnknown(string(l))
 }
 
 // MarshalJSON implements json.Marshaler for Language.
@@ -48,15 +44,10 @@ func (l *Language) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode language: %w", err)
 	}
 
-	switch raw {
-	case "C":
-		*l = LanguageC
-	case "C++":
-		*l = LanguageCPP
-	case "Java":
-		*l = LanguageJava
-	case "Python":
-		*l = LanguagePython
+	language := Language(raw)
+	switch language {
+	case LanguageC, LanguageCPP, LanguageJava, LanguagePython:
+		*l = language
 	default:
 		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", raw)
 	}
@@ -64,42 +55,23 @@ func (l *Language) UnmarshalJSON(data []byte) error {
 }
 
 // Verdict represents the execution result status.
-type Verdict int
+type Verdict string
 
 // Execution verdicts.
 const (
-	VerdictUnknown Verdict = iota
-	VerdictOK
-	VerdictTLE
-	VerdictMLE
-	VerdictOLE
-	VerdictRE
-	VerdictWA
-	VerdictCE
-	VerdictUKE
+	VerdictUnknown Verdict = ""
+	VerdictOK      Verdict = "OK"
+	VerdictTLE     Verdict = "TimeLimitExceeded"
+	VerdictMLE     Verdict = "MemoryLimitExceeded"
+	VerdictOLE     Verdict = "OutputLimitExceeded"
+	VerdictRE      Verdict = "RuntimeError"
+	VerdictWA      Verdict = "WrongAnswer"
+	VerdictCE      Verdict = "CompileError"
+	VerdictUKE     Verdict = "UnknownError"
 )
 
 func (v Verdict) String() string {
-	switch v {
-	case VerdictOK:
-		return "OK"
-	case VerdictTLE:
-		return "TimeLimitExceeded"
-	case VerdictMLE:
-		return "MemoryLimitExceeded"
-	case VerdictOLE:
-		return "OutputLimitExceeded"
-	case VerdictRE:
-		return "RuntimeError"
-	case VerdictWA:
-		return "WrongAnswer"
-	case VerdictCE:
-		return "CompileError"
-	case VerdictUKE:
-		return "UnknownError"
-	default:
-		return unknownString
-	}
+	return stringOrUnknown(string(v))
 }
 
 // MarshalJSON implements json.Marshaler for Verdict.
@@ -150,26 +122,17 @@ type JudgeCaseResult struct {
 // JudgeStatus represents the overall system-level outcome of a judge session.
 // Unlike Verdict (which describes per-case test results like OK/WA/TLE),
 // JudgeStatus describes whether the judge pipeline itself completed successfully.
-type JudgeStatus int
+type JudgeStatus string
 
 // Judge status constants.
 const (
-	JudgeStatusOK           JudgeStatus = iota + 1 // all cases evaluated; check per-case verdicts for details
-	JudgeStatusCompileError                        // user code failed to compile
-	JudgeStatusSystemError                         // infrastructure failure prevented evaluation
+	JudgeStatusOK           JudgeStatus = "OK" // all cases evaluated; check per-case verdicts for details
+	JudgeStatusCompileError JudgeStatus = "CompileError"
+	JudgeStatusSystemError  JudgeStatus = "SystemError"
 )
 
 func (s JudgeStatus) String() string {
-	switch s {
-	case JudgeStatusOK:
-		return "OK"
-	case JudgeStatusCompileError:
-		return "CompileError"
-	case JudgeStatusSystemError:
-		return "SystemError"
-	default:
-		return unknownString
-	}
+	return stringOrUnknown(string(s))
 }
 
 // MarshalJSON implements json.Marshaler for JudgeStatus.
