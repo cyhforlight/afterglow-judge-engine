@@ -45,9 +45,11 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 			assert.Equal(t, []byte("int main() { return 0; }"), job.Files[0].Content)
 
 			return execution.Result{
-				ExitCode: 0,
-				Verdict:  execution.VerdictOK,
-				Stdout:   "build ok",
+				RawResult: execution.RawResult{
+					ExitCode: 0,
+					Verdict:  execution.VerdictOK,
+					Stdout:   "build ok",
+				},
 				Artifacts: map[string]execution.Artifact{
 					"program": {Data: []byte("binary"), Mode: 0o755},
 				},
@@ -95,13 +97,15 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 			assert.Equal(t, []byte("binary"), job.Files[0].Content)
 
 			return execution.Result{
-				ExitCode:  0,
-				Stdout:    "stdout",
-				Stderr:    "stderr",
-				CPUTimeMs: 12,
-				MemoryMB:  34,
-				Verdict:   execution.VerdictOK,
-				ExtraInfo: "details",
+				RawResult: execution.RawResult{
+					ExitCode:  0,
+					Stdout:    "stdout",
+					Stderr:    "stderr",
+					CPUTimeMs: 12,
+					MemoryMB:  34,
+					Verdict:   execution.VerdictOK,
+					ExtraInfo: "details",
+				},
 			}
 		},
 	}

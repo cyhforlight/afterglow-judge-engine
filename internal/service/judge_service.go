@@ -355,14 +355,14 @@ func (s *JudgeEngine) executeUserCode(
 	input string,
 	timeLimit int,
 	memoryLimit int,
-) (model.ExecuteResult, error) {
+) (RunResult, error) {
 	profile, err := ProfileForLanguage(lang)
 	if err != nil {
-		return model.ExecuteResult{}, fmt.Errorf("get language profile: %w", err)
+		return RunResult{}, fmt.Errorf("get language profile: %w", err)
 	}
 
 	if artifact == nil || len(artifact.Data) == 0 {
-		return model.ExecuteResult{}, errors.New("program artifact is required")
+		return RunResult{}, errors.New("program artifact is required")
 	}
 
 	containerPath := runMountDir + "/" + profile.Run.ArtifactName
@@ -384,10 +384,10 @@ func (s *JudgeEngine) executeUserCode(
 		},
 	})
 	if err != nil {
-		return model.ExecuteResult{}, err
+		return RunResult{}, err
 	}
 
-	return convertRunResult(normalizeUserRunResult(lang, runOut)), nil
+	return normalizeUserRunResult(lang, runOut), nil
 }
 
 func normalizeUserRunResult(lang model.Language, runOut RunResult) RunResult {
@@ -397,17 +397,6 @@ func normalizeUserRunResult(lang model.Language, runOut RunResult) RunResult {
 		runOut.Verdict = execution.VerdictMLE
 	}
 	return runOut
-}
-
-func convertRunResult(runOut RunResult) model.ExecuteResult {
-	return model.ExecuteResult{
-		Verdict:    convertVerdict(runOut.Verdict),
-		Stdout:     runOut.Stdout,
-		TimeUsed:   runOut.CPUTimeMs,
-		MemoryUsed: runOut.MemoryMB,
-		ExitCode:   runOut.ExitCode,
-		ExtraInfo:  runOut.ExtraInfo,
-	}
 }
 
 func convertVerdict(v execution.Verdict) model.Verdict {
@@ -523,8 +512,8 @@ func (s *JudgeEngine) runSingleCase(
 		}
 	}
 
-	if runResult.Verdict != model.VerdictOK {
-		return judgeCaseResultFromExecution(runResult, runResult.Verdict, runResult.ExtraInfo)
+	if runResult.Verdict != execution.VerdictOK {
+		return judgeCaseResultFromExecution(runResult, convertVerdict(runResult.Verdict), runResult.ExtraInfo)
 	}
 
 	checkerVerdict, checkerMessage, err := s.runChecker(ctx, checkerArtifact, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
@@ -581,14 +570,18 @@ func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeRes
 }
 
 func judgeCaseResultFromExecution(
-	runResult model.ExecuteResult,
+	runResult RunResult,
 	verdict model.Verdict,
 	extraInfo string,
 ) model.JudgeCaseResult {
-	result := model.JudgeCaseResult(runResult)
-	result.Verdict = verdict
-	result.ExtraInfo = extraInfo
-	return result
+	return model.JudgeCaseResult{
+		Verdict:    verdict,
+		Stdout:     runResult.Stdout,
+		TimeUsed:   runResult.CPUTimeMs,
+		MemoryUsed: runResult.MemoryMB,
+		ExitCode:   runResult.ExitCode,
+		ExtraInfo:  extraInfo,
+	}
 }
 
 // aggregateStatus returns the overall system-level status of a judge session.

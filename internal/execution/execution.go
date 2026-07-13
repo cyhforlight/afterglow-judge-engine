@@ -28,19 +28,16 @@ type Limits struct {
 }
 
 // Verdict classifies the raw execution outcome.
-type Verdict int
+type Verdict = sandbox.Verdict
 
 // Execution verdicts.
 const (
-	VerdictOK Verdict = iota
-	VerdictTLE
-	VerdictMLE
-	VerdictOLE
-	VerdictRE
+	VerdictOK  = sandbox.VerdictOK
+	VerdictTLE = sandbox.VerdictTLE
+	VerdictMLE = sandbox.VerdictMLE
+	VerdictOLE = sandbox.VerdictOLE
+	VerdictRE  = sandbox.VerdictRE
 )
-
-// VerdictUnknown represents an unexpected verdict from the sandbox backend.
-const VerdictUnknown Verdict = -1
 
 // Job describes a single command executed in a temporary workspace.
 type Job struct {
@@ -56,15 +53,12 @@ type Job struct {
 	Artifacts     []string
 }
 
+// RawResult contains the outcome reported by the sandbox.
+type RawResult = sandbox.ExecuteResult
+
 // Result contains the raw sandbox result and any collected artifacts.
 type Result struct {
-	ExitCode  int
-	Stdout    string
-	Stderr    string
-	CPUTimeMs int
-	MemoryMB  int
-	Verdict   Verdict
-	ExtraInfo string
+	RawResult
 	Artifacts map[string]Artifact
 }
 
@@ -138,15 +132,7 @@ func (e *executor) Execute(ctx context.Context, job Job) (Result, error) {
 		return Result{}, fmt.Errorf("sandbox execute: %w", err)
 	}
 
-	result := Result{
-		ExitCode:  sandboxResult.ExitCode,
-		Stdout:    sandboxResult.Stdout,
-		Stderr:    sandboxResult.Stderr,
-		CPUTimeMs: sandboxResult.CPUTimeMs,
-		MemoryMB:  sandboxResult.MemoryMB,
-		Verdict:   verdictFromSandbox(sandboxResult.Verdict),
-		ExtraInfo: sandboxResult.ExtraInfo,
-	}
+	result := Result{RawResult: sandboxResult}
 
 	if len(job.Artifacts) == 0 || result.ExitCode != 0 || result.Verdict != VerdictOK {
 		return result, nil
@@ -166,23 +152,6 @@ func sandboxLimits(limits Limits) sandbox.ResourceLimits {
 		WallTimeMs:  limits.WallTimeMs,
 		MemoryMB:    limits.MemoryMB,
 		OutputBytes: limits.OutputBytes,
-	}
-}
-
-func verdictFromSandbox(verdict sandbox.Verdict) Verdict {
-	switch verdict {
-	case sandbox.VerdictOK:
-		return VerdictOK
-	case sandbox.VerdictTLE:
-		return VerdictTLE
-	case sandbox.VerdictMLE:
-		return VerdictMLE
-	case sandbox.VerdictOLE:
-		return VerdictOLE
-	case sandbox.VerdictRE:
-		return VerdictRE
-	default:
-		return VerdictUnknown
 	}
 }
 

@@ -113,16 +113,6 @@ type CompiledArtifact struct {
 	Mode os.FileMode
 }
 
-// ExecuteResult contains the execution outcome and resource usage.
-type ExecuteResult struct {
-	Verdict    Verdict `json:"verdict"`
-	Stdout     string  `json:"stdout"`
-	TimeUsed   int     `json:"timeUsed"`   // CPU milliseconds
-	MemoryUsed int     `json:"memoryUsed"` // megabytes
-	ExitCode   int     `json:"exitCode"`
-	ExtraInfo  string  `json:"extraInfo"`
-}
-
 // JudgeTestCase represents a single test case for judging.
 type JudgeTestCase struct {
 	InputText          string `json:"inputText"`

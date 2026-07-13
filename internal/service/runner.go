@@ -24,15 +24,7 @@ type RunRequest struct {
 }
 
 // RunResult contains the raw execution outcome from the runner primitive.
-type RunResult struct {
-	ExitCode  int
-	Stdout    string
-	Stderr    string
-	CPUTimeMs int
-	MemoryMB  int
-	Verdict   execution.Verdict
-	ExtraInfo string
-}
+type RunResult = execution.RawResult
 
 // Runner executes generic commands inside a sandboxed container.
 type Runner interface {
@@ -87,13 +79,5 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 
-	return RunResult{
-		ExitCode:  result.ExitCode,
-		Stdout:    result.Stdout,
-		Stderr:    result.Stderr,
-		CPUTimeMs: result.CPUTimeMs,
-		MemoryMB:  result.MemoryMB,
-		Verdict:   result.Verdict,
-		ExtraInfo: result.ExtraInfo,
-	}, nil
+	return result.RawResult, nil
 }
