@@ -19,7 +19,6 @@ const (
 type Server struct {
 	httpServer *http.Server
 	logger     *slog.Logger
-	addr       string
 }
 
 // NewServer creates a new HTTP server.
@@ -48,14 +47,13 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 	return &Server{
 		httpServer: httpServer,
 		logger:     logger,
-		addr:       addr,
 	}
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled
 // or the underlying server exits with an error.
 func (s *Server) Run(ctx context.Context) error {
-	s.logger.Info("starting HTTP server", "addr", s.addr)
+	s.logger.Info("starting HTTP server", "addr", s.httpServer.Addr)
 
 	serveErrCh := make(chan error, 1)
 	go func() {
@@ -87,9 +85,4 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Info("HTTP server stopped")
 		return nil
 	}
-}
-
-// Addr returns the server's listening address.
-func (s *Server) Addr() string {
-	return s.addr
 }

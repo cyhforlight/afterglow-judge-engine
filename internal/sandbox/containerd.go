@@ -46,9 +46,6 @@ type executionEvent struct {
 type ContainerdSandbox struct {
 	socketPath string
 	namespace  string
-
-	checkCgroupV2   func() error
-	checkContainerd func(ctx context.Context, socketPath string) error
 }
 
 // NewContainerdSandbox creates a new containerd-based sandbox.
@@ -61,19 +58,17 @@ func NewContainerdSandbox(socketPath, namespace string) *ContainerdSandbox {
 	}
 
 	return &ContainerdSandbox{
-		socketPath:      socketPath,
-		namespace:       namespace,
-		checkCgroupV2:   ensureCgroupV2Enabled,
-		checkContainerd: ensureContainerdAvailable,
+		socketPath: socketPath,
+		namespace:  namespace,
 	}
 }
 
 // PreflightCheck verifies that cgroup v2 and containerd are available.
 func (s *ContainerdSandbox) PreflightCheck(ctx context.Context) error {
-	if err := s.checkCgroupV2(); err != nil {
+	if err := ensureCgroupV2Enabled(); err != nil {
 		return err
 	}
-	if err := s.checkContainerd(ctx, s.socketPath); err != nil {
+	if err := ensureContainerdAvailable(ctx, s.socketPath); err != nil {
 		return err
 	}
 	slog.DebugContext(ctx, "sandbox preflight checks passed")
