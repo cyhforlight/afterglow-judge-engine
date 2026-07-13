@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 )
 
 type e2eProblemSuite struct {
@@ -141,7 +142,7 @@ func requireE2EPrerequisites(t *testing.T) {
 }
 
 // testContainerSem limits concurrent container operations across all tests in this package.
-var testContainerSem = make(chan struct{}, 8)
+var testContainerSem = semaphore.NewWeighted(8)
 
 func projectRoot(t *testing.T) string {
 	t.Helper()

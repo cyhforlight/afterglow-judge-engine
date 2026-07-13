@@ -12,6 +12,8 @@ import (
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/workspace"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // JudgeService handles full judge orchestration.
@@ -28,7 +30,7 @@ type JudgeEngine struct {
 	runner          Runner
 	bundledFS       fs.FS
 	externalFS      fs.FS
-	concurrencySem  chan struct{}
+	concurrencySem  *semaphore.Weighted
 	limits          model.JudgeLimits
 }
 
@@ -52,7 +54,7 @@ func NewJudgeEngine(
 		runner:          runner,
 		bundledFS:       bundledFS,
 		externalFS:      externalFS,
-		concurrencySem:  make(chan struct{}, maxConcurrent),
+		concurrencySem:  semaphore.NewWeighted(int64(maxConcurrent)),
 		limits:          limits,
 	}
 }
@@ -128,17 +130,10 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		return failedBeforeRun(req.TestCases, err.Error())
 	}
 
-	// Acquire concurrency semaphore with context timeout
-	select {
-	case s.concurrencySem <- struct{}{}:
-		if ctx.Err() != nil {
-			<-s.concurrencySem
-			return failedBeforeRun(req.TestCases, "judge request cancelled or timed out while waiting for capacity")
-		}
-		defer func() { <-s.concurrencySem }()
-	case <-ctx.Done():
+	if err := s.concurrencySem.Acquire(ctx, 1); err != nil {
 		return failedBeforeRun(req.TestCases, "judge request cancelled or timed out while waiting for capacity")
 	}
+	defer s.concurrencySem.Release(1)
 
 	// Resolve checker before compilation so direct callers get early validation.
 	checkerLoc, err := ResolveChecker(req.Checker)

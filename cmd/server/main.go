@@ -16,6 +16,8 @@ import (
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/service"
 	"afterglow-judge-engine/internal/transport/httptransport"
+
+	"golang.org/x/sync/semaphore"
 )
 
 func main() {
@@ -79,7 +81,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	// 4. Create shared execution primitives.
-	containerSem := make(chan struct{}, cfg.MaxConcurrentContainers)
+	containerSem := semaphore.NewWeighted(int64(cfg.MaxConcurrentContainers))
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), containerSem)
 	compiler := service.NewCompiler(executor)
 	checkerCompiler, err := service.NewCachedCompiler(compiler, 64)

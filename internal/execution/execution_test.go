@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -190,7 +191,7 @@ func (e *blockingExecutor) Execute(_ context.Context, _ Job) (Result, error) {
 func TestThrottledExecutor_ConcurrencyLimit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const limit = 2
-		sem := make(chan struct{}, limit)
+		sem := semaphore.NewWeighted(limit)
 		inner := &blockingExecutor{unblock: make(chan struct{})}
 		throttled := NewThrottledExecutor(inner, sem)
 
@@ -206,8 +207,8 @@ func TestThrottledExecutor_ConcurrencyLimit(t *testing.T) {
 }
 
 func TestThrottledExecutor_ContextCancel(t *testing.T) {
-	sem := make(chan struct{}, 1)
-	sem <- struct{}{}
+	sem := semaphore.NewWeighted(1)
+	require.NoError(t, sem.Acquire(t.Context(), 1))
 	throttled := NewThrottledExecutor(&blockingExecutor{unblock: make(chan struct{})}, sem)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -218,7 +219,7 @@ func TestThrottledExecutor_ContextCancel(t *testing.T) {
 }
 
 func TestNewThrottledExecutor_RequiresSemaphore(t *testing.T) {
-	assert.PanicsWithValue(t, "semaphore channel is required: a nil channel blocks forever", func() {
+	assert.PanicsWithValue(t, "semaphore is required", func() {
 		NewThrottledExecutor(&blockingExecutor{unblock: make(chan struct{})}, nil)
 	})
 }

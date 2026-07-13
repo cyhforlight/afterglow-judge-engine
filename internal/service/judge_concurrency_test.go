@@ -115,10 +115,8 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 	})
 }
 
-// TestJudgeEngine_ConcurrencyRaceCondition verifies that canceled requests don't occupy slots.
-// This test specifically addresses the race condition where ctx.Done() and semaphore
-// become ready simultaneously, and select might choose the semaphore case.
-func TestJudgeEngine_ConcurrencyRaceCondition(t *testing.T) {
+// TestJudgeEngine_CanceledContextDoesNotAcquireCapacity verifies that canceled requests don't occupy slots.
+func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
 	runner := &fakeRunner{
 		runResult: RunResult{
 			Verdict:   execution.VerdictOK,

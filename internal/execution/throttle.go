@@ -1,16 +1,20 @@
 package execution
 
-import "context"
+import (
+	"context"
+
+	"golang.org/x/sync/semaphore"
+)
 
 type throttledExecutor struct {
 	inner Executor
-	sem   chan struct{}
+	sem   *semaphore.Weighted
 }
 
 // NewThrottledExecutor wraps inner with a shared concurrency semaphore.
-func NewThrottledExecutor(inner Executor, sem chan struct{}) Executor {
+func NewThrottledExecutor(inner Executor, sem *semaphore.Weighted) Executor {
 	if sem == nil {
-		panic("semaphore channel is required: a nil channel blocks forever")
+		panic("semaphore is required")
 	}
 	return &throttledExecutor{inner: inner, sem: sem}
 }
@@ -20,15 +24,10 @@ func (e *throttledExecutor) PreflightCheck(ctx context.Context) error {
 }
 
 func (e *throttledExecutor) Execute(ctx context.Context, job Job) (Result, error) {
-	select {
-	case e.sem <- struct{}{}:
-		if ctx.Err() != nil {
-			<-e.sem
-			return Result{}, ctx.Err()
-		}
-		defer func() { <-e.sem }()
-		return e.inner.Execute(ctx, job)
-	case <-ctx.Done():
-		return Result{}, ctx.Err()
+	if err := e.sem.Acquire(ctx, 1); err != nil {
+		return Result{}, err
 	}
+	defer e.sem.Release(1)
+
+	return e.inner.Execute(ctx, job)
 }

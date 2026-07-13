@@ -13,6 +13,7 @@ import (
 	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 )
 
 type serviceIntegrationEnv struct {
@@ -22,7 +23,7 @@ type serviceIntegrationEnv struct {
 }
 
 // testContainerSem limits concurrent container operations across all tests in this package.
-var testContainerSem = make(chan struct{}, 8)
+var testContainerSem = semaphore.NewWeighted(8)
 
 func requireServiceIntegrationTest(t *testing.T) {
 	t.Helper()
