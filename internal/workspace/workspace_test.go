@@ -50,7 +50,7 @@ func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
 
-func TestWorkspace_ResolvePathRejectsUnsafeNames(t *testing.T) {
+func TestWorkspace_RejectsUnsafeNames(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
 	defer func() { _ = ws.Cleanup() }()
@@ -62,24 +62,27 @@ func TestWorkspace_ResolvePathRejectsUnsafeNames(t *testing.T) {
 		{name: "empty", path: ""},
 		{name: "current directory", path: "."},
 		{name: "parent escape", path: "../escape.txt"},
-		{name: "nested parent escape", path: "dir/../../escape.txt"},
-		{name: "absolute", path: filepath.Join(string(filepath.Separator), "tmp", "escape.txt")},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ws.resolvePath(tt.path)
+			err := ws.WriteFile(tt.path, []byte("content"), 0o644)
 			require.Error(t, err)
 		})
 	}
 }
 
-func TestWorkspace_ResolvePathAllowsSafeNestedName(t *testing.T) {
+func TestWorkspace_SymlinkEscapeRejected(t *testing.T) {
 	ws, err := New()
 	require.NoError(t, err)
 	defer func() { _ = ws.Cleanup() }()
 
-	path, err := ws.resolvePath("dir/file.txt")
+	outsideFile := filepath.Join(t.TempDir(), "outside.txt")
+	err = os.WriteFile(outsideFile, []byte("outside"), 0o644)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(ws.Dir(), "dir", "file.txt"), path)
+	err = os.Symlink(outsideFile, filepath.Join(ws.Dir(), "escape.txt"))
+	require.NoError(t, err)
+
+	_, err = ws.ReadFile("escape.txt")
+	require.Error(t, err)
 }

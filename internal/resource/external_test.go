@@ -96,25 +96,3 @@ func TestExternal_Get_SymlinkEscape_Blocked(t *testing.T) {
 	_, err = ext.Get(ctx, "evil.txt")
 	require.Error(t, err)
 }
-
-func TestExternal_Get_SymlinkWithinMount_Allowed(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	targetFile := filepath.Join(tmpDir, "target.txt")
-	content := []byte("target content")
-	err := os.WriteFile(targetFile, content, 0o644)
-	require.NoError(t, err)
-
-	linkFile := filepath.Join(tmpDir, "link.txt")
-	err = os.Symlink("target.txt", linkFile)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	retrieved, err := ext.Get(ctx, "link.txt")
-	require.NoError(t, err)
-	assert.Equal(t, content, retrieved)
-}

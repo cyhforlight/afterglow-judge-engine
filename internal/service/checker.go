@@ -4,10 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
-
-	"afterglow-judge-engine/internal/resource"
 )
 
 const (
@@ -81,9 +80,16 @@ func validateCheckerShortName(name string) error {
 }
 
 func validateExternalCheckerPath(checkerPath string) (string, error) {
-	normalizedPath, err := resource.NormalizeKey(checkerPath)
-	if err != nil {
-		return "", fmt.Errorf("invalid external checker path: %w", err)
+	if strings.TrimSpace(checkerPath) == "" {
+		return "", errors.New("external checker path is required")
+	}
+
+	normalizedPath := filepath.Clean(checkerPath)
+	if normalizedPath == "." {
+		return "", errors.New("external checker path is required")
+	}
+	if !filepath.IsLocal(normalizedPath) {
+		return "", fmt.Errorf("external checker path escapes resource root: %q", checkerPath)
 	}
 	if !strings.HasSuffix(normalizedPath, ".cpp") {
 		return "", fmt.Errorf("external checker must be a .cpp file: %q", checkerPath)

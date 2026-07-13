@@ -64,9 +64,9 @@ func TestResolveChecker_External(t *testing.T) {
 			input:    "external:a/../b/checker.cpp",
 			wantPath: "b/checker.cpp",
 		},
-		{name: "path traversal rejected", input: "external:../etc/passwd", wantErr: "resource key escapes base directory"},
+		{name: "path traversal rejected", input: "external:../etc/passwd", wantErr: "escapes resource root"},
 		{name: "non-cpp rejected", input: "external:script.sh", wantErr: "must be a .cpp file"},
-		{name: "empty path", input: "external:", wantErr: "resource key is required"},
+		{name: "empty path", input: "external:", wantErr: "external checker path is required"},
 	}
 
 	for _, tt := range tests {

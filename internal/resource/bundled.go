@@ -7,9 +7,6 @@ import (
 	"errors"
 	"fmt"
 	iofs "io/fs"
-	"path"
-	"path/filepath"
-	"strings"
 
 	rootassets "afterglow-judge-engine"
 )
@@ -58,24 +55,4 @@ func (b *Bundled) Stat(_ context.Context, key string) error {
 	}
 
 	return nil
-}
-
-// NormalizeKey validates and normalizes a resource key.
-func NormalizeKey(key string) (string, error) {
-	if strings.TrimSpace(key) == "" {
-		return "", errors.New("resource key is required")
-	}
-	if filepath.IsAbs(key) {
-		return "", fmt.Errorf("resource key must be relative: %q", key)
-	}
-
-	normalizedKey := path.Clean(filepath.ToSlash(key))
-	if normalizedKey == "." {
-		return "", errors.New("resource key is required")
-	}
-	if normalizedKey == ".." || strings.HasPrefix(normalizedKey, "../") {
-		return "", fmt.Errorf("resource key escapes base directory: %q", key)
-	}
-
-	return normalizedKey, nil
 }
