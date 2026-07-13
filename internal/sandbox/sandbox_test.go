@@ -5,6 +5,7 @@ import (
 	"errors"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
@@ -185,74 +186,63 @@ func TestResolveCwd(t *testing.T) {
 }
 
 func TestWatchExecution_CancellationStopsTask(t *testing.T) {
-	baseCtx := namespaces.WithNamespace(context.Background(), "test-namespace")
-	ctx, cancel := context.WithCancel(baseCtx)
-	started := make(chan struct{})
-	exitCh := make(chan containerd.ExitStatus, 1)
+	synctest.Test(t, func(t *testing.T) {
+		baseCtx := namespaces.WithNamespace(t.Context(), "test-namespace")
+		ctx, cancel := context.WithCancel(baseCtx)
+		defer cancel()
+		exitCh := make(chan containerd.ExitStatus, 1)
 
-	var killContextErr error
-	var killNamespace string
-	var killAll bool
-	var killSignal syscall.Signal
-	var killOptErr error
-	task := &fakeTaskController{
-		start: func(context.Context) error {
-			close(started)
-			return nil
-		},
-		kill: func(killCtx context.Context, signal syscall.Signal, opts ...containerd.KillOpts) error {
-			killContextErr = killCtx.Err()
-			killNamespace, _ = namespaces.Namespace(killCtx)
-			killSignal = signal
+		var killContextErr error
+		var killNamespace string
+		var killAll bool
+		var killSignal syscall.Signal
+		var killOptErr error
+		task := &fakeTaskController{
+			kill: func(killCtx context.Context, signal syscall.Signal, opts ...containerd.KillOpts) error {
+				killContextErr = killCtx.Err()
+				killNamespace, _ = namespaces.Namespace(killCtx)
+				killSignal = signal
 
-			var info containerd.KillInfo
-			for _, opt := range opts {
-				if err := opt(killCtx, &info); err != nil {
-					killOptErr = err
-					return err
+				var info containerd.KillInfo
+				for _, opt := range opts {
+					if err := opt(killCtx, &info); err != nil {
+						killOptErr = err
+						return err
+					}
 				}
-			}
-			killAll = info.All
-			exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
-			return nil
-		},
-	}
+				killAll = info.All
+				exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
+				return nil
+			},
+		}
 
-	type executionOutcome struct {
-		result ExecuteResult
-		err    error
-	}
-	outcomeCh := make(chan executionOutcome, 1)
-	go func() {
-		limiter := newOutputLimiter(1024)
-		result, err := (&ContainerdSandbox{}).watchExecution(
-			ctx,
-			task,
-			exitCh,
-			newLimitedWriter(limiter),
-			newLimitedWriter(limiter),
-			limiter,
-			standardLimits(),
-		)
-		outcomeCh <- executionOutcome{result: result, err: err}
-	}()
+		var result ExecuteResult
+		var watchErr error
+		go func() {
+			limiter := newOutputLimiter(1024)
+			result, watchErr = (&ContainerdSandbox{}).watchExecution(
+				ctx,
+				task,
+				exitCh,
+				newLimitedWriter(limiter),
+				newLimitedWriter(limiter),
+				limiter,
+				standardLimits(),
+			)
+		}()
 
-	<-started
-	cancel()
+		synctest.Wait()
+		cancel()
+		synctest.Wait()
 
-	select {
-	case outcome := <-outcomeCh:
-		assert.Equal(t, ExecuteResult{}, outcome.result)
-		require.ErrorIs(t, outcome.err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("watchExecution did not return after cancellation")
-	}
-
-	require.NoError(t, killContextErr)
-	assert.Equal(t, "test-namespace", killNamespace)
-	assert.Equal(t, syscall.SIGKILL, killSignal)
-	require.NoError(t, killOptErr)
-	assert.True(t, killAll)
+		assert.Equal(t, ExecuteResult{}, result)
+		require.ErrorIs(t, watchErr, context.Canceled)
+		require.NoError(t, killContextErr)
+		assert.Equal(t, "test-namespace", killNamespace)
+		assert.Equal(t, syscall.SIGKILL, killSignal)
+		require.NoError(t, killOptErr)
+		assert.True(t, killAll)
+	})
 }
 
 func TestWatchExecution_NaturalExitReturnsMetricsError(t *testing.T) {
@@ -377,53 +367,27 @@ func TestWatchExecution_CPUMetricsFailureStopsTask(t *testing.T) {
 }
 
 func TestStopTask_WaitIsBounded(t *testing.T) {
-	baseCtx := namespaces.WithNamespace(context.Background(), "test-namespace")
-	ctx, cancel := context.WithCancel(baseCtx)
-	cancel()
+	synctest.Test(t, func(t *testing.T) {
+		baseCtx := namespaces.WithNamespace(t.Context(), "test-namespace")
+		ctx, cancel := context.WithCancel(baseCtx)
+		cancel()
 
-	var killContextErr error
-	var killNamespace string
-	task := &fakeTaskController{
-		kill: func(killCtx context.Context, _ syscall.Signal, _ ...containerd.KillOpts) error {
-			killContextErr = killCtx.Err()
-			killNamespace, _ = namespaces.Namespace(killCtx)
-			return nil
-		},
-	}
-
-	err := stopTask(ctx, task, make(chan containerd.ExitStatus), 10*time.Millisecond)
-
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.NoError(t, killContextErr)
-	assert.Equal(t, "test-namespace", killNamespace)
-}
-
-func TestRunCleanupActions_UsesIndependentContextInReverseOrder(t *testing.T) {
-	baseCtx := namespaces.WithNamespace(context.Background(), "test-namespace")
-	ctx, cancel := context.WithCancel(baseCtx)
-	cancel()
-
-	var order []string
-	contextsActive := true
-	namespacesPreserved := true
-	action := func(name string) cleanupAction {
-		return cleanupAction{
-			resource: name,
-			run: func(cleanupCtx context.Context) error {
-				order = append(order, name)
-				contextsActive = contextsActive && cleanupCtx.Err() == nil
-				namespace, ok := namespaces.Namespace(cleanupCtx)
-				namespacesPreserved = namespacesPreserved && ok && namespace == "test-namespace"
+		var killContextErr error
+		var killNamespace string
+		task := &fakeTaskController{
+			kill: func(killCtx context.Context, _ syscall.Signal, _ ...containerd.KillOpts) error {
+				killContextErr = killCtx.Err()
+				killNamespace, _ = namespaces.Namespace(killCtx)
 				return nil
 			},
 		}
-	}
 
-	runCleanupActions(ctx, []cleanupAction{action("container"), action("task")})
+		err := stopTask(ctx, task, make(chan containerd.ExitStatus), 10*time.Millisecond)
 
-	assert.Equal(t, []string{"task", "container"}, order)
-	assert.True(t, contextsActive)
-	assert.True(t, namespacesPreserved)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.NoError(t, killContextErr)
+		assert.Equal(t, "test-namespace", killNamespace)
+	})
 }
 
 func stringPtr(val string) *string {

@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/model"
@@ -64,39 +64,38 @@ func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
 }
 
 func TestCachedCompiler_Singleflight(t *testing.T) {
-	c, err := cache.New[CompileOutput](16)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		c, err := cache.New[CompileOutput](16)
+		require.NoError(t, err)
 
-	var compileCount atomic.Int32
-	// slowCompiler blocks until released, letting us verify singleflight.
-	release := make(chan struct{})
-	inner := &gatedCompiler{
-		release:      release,
-		compileCount: &compileCount,
-		result:       model.CompileResult{Succeeded: true},
-		artifact:     testCompiledArtifact(),
-	}
-	cc := NewCachedCompiler(inner, c)
+		var compileCount atomic.Int32
+		release := make(chan struct{})
+		inner := &gatedCompiler{
+			release:      release,
+			compileCount: &compileCount,
+			result:       model.CompileResult{Succeeded: true},
+			artifact:     testCompiledArtifact(),
+		}
+		cc := NewCachedCompiler(inner, c)
 
-	req := testCompileRequest("concurrent")
-	const goroutines = 5
-	var wg sync.WaitGroup
-	errs := make([]error, goroutines)
-	for i := range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, errs[i] = cc.Compile(context.Background(), req)
-		}()
-	}
+		req := testCompileRequest("concurrent")
+		const goroutines = 5
+		errs := make([]error, goroutines)
+		for i := range goroutines {
+			go func() {
+				_, errs[i] = cc.Compile(t.Context(), req)
+			}()
+		}
 
-	close(release)
-	wg.Wait()
+		synctest.Wait()
+		close(release)
+		synctest.Wait()
 
-	for i, e := range errs {
-		require.NoError(t, e, "goroutine %d", i)
-	}
-	assert.Equal(t, int32(1), compileCount.Load(), "singleflight should coalesce to 1 compile")
+		for i, err := range errs {
+			require.NoError(t, err, "goroutine %d", i)
+		}
+		assert.Equal(t, int32(1), compileCount.Load(), "singleflight should coalesce to 1 compile")
+	})
 }
 
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {

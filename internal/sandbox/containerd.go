@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"slices"
 	"syscall"
 	"time"
 
@@ -33,11 +32,6 @@ type taskController interface {
 	Start(context.Context) error
 	CloseIO(context.Context, ...containerd.IOCloserOpts) error
 	Kill(context.Context, syscall.Signal, ...containerd.KillOpts) error
-}
-
-type cleanupAction struct {
-	resource string
-	run      func(context.Context) error
 }
 
 type executionEvent struct {
@@ -146,9 +140,6 @@ func (s *ContainerdSandbox) executeInContainer(
 	image containerd.Image,
 	req ExecuteRequest,
 ) (ExecuteResult, error) {
-	var cleanups []cleanupAction
-	defer func() { runCleanupActions(ctx, cleanups) }()
-
 	containerID := generateContainerID()
 	requestSpecOpts, err := sandboxSpecOpts(req)
 	if err != nil {
@@ -170,11 +161,8 @@ func (s *ContainerdSandbox) executeInContainer(
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("create container: %w", err)
 	}
-	cleanups = append(cleanups, cleanupAction{
-		resource: "container and snapshot",
-		run: func(cleanupCtx context.Context) error {
-			return container.Delete(cleanupCtx, containerd.WithSnapshotCleanup)
-		},
+	defer cleanupResource(ctx, "container and snapshot", func(cleanupCtx context.Context) error {
+		return container.Delete(cleanupCtx, containerd.WithSnapshotCleanup)
 	})
 
 	slog.DebugContext(ctx, "container created", "id", containerID, "image", req.ImageRef)
@@ -194,12 +182,9 @@ func (s *ContainerdSandbox) executeInContainer(
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("create task: %w", err)
 	}
-	cleanups = append(cleanups, cleanupAction{
-		resource: "task",
-		run: func(cleanupCtx context.Context) error {
-			_, err := task.Delete(cleanupCtx, containerd.WithProcessKill)
-			return err
-		},
+	defer cleanupResource(ctx, "task", func(cleanupCtx context.Context) error {
+		_, err := task.Delete(cleanupCtx, containerd.WithProcessKill)
+		return err
 	})
 
 	waitCtx, cancelWait := context.WithCancel(context.WithoutCancel(ctx))
@@ -213,15 +198,13 @@ func (s *ContainerdSandbox) executeInContainer(
 	return s.watchExecution(ctx, task, exitCh, stdoutLW, stderrLW, oleLimiter, req.Limits)
 }
 
-func runCleanupActions(ctx context.Context, actions []cleanupAction) {
+func cleanupResource(ctx context.Context, resource string, cleanup func(context.Context) error) {
 	logCtx := context.WithoutCancel(ctx)
-	for _, action := range slices.Backward(actions) {
-		cleanupCtx, cancel := context.WithTimeout(logCtx, lifecycleOperationTimeout)
-		err := action.run(cleanupCtx)
-		cancel()
-		if err != nil && !errdefs.IsNotFound(err) {
-			slog.WarnContext(logCtx, "sandbox cleanup failed", "resource", action.resource, "error", err)
-		}
+	cleanupCtx, cancel := context.WithTimeout(logCtx, lifecycleOperationTimeout)
+	defer cancel()
+
+	if err := cleanup(cleanupCtx); err != nil && !errdefs.IsNotFound(err) {
+		slog.WarnContext(logCtx, "sandbox cleanup failed", "resource", resource, "error", err)
 	}
 }
 

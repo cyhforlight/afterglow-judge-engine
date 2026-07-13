@@ -14,7 +14,7 @@ const (
 func requireSandboxIntegrationTest(t *testing.T) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
 	sb := NewContainerdSandbox("", "")
@@ -26,7 +26,7 @@ func requireSandboxIntegrationTest(t *testing.T) {
 func newSandboxTestContext(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	return ctx
 }

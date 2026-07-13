@@ -201,9 +201,7 @@ func (s *JudgeEngine) runAllCases(
 
 	var wg sync.WaitGroup
 	for i, tc := range req.TestCases {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := s.loadTestCaseData(ctx, &tc); err != nil {
 				slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
 				results[i] = model.JudgeCaseResult{
@@ -213,7 +211,7 @@ func (s *JudgeEngine) runAllCases(
 				return
 			}
 			results[i] = s.runSingleCase(ctx, req, userArtifact, checkerArtifact, tc, i)
-		}()
+		})
 	}
 	wg.Wait()
 

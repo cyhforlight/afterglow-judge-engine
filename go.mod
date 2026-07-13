@@ -1,6 +1,6 @@
 module afterglow-judge-engine
 
-go 1.24.3
+go 1.25.0
 
 require (
 	github.com/containerd/cgroups/v3 v3.1.2

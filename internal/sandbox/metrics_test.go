@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"testing/synctest"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/containerd/containerd/api/types"
@@ -102,9 +103,11 @@ func TestParseCgroupMetrics_ReturnsMalformedDataError(t *testing.T) {
 }
 
 func TestCollectMetrics_TimesOut(t *testing.T) {
-	_, err := collectMetrics(context.Background(), blockingMetricsReader{})
+	synctest.Test(t, func(t *testing.T) {
+		_, err := collectMetrics(t.Context(), blockingMetricsReader{})
 
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	})
 }
 
 func TestUint64ToInt_SaturatesOverflow(t *testing.T) {

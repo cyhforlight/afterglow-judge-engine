@@ -2,10 +2,10 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 // External provides read-only access to external files.
@@ -32,15 +32,15 @@ func NewExternal(mountPoint string) (*External, error) {
 // Get retrieves file content by relative path.
 // The path is relative to the mount point (e.g., "testdata/input.txt").
 func (e *External) Get(_ context.Context, relPath string) ([]byte, error) {
-	resolvedPath, err := e.resolveRegularFilePath(relPath)
+	file, err := e.openRegularFile(relPath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Let the operating system page cache handle repeated reads.
-	data, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
+	data, readErr := io.ReadAll(file)
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return nil, fmt.Errorf("read external resource %q: %w", relPath, err)
 	}
 
 	return data, nil
@@ -48,46 +48,26 @@ func (e *External) Get(_ context.Context, relPath string) ([]byte, error) {
 
 // Stat verifies that a relative path resolves to an accessible regular file inside the mount.
 func (e *External) Stat(_ context.Context, relPath string) error {
-	_, err := e.resolveRegularFilePath(relPath)
-	return err
+	file, err := e.openRegularFile(relPath)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
-func (e *External) resolveRegularFilePath(relPath string) (string, error) {
-	// Normalize and validate path (prevent path traversal)
-	normalized, err := NormalizeKey(relPath)
+func (e *External) openRegularFile(relPath string) (*os.File, error) {
+	file, err := os.OpenInRoot(e.mountPoint, relPath)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("open external resource %q: %w", relPath, err)
 	}
 
-	// Build full path
-	fullPath := filepath.Join(e.mountPoint, normalized)
-
-	// Resolve symlinks to prevent mount escape
-	resolvedPath, err := filepath.EvalSymlinks(fullPath)
+	fileInfo, err := file.Stat()
 	if err != nil {
-		return "", fmt.Errorf("resolve symlink: %w", err)
-	}
-
-	// Resolve mount point symlinks
-	resolvedMount, err := filepath.EvalSymlinks(e.mountPoint)
-	if err != nil {
-		return "", fmt.Errorf("resolve mount point: %w", err)
-	}
-
-	// Verify resolved path is still within mount point
-	relResolved, err := filepath.Rel(resolvedMount, resolvedPath)
-	if err != nil || relResolved == ".." || strings.HasPrefix(relResolved, "../") {
-		return "", fmt.Errorf("symlink escapes mount point: %s", relPath)
-	}
-
-	// Validate that the resolved path points to a regular file inside the mount.
-	fileInfo, err := os.Stat(resolvedPath)
-	if err != nil {
-		return "", fmt.Errorf("file not found: %w", err)
+		return nil, errors.Join(fmt.Errorf("stat external resource %q: %w", relPath, err), file.Close())
 	}
 	if !fileInfo.Mode().IsRegular() {
-		return "", fmt.Errorf("external resource must be a regular file: %s", relPath)
+		return nil, errors.Join(fmt.Errorf("external resource must be a regular file: %s", relPath), file.Close())
 	}
 
-	return resolvedPath, nil
+	return file, nil
 }

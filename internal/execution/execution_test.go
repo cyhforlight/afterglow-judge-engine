@@ -7,10 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"afterglow-judge-engine/internal/sandbox"
 	"afterglow-judge-engine/internal/workspace"
@@ -181,44 +180,34 @@ func TestExecutor_ValidateJob(t *testing.T) {
 type blockingExecutor struct {
 	unblock    chan struct{}
 	concurrent atomic.Int32
-	peak       atomic.Int32
 }
 
 func (e *blockingExecutor) PreflightCheck(_ context.Context) error { return nil }
 
 func (e *blockingExecutor) Execute(_ context.Context, _ Job) (Result, error) {
-	cur := e.concurrent.Add(1)
-	for {
-		old := e.peak.Load()
-		if cur <= old || e.peak.CompareAndSwap(old, cur) {
-			break
-		}
-	}
+	e.concurrent.Add(1)
+	defer e.concurrent.Add(-1)
+
 	<-e.unblock
-	e.concurrent.Add(-1)
 	return Result{}, nil
 }
 
 func TestThrottledExecutor_ConcurrencyLimit(t *testing.T) {
-	const limit = 2
-	sem := make(chan struct{}, limit)
-	inner := &blockingExecutor{unblock: make(chan struct{})}
-	throttled := NewThrottledExecutor(inner, sem)
+	synctest.Test(t, func(t *testing.T) {
+		const limit = 2
+		sem := make(chan struct{}, limit)
+		inner := &blockingExecutor{unblock: make(chan struct{})}
+		throttled := NewThrottledExecutor(inner, sem)
 
-	var wg sync.WaitGroup
-	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, _ = throttled.Execute(context.Background(), Job{})
-		}()
-	}
+		for range 5 {
+			go throttled.Execute(t.Context(), Job{})
+		}
 
-	time.Sleep(50 * time.Millisecond)
-	assert.LessOrEqual(t, inner.peak.Load(), int32(limit))
+		synctest.Wait()
+		assert.Equal(t, int32(limit), inner.concurrent.Load())
 
-	close(inner.unblock)
-	wg.Wait()
+		close(inner.unblock)
+	})
 }
 
 func TestThrottledExecutor_ContextCancel(t *testing.T) {

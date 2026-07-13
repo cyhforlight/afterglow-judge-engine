@@ -26,16 +26,27 @@ type serviceIntegrationEnv struct {
 // testContainerSem limits concurrent container operations across all tests in this package.
 var testContainerSem = make(chan struct{}, 8)
 
-var (
-	projectRootOnce   sync.Once
-	cachedProjectRoot string
-	errProjectRoot    error
-)
+var findProjectRoot = sync.OnceValues(func() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+
+		if filepath.Dir(dir) == dir {
+			return "", os.ErrNotExist
+		}
+	}
+})
 
 func requireServiceIntegrationTest(t *testing.T) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
 	sb := sandbox.NewContainerdSandbox("", "")
@@ -47,37 +58,15 @@ func requireServiceIntegrationTest(t *testing.T) {
 func projectRoot(t *testing.T) string {
 	t.Helper()
 
-	projectRootOnce.Do(func() {
-		wd, err := os.Getwd()
-		if err != nil {
-			errProjectRoot = err
-			return
-		}
-
-		dir := wd
-		for {
-			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-				cachedProjectRoot = dir
-				return
-			}
-
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				errProjectRoot = os.ErrNotExist
-				return
-			}
-			dir = parent
-		}
-	})
-
-	require.NoError(t, errProjectRoot, "failed to locate project root from current working directory")
-	return cachedProjectRoot
+	root, err := findProjectRoot()
+	require.NoError(t, err, "failed to locate project root from current working directory")
+	return root
 }
 
 func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	return ctx
 }

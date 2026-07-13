@@ -38,8 +38,12 @@ func main() {
 
 	server := httptransport.NewServer(cfg, judgeService, logger)
 
-	if err := runServer(server, logger); err != nil {
-		logger.Error("server error", "error", err)
+	serverCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	serverErr := server.Run(serverCtx)
+	stop()
+
+	if serverErr != nil {
+		logger.Error("server error", "error", serverErr)
 		os.Exit(1)
 	}
 
@@ -105,28 +109,4 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	return judge, nil
-}
-
-func runServer(server *httptransport.Server, logger *slog.Logger) error {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-
-	serverCtx, serverCancel := context.WithCancel(context.Background())
-	defer serverCancel()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- server.Run(serverCtx)
-	}()
-
-	select {
-	case sig := <-sigChan:
-		logger.Info("received signal", "signal", sig)
-		serverCancel()
-		return <-errChan
-
-	case err := <-errChan:
-		return err
-	}
 }
