@@ -49,7 +49,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			t.Parallel()
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 
-			testcaseDir := testdataPath(t, "ok-and-checker-cases", testcaseName)
+			testcaseDir := testdataPath("ok-and-checker-cases", testcaseName)
 			sourcePath, lang := findSourceFile(t, testcaseDir)
 			sourceCode := readTestdata(t, "ok-and-checker-cases", testcaseName, filepath.Base(sourcePath))
 
@@ -62,12 +62,9 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			runOut := runUserProgram(t, env, artifact, lang, inputData, 2000, 256)
 			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
-			checker := compileCheckerForTest(env.ctx, t, tc.checker, testdataPath(t, "ok-and-checker-cases"))
-			verdict, message := runCheckerForTest(env.ctx, t, checker, inputData, runOut.Stdout, expectedOutput)
-
-			assert.Equal(t, tc.want, verdict,
-				"testcase-%d: expected %v, got %v (message: %s)",
-				tc.num, tc.want, verdict, message)
+			checker := compileCheckerForTest(env.ctx, t, tc.checker, testdataPath("ok-and-checker-cases"))
+			verdict, _ := runCheckerForTest(env.ctx, t, checker, inputData, runOut.Stdout, expectedOutput)
+			assert.Equal(t, tc.want, verdict)
 		})
 	}
 }

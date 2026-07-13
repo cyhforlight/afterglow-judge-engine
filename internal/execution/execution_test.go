@@ -30,15 +30,14 @@ const (
 )
 
 type fakeSandbox struct {
-	executeFunc func(t *testing.T, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error)
-	t           *testing.T
+	executeFunc func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error)
 }
 
 func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 	if s.executeFunc == nil {
 		return sandbox.ExecuteResult{}, nil
 	}
-	return s.executeFunc(s.t, req)
+	return s.executeFunc(req)
 }
 
 func (s *fakeSandbox) PreflightCheck(_ context.Context) error {
@@ -47,8 +46,7 @@ func (s *fakeSandbox) PreflightCheck(_ context.Context) error {
 
 func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 	sb := &fakeSandbox{
-		t: t,
-		executeFunc: func(t *testing.T, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+		executeFunc: func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 
 			assertCompileSandboxRequest(t, req)
@@ -83,8 +81,7 @@ func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 
 func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 	sb := &fakeSandbox{
-		t: t,
-		executeFunc: func(t *testing.T, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+		executeFunc: func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 
 			require.NotNil(t, req.MountDir)
@@ -129,8 +126,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 
 func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
 	exec := NewExecutor(&fakeSandbox{
-		t: t,
-		executeFunc: func(t *testing.T, _ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+		executeFunc: func(_ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 			return sandbox.ExecuteResult{ExitCode: 0, Verdict: sandbox.VerdictOK}, nil
 		},
@@ -143,8 +139,7 @@ func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
 
 func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
 	exec := NewExecutor(&fakeSandbox{
-		t: t,
-		executeFunc: func(t *testing.T, _ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+		executeFunc: func(_ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 			return sandbox.ExecuteResult{}, errors.New("boom")
 		},

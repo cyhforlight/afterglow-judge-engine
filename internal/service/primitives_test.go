@@ -13,15 +13,14 @@ import (
 
 type fakeExecutor struct {
 	preflightErr error
-	executeFunc  func(t *testing.T, job execution.Job) execution.Result
-	t            *testing.T
+	executeFunc  func(job execution.Job) execution.Result
 }
 
 func (e *fakeExecutor) Execute(_ context.Context, job execution.Job) (execution.Result, error) {
 	if e.executeFunc == nil {
 		return execution.Result{}, nil
 	}
-	return e.executeFunc(e.t, job), nil
+	return e.executeFunc(job), nil
 }
 
 func (e *fakeExecutor) PreflightCheck(_ context.Context) error {
@@ -30,8 +29,7 @@ func (e *fakeExecutor) PreflightCheck(_ context.Context) error {
 
 func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 	exec := &fakeExecutor{
-		t: t,
-		executeFunc: func(t *testing.T, job execution.Job) execution.Result {
+		executeFunc: func(job execution.Job) execution.Result {
 			t.Helper()
 
 			assert.Equal(t, "compiler-image", job.ImageRef)
@@ -82,8 +80,7 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 
 func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 	exec := &fakeExecutor{
-		t: t,
-		executeFunc: func(t *testing.T, job execution.Job) execution.Result {
+		executeFunc: func(job execution.Job) execution.Result {
 			t.Helper()
 
 			assert.Equal(t, "runtime-image", job.ImageRef)

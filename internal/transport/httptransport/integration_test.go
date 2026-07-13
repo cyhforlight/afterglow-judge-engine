@@ -16,7 +16,6 @@ import (
 
 func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 	cfg := integrationTestConfig()
-	cfg.HTTPPort = 8080
 	cfg.APIKey = "secret-token"
 
 	server := NewServer(cfg, &mockJudgeService{}, slog.Default())

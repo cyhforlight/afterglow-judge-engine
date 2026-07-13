@@ -4,8 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -26,23 +24,6 @@ type serviceIntegrationEnv struct {
 // testContainerSem limits concurrent container operations across all tests in this package.
 var testContainerSem = make(chan struct{}, 8)
 
-var findProjectRoot = sync.OnceValues(func() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	for dir := wd; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-
-		if filepath.Dir(dir) == dir {
-			return "", os.ErrNotExist
-		}
-	}
-})
-
 func requireServiceIntegrationTest(t *testing.T) {
 	t.Helper()
 
@@ -55,30 +36,12 @@ func requireServiceIntegrationTest(t *testing.T) {
 	}
 }
 
-func projectRoot(t *testing.T) string {
-	t.Helper()
-
-	root, err := findProjectRoot()
-	require.NoError(t, err, "failed to locate project root from current working directory")
-	return root
-}
-
 func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	return ctx
-}
-
-func newCompilerForTest(t *testing.T) Compiler {
-	t.Helper()
-	return NewCompiler(newExecutorForTest(t))
-}
-
-func newRunnerForTest(t *testing.T) Runner {
-	t.Helper()
-	return NewRunner(newExecutorForTest(t))
 }
 
 func newExecutorForTest(t *testing.T) execution.Executor {
@@ -92,8 +55,8 @@ func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegr
 
 	return serviceIntegrationEnv{
 		ctx:      newIntegrationContext(t, timeout),
-		compiler: newCompilerForTest(t),
-		runner:   newRunnerForTest(t),
+		compiler: NewCompiler(newExecutorForTest(t)),
+		runner:   NewRunner(newExecutorForTest(t)),
 	}
 }
 
@@ -125,53 +88,36 @@ func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language
 	return out.Artifact, out.Result
 }
 
-// testdataPath constructs absolute path to testdata files.
-func testdataPath(t *testing.T, elems ...string) string {
-	t.Helper()
-
-	parts := append([]string{projectRoot(t), "testdata"}, elems...)
+func testdataPath(elems ...string) string {
+	parts := append([]string{"..", "..", "testdata"}, elems...)
 	return filepath.Join(parts...)
 }
 
-// readTestdata reads testdata file content.
 func readTestdata(t *testing.T, elems ...string) string {
 	t.Helper()
 
-	content, err := os.ReadFile(testdataPath(t, elems...))
+	content, err := os.ReadFile(testdataPath(elems...))
 	require.NoError(t, err)
 	return string(content)
 }
 
-// detectLanguageFromFile detects language from file extension.
-func detectLanguageFromFile(filename string) model.Language {
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".c":
-		return model.LanguageC
-	case ".cpp":
-		return model.LanguageCPP
-	case ".java":
-		return model.LanguageJava
-	case ".py":
-		return model.LanguagePython
-	default:
-		return 0
-	}
-}
-
-// findSourceFile locates source file in testcase directory.
 func findSourceFile(t *testing.T, testcaseDir string) (string, model.Language) {
 	t.Helper()
 
-	// Try common source file names
-	candidates := []string{"main.c", "main.cpp", "main.py", "Main.java"}
+	candidates := []struct {
+		name     string
+		language model.Language
+	}{
+		{name: "main.c", language: model.LanguageC},
+		{name: "main.cpp", language: model.LanguageCPP},
+		{name: "main.py", language: model.LanguagePython},
+		{name: "Main.java", language: model.LanguageJava},
+	}
 
 	for _, candidate := range candidates {
-		path := filepath.Join(testcaseDir, candidate)
+		path := filepath.Join(testcaseDir, candidate.name)
 		if _, err := os.Stat(path); err == nil {
-			lang := detectLanguageFromFile(candidate)
-			require.NotEmpty(t, lang, "failed to detect language for %s", candidate)
-			return path, lang
+			return path, candidate.language
 		}
 	}
 

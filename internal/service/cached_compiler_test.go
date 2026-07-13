@@ -92,8 +92,7 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 }
 
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {
-	var calls atomic.Int32
-	inner := &countingErrCompiler{calls: &calls, err: errors.New("infra error")}
+	inner := &fakeCompiler{err: errors.New("infra error")}
 	cc, err := NewCachedCompiler(inner, 16)
 	require.NoError(t, err)
 
@@ -101,21 +100,9 @@ func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 	_, err = cc.Compile(context.Background(), req)
 	require.Error(t, err)
 
-	// Second call should also hit inner (error not cached).
 	_, err = cc.Compile(context.Background(), req)
 	require.Error(t, err)
-	assert.Equal(t, int32(2), calls.Load())
-}
-
-// countingErrCompiler always returns an error and counts calls.
-type countingErrCompiler struct {
-	calls *atomic.Int32
-	err   error
-}
-
-func (c *countingErrCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
-	c.calls.Add(1)
-	return CompileOutput{}, c.err
+	assert.Equal(t, 2, inner.calls)
 }
 
 // gatedCompiler blocks on a channel to test singleflight coalescing.

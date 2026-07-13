@@ -131,35 +131,26 @@ func TestHandleExecute_Success(t *testing.T) {
 	assert.Equal(t, "42\n", judge.lastRequest.TestCases[0].ExpectedOutput)
 }
 
-func TestHandleExecute_InvalidJSON(t *testing.T) {
+func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid JSON", body: "invalid"},
+		{name: "unknown field", body: `{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`},
+		{name: "invalid language", body: `{"sourceCode":"x","language":"Ruby","timeLimit":1,"memoryLimit":1,"testcases":[{}]}`},
+	}
+
 	handler := newTestHandler(&mockJudgeService{})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewBufferString(tt.body))
+			w := httptest.NewRecorder()
+			handler.HandleExecute(w, req)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader([]byte("invalid")))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestHandleExecute_UnknownField(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{})
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader([]byte(`{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`)))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestHandleExecute_InvalidLanguage(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{})
-
-	body := `{"sourceCode":"x","language":"Ruby","timeLimit":1,"memoryLimit":1,"testcases":[{}]}`
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewBufferString(body))
-	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
 }
 
 func TestHandleExecute_InvalidChecker(t *testing.T) {

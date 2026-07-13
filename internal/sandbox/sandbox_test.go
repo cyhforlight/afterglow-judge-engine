@@ -19,17 +19,11 @@ import (
 )
 
 type fakeTaskController struct {
-	start   func(context.Context) error
 	kill    func(context.Context, syscall.Signal, ...containerd.KillOpts) error
 	metrics func(context.Context) (*types.Metric, error)
 }
 
-func (f *fakeTaskController) Start(ctx context.Context) error {
-	if f.start == nil {
-		return nil
-	}
-	return f.start(ctx)
-}
+func (*fakeTaskController) Start(context.Context) error { return nil }
 
 func (*fakeTaskController) CloseIO(context.Context, ...containerd.IOCloserOpts) error {
 	return nil
@@ -65,63 +59,40 @@ func metricWithCPUTime(t *testing.T, cpuMs int) *types.Metric {
 func TestValidateExecuteLimits(t *testing.T) {
 	tests := []struct {
 		name    string
-		limits  ResourceLimits
+		mutate  func(*ResourceLimits)
 		wantErr string
 	}{
+		{name: "valid limits"},
 		{
-			name: "valid limits",
-			limits: ResourceLimits{
-				CPUTimeMs:   1000,
-				WallTimeMs:  3000,
-				MemoryMB:    256,
-				OutputBytes: 1024,
-			},
-		},
-		{
-			name: "cpu time must be positive",
-			limits: ResourceLimits{
-				CPUTimeMs:   0,
-				WallTimeMs:  3000,
-				MemoryMB:    256,
-				OutputBytes: 1024,
-			},
+			name:    "cpu time must be positive",
+			mutate:  func(limits *ResourceLimits) { limits.CPUTimeMs = 0 },
 			wantErr: "CPU time limit must be positive",
 		},
 		{
-			name: "wall time must be positive",
-			limits: ResourceLimits{
-				CPUTimeMs:   1000,
-				WallTimeMs:  0,
-				MemoryMB:    256,
-				OutputBytes: 1024,
-			},
+			name:    "wall time must be positive",
+			mutate:  func(limits *ResourceLimits) { limits.WallTimeMs = 0 },
 			wantErr: "wall time limit must be positive",
 		},
 		{
-			name: "memory must be positive",
-			limits: ResourceLimits{
-				CPUTimeMs:   1000,
-				WallTimeMs:  3000,
-				MemoryMB:    0,
-				OutputBytes: 1024,
-			},
+			name:    "memory must be positive",
+			mutate:  func(limits *ResourceLimits) { limits.MemoryMB = 0 },
 			wantErr: "memory limit must be positive",
 		},
 		{
-			name: "output must be positive",
-			limits: ResourceLimits{
-				CPUTimeMs:   1000,
-				WallTimeMs:  3000,
-				MemoryMB:    256,
-				OutputBytes: 0,
-			},
+			name:    "output must be positive",
+			mutate:  func(limits *ResourceLimits) { limits.OutputBytes = 0 },
 			wantErr: "output limit must be positive",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateExecuteLimits(tt.limits)
+			limits := standardLimits()
+			if tt.mutate != nil {
+				tt.mutate(&limits)
+			}
+
+			err := validateExecuteLimits(limits)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

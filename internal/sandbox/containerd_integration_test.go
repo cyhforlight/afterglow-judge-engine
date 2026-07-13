@@ -18,7 +18,7 @@ import (
 func TestContainerdSandbox_Cancellation(t *testing.T) {
 	requireSandboxIntegrationTest(t)
 
-	sb := newTestSandbox(t)
+	sb := NewContainerdSandbox("", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -94,9 +94,14 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 			checkExtraInfo:  "memory limit",
 		},
 		{
-			name:            "OLE - excessive output",
-			script:          "print('x' * 10000000)",
-			limits:          largeLimits(),
+			name:   "OLE - excessive output",
+			script: "print('x' * 10000000)",
+			limits: ResourceLimits{
+				CPUTimeMs:   5000,
+				WallTimeMs:  15000,
+				MemoryMB:    128,
+				OutputBytes: 1024 * 1024,
+			},
 			expectedCode:    0,
 			expectedVerdict: VerdictOLE,
 			checkExtraInfo:  "output limit",
@@ -112,7 +117,7 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := newStandardSandboxTestEnv(t)
+			env := newSandboxTestEnv(t)
 
 			req := ExecuteRequest{
 				ImageRef: testPythonImageRef,
@@ -141,20 +146,17 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 func TestContainerdSandbox_IOOperations(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMount  func(t *testing.T, tmpDir string) // Prepare files
+		setupMount  func(t *testing.T, tmpDir string)
 		script      string
 		stdin       string
 		mountRO     bool
 		checkResult func(t *testing.T, tmpDir string, result ExecuteResult)
 	}{
 		{
-			name:       "stdin - read and process",
-			setupMount: nil,
-			script:     "import sys; print(sys.stdin.read(), end='')",
-			stdin:      "test input\n",
+			name:   "stdin - read and process",
+			script: "import sys; print(sys.stdin.read(), end='')",
+			stdin:  "test input\n",
 			checkResult: func(t *testing.T, _ string, result ExecuteResult) {
-				assert.Equal(t, 0, result.ExitCode)
-				assert.Equal(t, VerdictOK, result.Verdict)
 				assert.Contains(t, result.Stdout, "test input")
 			},
 		},
@@ -167,24 +169,17 @@ func TestContainerdSandbox_IOOperations(t *testing.T) {
 			script:  "n = int(open('/sandbox/input.txt').read()); print(n * n)",
 			mountRO: true,
 			checkResult: func(t *testing.T, _ string, result ExecuteResult) {
-				assert.Equal(t, 0, result.ExitCode)
-				assert.Equal(t, VerdictOK, result.Verdict)
 				assert.Contains(t, result.Stdout, "49")
 			},
 		},
 		{
-			name:       "write file - create output",
-			setupMount: nil,
+			name: "write file - create output",
 			script: `
 with open('/sandbox/result.txt', 'w') as f:
     f.write('test output')
 print('done')
 `,
-			mountRO: false,
-			checkResult: func(t *testing.T, tmpDir string, result ExecuteResult) {
-				assert.Equal(t, 0, result.ExitCode)
-				assert.Equal(t, VerdictOK, result.Verdict)
-
+			checkResult: func(t *testing.T, tmpDir string, _ ExecuteResult) {
 				content, err := os.ReadFile(filepath.Join(tmpDir, "result.txt"))
 				require.NoError(t, err)
 				assert.Equal(t, "test output", string(content))
@@ -194,7 +189,7 @@ print('done')
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := newStandardSandboxTestEnv(t)
+			env := newSandboxTestEnv(t)
 			tmpDir := t.TempDir()
 
 			if tt.setupMount != nil {
@@ -211,16 +206,16 @@ print('done')
 				req.Stdin = bytes.NewBufferString(tt.stdin)
 			}
 
-			if tmpDir != "" {
-				req.MountDir = &Mount{
-					HostPath:      tmpDir,
-					ContainerPath: "/sandbox",
-					ReadOnly:      tt.mountRO,
-				}
+			req.MountDir = &Mount{
+				HostPath:      tmpDir,
+				ContainerPath: "/sandbox",
+				ReadOnly:      tt.mountRO,
 			}
 
 			result, err := env.sb.Execute(env.ctx, req)
 			require.NoError(t, err)
+			assert.Equal(t, 0, result.ExitCode)
+			assert.Equal(t, VerdictOK, result.Verdict)
 
 			tt.checkResult(t, tmpDir, result)
 		})
@@ -228,51 +223,21 @@ print('done')
 }
 
 func TestContainerdSandbox_SeccompEnforcement(t *testing.T) {
-	// NOTE: This test focuses on socket blocking as the primary seccomp verification.
-	// Fork/vfork blocking is tested at the service layer with C programs (policy_fork_bomb.c)
-	// because Python's os.fork() uses clone() which must be allowed for thread support.
-	tests := []struct {
-		name          string
-		script        string
-		enableSeccomp bool
-		expectBlocked bool
-		checkResult   func(t *testing.T, result ExecuteResult)
-	}{
-		{
-			name: "seccomp enabled - socket blocked",
-			script: `
+	env := newSandboxTestEnv(t)
+	result, err := env.sb.Execute(env.ctx, ExecuteRequest{
+		ImageRef: testPythonImageRef,
+		Command: []string{"python3", "-c", `
 import socket
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("socket succeeded")
 except OSError as e:
     print(f"socket blocked: {e}")
-`,
-			enableSeccomp: true,
-			expectBlocked: true,
-			checkResult: func(t *testing.T, result ExecuteResult) {
-				// Socket creation should fail with OSError
-				assert.Contains(t, []Verdict{VerdictOK, VerdictRE}, result.Verdict)
-				assert.Contains(t, result.Stdout, "socket blocked")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newStandardSandboxTestEnv(t)
-
-			req := ExecuteRequest{
-				ImageRef:      testPythonImageRef,
-				Command:       []string{"python3", "-c", tt.script},
-				Limits:        standardLimits(),
-				EnableSeccomp: tt.enableSeccomp,
-			}
-
-			result, err := env.sb.Execute(env.ctx, req)
-			require.NoError(t, err)
-
-			tt.checkResult(t, result)
-		})
-	}
+`},
+		Limits:        standardLimits(),
+		EnableSeccomp: true,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, []Verdict{VerdictOK, VerdictRE}, result.Verdict)
+	assert.Contains(t, result.Stdout, "socket blocked")
 }

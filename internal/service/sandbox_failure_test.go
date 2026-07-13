@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// runUserProgram is a test helper that executes a compiled artifact using the Runner primitive.
 func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.CompiledArtifact, lang model.Language, input string, timeLimit, memoryLimit int) RunResult {
 	t.Helper()
 
@@ -42,15 +41,39 @@ func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.Com
 	return normalizeUserRunResult(lang, runOut)
 }
 
-// TestSandboxFailure_CompileError tests compilation errors.
+type sandboxFailureCase struct {
+	name     string
+	language model.Language
+	filePath string
+}
+
+func testProgramVerdicts(
+	t *testing.T,
+	tests []sandboxFailureCase,
+	timeLimit, memoryLimit int,
+	want execution.Verdict,
+) {
+	t.Helper()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := newServiceIntegrationEnv(t, 120*time.Second)
+			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
+
+			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			require.True(t, result.Succeeded, "compilation should succeed")
+
+			runOut := runUserProgram(t, env, artifact, tt.language, "", timeLimit, memoryLimit)
+			assert.Equal(t, want, runOut.Verdict)
+		})
+	}
+}
+
 func TestSandboxFailure_CompileError(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C syntax error", model.LanguageC, "ce/ce_syntax_error.c"},
 		{"C++ syntax error", model.LanguageCPP, "ce/ce_syntax_error.cpp"},
 		{"Java wrong class name", model.LanguageJava, "ce/ce_wrong_class_name.java"},
@@ -71,64 +94,30 @@ func TestSandboxFailure_CompileError(t *testing.T) {
 	}
 }
 
-// TestSandboxFailure_TimeLimit tests time limit exceeded.
 func TestSandboxFailure_TimeLimit(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C infinite loop", model.LanguageC, "tle/tle_infinite_loop.c"},
 		{"C++ infinite loop", model.LanguageCPP, "tle/tle_infinite_loop.cpp"},
 		{"Java infinite loop", model.LanguageJava, "tle/tle_infinite_loop.java"},
 		{"Python infinite loop", model.LanguagePython, "tle/tle_infinite_loop.py"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := newServiceIntegrationEnv(t, 120*time.Second)
-			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
-
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
-			require.True(t, result.Succeeded, "compilation should succeed")
-
-			runOut := runUserProgram(t, env, artifact, tt.language, "", 1000, 256)
-			assert.Equal(t, execution.VerdictTLE, runOut.Verdict, "expected TLE verdict")
-		})
-	}
+	testProgramVerdicts(t, tests, 1000, 256, execution.VerdictTLE)
 }
 
-// TestSandboxFailure_MemoryLimit tests memory limit exceeded.
 func TestSandboxFailure_MemoryLimit(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C malloc blocks", model.LanguageC, "mle/mle_malloc_blocks.c"},
 		{"C++ vector push", model.LanguageCPP, "mle/mle_vector_push.cpp"},
 		{"Java ArrayList", model.LanguageJava, "mle/mle_array_list.java"},
 		{"Python list append", model.LanguagePython, "mle/mle_list_append.py"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := newServiceIntegrationEnv(t, 120*time.Second)
-			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
-
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
-			require.True(t, result.Succeeded, "compilation should succeed")
-
-			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 64)
-			assert.Equal(t, execution.VerdictMLE, runOut.Verdict, "expected MLE verdict")
-		})
-	}
+	testProgramVerdicts(t, tests, 2000, 64, execution.VerdictMLE)
 }
 
 func TestJavaHeapMatchesRequestedMemoryLimit(t *testing.T) {
@@ -152,15 +141,10 @@ public class Main {
 	assert.Equal(t, "67108864\n", runOut.Stdout)
 }
 
-// TestSandboxFailure_RuntimeError tests runtime errors.
 func TestSandboxFailure_RuntimeError(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C abort", model.LanguageC, "re/re_abort.c"},
 		{"C++ segfault", model.LanguageCPP, "re/re_segfault.cpp"},
 		{"C++ vector at", model.LanguageCPP, "re/re_vector_at.cpp"},
@@ -169,58 +153,24 @@ func TestSandboxFailure_RuntimeError(t *testing.T) {
 		{"Python index error", model.LanguagePython, "re/re_index_error.py"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := newServiceIntegrationEnv(t, 120*time.Second)
-			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
-
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
-			require.True(t, result.Succeeded, "compilation should succeed")
-
-			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
-			assert.Equal(t, execution.VerdictRE, runOut.Verdict, "expected RE verdict")
-		})
-	}
+	testProgramVerdicts(t, tests, 2000, 256, execution.VerdictRE)
 }
 
-// TestSandboxFailure_OutputLimit tests output limit exceeded.
 func TestSandboxFailure_OutputLimit(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C++ infinite output", model.LanguageCPP, "ole/ole_infinite_output.cpp"},
 		{"Python infinite print", model.LanguagePython, "ole/ole_infinite_print.py"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := newServiceIntegrationEnv(t, 120*time.Second)
-			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
-
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
-			require.True(t, result.Succeeded, "compilation should succeed")
-
-			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
-			assert.Equal(t, execution.VerdictOLE, runOut.Verdict, "expected OLE verdict")
-		})
-	}
+	testProgramVerdicts(t, tests, 2000, 256, execution.VerdictOLE)
 }
 
-// TestSandboxFailure_PolicyViolation tests policy violations.
 func TestSandboxFailure_PolicyViolation(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	tests := []struct {
-		name     string
-		language model.Language
-		filePath string
-	}{
+	tests := []sandboxFailureCase{
 		{"C network socket", model.LanguageC, "policy/policy_network_socket.c"},
 		{"Python network socket", model.LanguagePython, "policy/policy_network_socket.py"},
 	}
@@ -231,20 +181,11 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
 			artifact, result := compileProgram(t, env, tt.language, sourceCode)
-			if !result.Succeeded {
-				t.Logf("Compilation failed: %+v", result)
-			}
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
-			t.Logf("Verdict: %v, ExitCode: %d, ExtraInfo: %s", runOut.Verdict, runOut.ExitCode, runOut.ExtraInfo)
-			t.Logf("Stdout: %s", runOut.Stdout)
-			t.Logf("Stderr: %s", runOut.Stderr)
-
-			// With seccomp blocking socket, programs should handle the error gracefully
-			// and exit with code 0 (printing "blocked" message) or non-zero (error)
-			assert.Equal(t, execution.VerdictOK, runOut.Verdict, "program should complete normally")
-			assert.Contains(t, runOut.Stdout, "blocked", "should report socket was blocked by seccomp")
+			assert.Equal(t, execution.VerdictOK, runOut.Verdict)
+			assert.Contains(t, runOut.Stdout, "blocked")
 		})
 	}
 }

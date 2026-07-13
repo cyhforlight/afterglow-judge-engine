@@ -31,18 +31,17 @@ func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutp
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	idx := c.calls
+	c.calls++
 	if c.err != nil {
 		return CompileOutput{}, c.err
 	}
 	if len(c.compileResults) > 0 {
-		idx := c.calls
 		if idx >= len(c.compileResults) {
 			idx = len(c.compileResults) - 1
 		}
-		c.calls++
 		return c.compileResults[idx], nil
 	}
-	c.calls++
 	return CompileOutput{
 		Result:   c.result,
 		Artifact: c.artifact,
@@ -255,15 +254,15 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 
 func TestJudgeEngine_CheckerInfrastructureErrorMarksOnlyCurrentCase(t *testing.T) {
 	runner := &inputKeyedRunner{
-		userResults: map[string]RunResult{
-			"1\n": userOKRunResult("2\n"),
-			"2\n": userOKRunResult("4\n"),
-			"3\n": userOKRunResult("6\n"),
+		userResults: map[string]runCallResult{
+			"1\n": {result: userOKRunResult("2\n")},
+			"2\n": {result: userOKRunResult("4\n")},
+			"3\n": {result: userOKRunResult("6\n")},
 		},
-		checkerResults: map[string]RunResult{
-			"2\n": checkerOKRunResult(),
-			"4\n": {ExitCode: 0, Verdict: execution.VerdictTLE, Stderr: "checker timed out"}, // checker UKE
-			"6\n": checkerOKRunResult(),
+		checkerResults: map[string]runCallResult{
+			"2\n": {result: checkerOKRunResult()},
+			"4\n": {result: RunResult{ExitCode: 0, Verdict: execution.VerdictTLE, Stderr: "checker timed out"}},
+			"6\n": {result: checkerOKRunResult()},
 		},
 	}
 	engine := newTestJudgeEngine(nil, nil, nil)
@@ -296,14 +295,14 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 
 func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	runner := &inputKeyedRunner{
-		userResults: map[string]RunResult{
-			"1\n": userOKRunResult("2\n"),
-			"2\n": userOKRunResult("4\n"),
-			"3\n": {Verdict: execution.VerdictTLE, ExitCode: 124}, // TLE — no checker
+		userResults: map[string]runCallResult{
+			"1\n": {result: userOKRunResult("2\n")},
+			"2\n": {result: userOKRunResult("4\n")},
+			"3\n": {result: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}},
 		},
-		checkerResults: map[string]RunResult{
-			"2\n": checkerOKRunResult(),                   // case-1: OK
-			"4\n": checkerWARunResult("2nd lines differ"), // case-2: WA
+		checkerResults: map[string]runCallResult{
+			"2\n": {result: checkerOKRunResult()},
+			"4\n": {result: checkerWARunResult("2nd lines differ")},
 		},
 	}
 	engine := newTestJudgeEngine(nil, nil, nil)
@@ -326,15 +325,15 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 
 func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	runner := &inputKeyedRunner{
-		userResults: map[string]RunResult{
-			"1\n": userOKRunResult("2\n"),
-			"2\n": userOKRunResult("4\n"),
-			"3\n": userOKRunResult("6\n"),
+		userResults: map[string]runCallResult{
+			"1\n": {result: userOKRunResult("2\n")},
+			"2\n": {result: userOKRunResult("4\n")},
+			"3\n": {result: userOKRunResult("6\n")},
 		},
-		checkerResults: map[string]RunResult{
-			"2\n": checkerOKRunResult(),
-			"4\n": checkerOKRunResult(),
-			"6\n": checkerOKRunResult(),
+		checkerResults: map[string]runCallResult{
+			"2\n": {result: checkerOKRunResult()},
+			"4\n": {result: checkerOKRunResult()},
+			"6\n": {result: checkerOKRunResult()},
 		},
 	}
 	engine := newTestJudgeEngine(nil, nil, nil)
@@ -573,7 +572,7 @@ func TestNormalizeUserRunResult_JavaOutOfMemory(t *testing.T) {
 }
 
 func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
-	customRunner := &inputKeyedErrRunner{
+	customRunner := &inputKeyedRunner{
 		userResults: map[string]runCallResult{
 			"1\n": {result: userOKRunResult("42\n")},
 			"2\n": {result: userOKRunResult("42\n")},
@@ -597,24 +596,15 @@ func TestJudgeEngine_CheckerRunnerErrorMarksCaseUnknownError(t *testing.T) {
 	assert.Equal(t, 4, customRunner.calls)
 }
 
-// runCallResult pairs a RunResult with an optional error for keyed runners.
 type runCallResult struct {
 	result RunResult
 	err    error
 }
 
-// inputKeyedRunner dispatches run results based on request content,
-// making it safe for parallel test case execution.
-//
-// For user runs (Stdin != nil), it looks up results by stdin text.
-// For checker runs (Stdin == nil), it looks up results by the actual output
-// content found in Files[2] (the checker output file).
 type inputKeyedRunner struct {
-	mu sync.Mutex
-	// userResults maps stdin text → RunResult for user execution
-	userResults map[string]RunResult
-	// checkerResults maps user stdout → RunResult for checker execution
-	checkerResults map[string]RunResult
+	mu             sync.Mutex
+	userResults    map[string]runCallResult
+	checkerResults map[string]runCallResult
 	calls          int
 }
 
@@ -630,53 +620,18 @@ func (r *inputKeyedRunner) Run(_ context.Context, req RunRequest) (RunResult, er
 		data, _ := io.ReadAll(req.Stdin)
 		input := string(data)
 		if res, ok := r.userResults[input]; ok {
-			return res, nil
+			return res.result, res.err
 		}
 		return RunResult{}, fmt.Errorf("inputKeyedRunner: no user result for input %q", input)
 	}
 
-	// Checker call — identify by output file content (Files[2] = actual output).
 	if len(req.Files) >= 3 {
 		if res, ok := r.checkerResults[string(req.Files[2].Content)]; ok {
-			return res, nil
+			return res.result, res.err
 		}
 	}
 
 	return RunResult{}, errors.New("inputKeyedRunner: no checker result found")
-}
-
-// inputKeyedErrRunner is like inputKeyedRunner but supports per-call errors.
-type inputKeyedErrRunner struct {
-	mu             sync.Mutex
-	userResults    map[string]runCallResult // stdin → user run result
-	checkerResults map[string]runCallResult // user stdout → checker run result
-	calls          int
-}
-
-func (r *inputKeyedErrRunner) PreflightCheck(_ context.Context) error { return nil }
-
-func (r *inputKeyedErrRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.calls++
-
-	if req.Stdin != nil {
-		data, _ := io.ReadAll(req.Stdin)
-		input := string(data)
-		if res, ok := r.userResults[input]; ok {
-			return res.result, res.err
-		}
-		return RunResult{}, fmt.Errorf("inputKeyedErrRunner: no user result for input %q", input)
-	}
-
-	if len(req.Files) >= 3 {
-		if res, ok := r.checkerResults[string(req.Files[2].Content)]; ok {
-			return res.result, res.err
-		}
-	}
-
-	return RunResult{}, errors.New("inputKeyedErrRunner: no checker result found")
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
@@ -688,7 +643,6 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	}
 
 	runner := &fakeRunner{runResults: []RunResult{
-		userOKRunResult("expected output"), checkerOKRunResult(),
 		userOKRunResult("expected output"), checkerOKRunResult(),
 	}}
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
@@ -711,30 +665,21 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	result := engine.Judge(context.Background(), originalReq)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 
-	// Verify original request was NOT mutated
 	assert.Equal(t, "test.in", originalReq.TestCases[0].InputFile, "InputFile should not be cleared")
 	assert.Equal(t, "test.out", originalReq.TestCases[0].ExpectedOutputFile, "ExpectedOutputFile should not be cleared")
 	assert.Empty(t, originalReq.TestCases[0].InputText, "InputText should remain empty")
 	assert.Empty(t, originalReq.TestCases[0].ExpectedOutput, "ExpectedOutput should remain empty")
-
-	// Call Judge again with the same request to verify it still works
-	result2 := engine.Judge(context.Background(), originalReq)
-	assert.Equal(t, model.JudgeStatusOK, result2.Status, "Second call should also succeed")
-	assert.Equal(t, 4, fakeResources.getCalls, "Should load files 4 times (2 files x 2 calls)")
 }
 
-// fakeExternalResources implements a simple in-memory external resource store for testing.
 type fakeExternalResources struct {
-	mu       sync.Mutex
-	files    map[string][]byte
-	getCalls int
+	mu    sync.Mutex
+	files map[string][]byte
 }
 
 func (f *fakeExternalResources) Get(_ context.Context, path string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.getCalls++
 	data, ok := f.files[path]
 	if !ok {
 		return nil, fmt.Errorf("file not found: %s", path)

@@ -17,26 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type checkerCase struct {
-	name           string
-	inputText      string
-	actualOutput   string
-	expectedOutput string
-	wantVerdict    model.Verdict
-}
-
 type checkerScenario struct {
-	checker  string
-	okCase   checkerCase
-	failCase checkerCase
-}
-
-func newInternalResourceStoreForTest(t *testing.T) ResourceStore {
-	t.Helper()
-
-	resourceStore, err := resource.NewBundled()
-	require.NoError(t, err)
-	return resourceStore
+	checker        string
+	expectedOutput string
+	acceptedOutput string
+	rejectedOutput string
 }
 
 // compileCheckerForTest compiles a checker for testing.
@@ -46,10 +31,10 @@ func newInternalResourceStoreForTest(t *testing.T) ResourceStore {
 func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, externalDir string) model.CompiledArtifact {
 	t.Helper()
 
-	resourceStore := newInternalResourceStoreForTest(t)
+	resourceStore, err := resource.NewBundled()
+	require.NoError(t, err)
 
 	var checkerSource []byte
-	var err error
 	if filepath.Base(checkerName) != checkerName {
 		// External checker — load from filesystem.
 		checkerPath := filepath.Join(externalDir, checkerName)
@@ -102,189 +87,95 @@ func runCheckerForTest(
 	return verdict, message
 }
 
-func checkerScenarios() []checkerScenario {
-	return []checkerScenario{
-		{
-			checker: "default.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "42   \n\n",
-				expectedOutput: "42\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "41\n",
-				expectedOutput: "42\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "fcmp.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "alpha\nbeta\n",
-				expectedOutput: "alpha\nbeta\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "alpha\ngamma\n",
-				expectedOutput: "alpha\nbeta\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "hcmp.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "123456789012345678901234567890\n",
-				expectedOutput: "123456789012345678901234567890\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "123456789012345678901234567891\n",
-				expectedOutput: "123456789012345678901234567890\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "lcmp.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "alpha   beta gamma\nleft    right\n",
-				expectedOutput: "alpha beta gamma\nleft right\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "alpha beta delta\nleft right\n",
-				expectedOutput: "alpha beta gamma\nleft right\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "ncmp.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "1 -2 3 4\n",
-				expectedOutput: "1 -2 3 4\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "1 -2 5 4\n",
-				expectedOutput: "1 -2 3 4\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "nyesno.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "yes NO yEs\n",
-				expectedOutput: "YES NO YES\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "YES YES YES\n",
-				expectedOutput: "YES NO YES\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "rcmp4.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "1.00005\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "1.01\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "rcmp6.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "1.0000005\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "1.00001\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "rcmp9.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "1.0000000005\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "1.00001\n",
-				expectedOutput: "1.0\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "wcmp.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "alpha   beta\ngamma\n",
-				expectedOutput: "alpha beta gamma\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "alpha beta delta\n",
-				expectedOutput: "alpha beta gamma\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-		{
-			checker: "yesno.cpp",
-			okCase: checkerCase{
-				name:           "ok",
-				actualOutput:   "yes\n",
-				expectedOutput: "YES\n",
-				wantVerdict:    model.VerdictOK,
-			},
-			failCase: checkerCase{
-				name:           "fail",
-				actualOutput:   "NO\n",
-				expectedOutput: "YES\n",
-				wantVerdict:    model.VerdictWA,
-			},
-		},
-	}
+var checkerScenarios = []checkerScenario{
+	{
+		checker:        "default.cpp",
+		expectedOutput: "42\n",
+		acceptedOutput: "42   \n\n",
+		rejectedOutput: "41\n",
+	},
+	{
+		checker:        "fcmp.cpp",
+		expectedOutput: "alpha\nbeta\n",
+		acceptedOutput: "alpha\nbeta\n",
+		rejectedOutput: "alpha\ngamma\n",
+	},
+	{
+		checker:        "hcmp.cpp",
+		expectedOutput: "123456789012345678901234567890\n",
+		acceptedOutput: "123456789012345678901234567890\n",
+		rejectedOutput: "123456789012345678901234567891\n",
+	},
+	{
+		checker:        "lcmp.cpp",
+		expectedOutput: "alpha beta gamma\nleft right\n",
+		acceptedOutput: "alpha   beta gamma\nleft    right\n",
+		rejectedOutput: "alpha beta delta\nleft right\n",
+	},
+	{
+		checker:        "ncmp.cpp",
+		expectedOutput: "1 -2 3 4\n",
+		acceptedOutput: "1 -2 3 4\n",
+		rejectedOutput: "1 -2 5 4\n",
+	},
+	{
+		checker:        "nyesno.cpp",
+		expectedOutput: "YES NO YES\n",
+		acceptedOutput: "yes NO yEs\n",
+		rejectedOutput: "YES YES YES\n",
+	},
+	{
+		checker:        "rcmp4.cpp",
+		expectedOutput: "1.0\n",
+		acceptedOutput: "1.00005\n",
+		rejectedOutput: "1.01\n",
+	},
+	{
+		checker:        "rcmp6.cpp",
+		expectedOutput: "1.0\n",
+		acceptedOutput: "1.0000005\n",
+		rejectedOutput: "1.00001\n",
+	},
+	{
+		checker:        "rcmp9.cpp",
+		expectedOutput: "1.0\n",
+		acceptedOutput: "1.0000000005\n",
+		rejectedOutput: "1.00001\n",
+	},
+	{
+		checker:        "wcmp.cpp",
+		expectedOutput: "alpha beta gamma\n",
+		acceptedOutput: "alpha   beta\ngamma\n",
+		rejectedOutput: "alpha beta delta\n",
+	},
+	{
+		checker:        "yesno.cpp",
+		expectedOutput: "YES\n",
+		acceptedOutput: "yes\n",
+		rejectedOutput: "NO\n",
+	},
 }
 
 func TestChecker_AllBundledCheckers(t *testing.T) {
 	requireServiceIntegrationTest(t)
 
-	for _, scenario := range checkerScenarios() {
+	for _, scenario := range checkerScenarios {
 		t.Run(strings.TrimSuffix(scenario.checker, ".cpp"), func(t *testing.T) {
 			t.Parallel()
 			ctx := newIntegrationContext(t, 90*time.Second)
 			checker := compileCheckerForTest(ctx, t, scenario.checker, "")
 
-			cases := []checkerCase{scenario.okCase, scenario.failCase}
+			cases := []struct {
+				name         string
+				actualOutput string
+				wantVerdict  model.Verdict
+			}{
+				{name: "ok", actualOutput: scenario.acceptedOutput, wantVerdict: model.VerdictOK},
+				{name: "fail", actualOutput: scenario.rejectedOutput, wantVerdict: model.VerdictWA},
+			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
-					verdict, _ := runCheckerForTest(ctx, t, checker, tc.inputText, tc.actualOutput, tc.expectedOutput)
+					verdict, _ := runCheckerForTest(ctx, t, checker, "", tc.actualOutput, scenario.expectedOutput)
 					assert.Equal(t, tc.wantVerdict, verdict)
 				})
 			}
