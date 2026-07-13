@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/config"
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/resource"
@@ -68,14 +67,7 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		return nil, fmt.Errorf("initialize bundled resources: %w", err)
 	}
 
-	// 3. Create checker compile cache (not a global singleton).
-	compileCache, err := cache.New[service.CompileOutput](64)
-	if err != nil {
-		slog.Warn("failed to initialize cache", "error", err)
-		compileCache = nil // Allow running without checker cache.
-	}
-
-	// 4. Optionally enable external test data / checker files when configured.
+	// 3. Optionally enable external test data / checker files when configured.
 	var externalResources service.ResourceStore
 	if cfg.ExternalDataDir != "" {
 		ext, err := resource.NewExternal(cfg.ExternalDataDir)
@@ -85,14 +77,17 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		externalResources = ext
 	}
 
-	// 5. Create a shared executor throttled by a container semaphore.
+	// 4. Create shared execution primitives.
 	containerSem := make(chan struct{}, cfg.MaxConcurrentContainers)
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), containerSem)
 	compiler := service.NewCompiler(executor)
-	checkerCompiler := service.NewCachedCompiler(service.NewCompiler(executor), compileCache)
+	checkerCompiler, err := service.NewCachedCompiler(compiler, 64)
+	if err != nil {
+		return nil, fmt.Errorf("initialize checker compile cache: %w", err)
+	}
 	runner := service.NewRunner(executor)
 
-	// 6. Create judge engine with internal checker resources.
+	// 5. Create judge engine with internal checker resources.
 	judge := service.NewJudgeEngine(
 		compiler,
 		checkerCompiler,

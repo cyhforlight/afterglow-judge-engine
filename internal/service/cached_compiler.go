@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"slices"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 
-	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/workspace"
 )
 
@@ -19,17 +19,18 @@ import (
 // into a single inner.Compile call.
 type cachedCompiler struct {
 	inner Compiler
-	cache *cache.Cache[CompileOutput]
+	cache *lru.Cache[string, CompileOutput]
 	group singleflight.Group
 }
 
-// NewCachedCompiler wraps inner with cache + singleflight.
-// If c is nil the decorator is bypassed and inner is returned directly.
-func NewCachedCompiler(inner Compiler, c *cache.Cache[CompileOutput]) Compiler {
-	if c == nil {
-		return inner
+// NewCachedCompiler wraps inner with an LRU cache and singleflight.
+func NewCachedCompiler(inner Compiler, maxEntries int) (Compiler, error) {
+	compileCache, err := lru.New[string, CompileOutput](maxEntries)
+	if err != nil {
+		return nil, fmt.Errorf("create compile cache: %w", err)
 	}
-	return &cachedCompiler{inner: inner, cache: c}
+
+	return &cachedCompiler{inner: inner, cache: compileCache}, nil
 }
 
 func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (CompileOutput, error) {
@@ -56,7 +57,7 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 
 		// Only cache successful compilations that produced an artifact.
 		if out.Result.Succeeded && out.Artifact != nil {
-			c.cache.Set(key, out)
+			c.cache.Add(key, out)
 		}
 
 		return out, nil

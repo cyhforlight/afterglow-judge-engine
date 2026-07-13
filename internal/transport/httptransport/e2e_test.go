@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
@@ -158,8 +157,6 @@ func newE2EHandler(t *testing.T) *Handler {
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
 	bundledResources, err := resource.NewBundled()
 	require.NoError(t, err)
-	compileCache, err := cache.New[service.CompileOutput](100)
-	require.NoError(t, err)
 
 	testdataDir := filepath.Join(projectRoot(t), "testdata")
 	externalResources, err := resource.NewExternal(testdataDir)
@@ -167,7 +164,8 @@ func newE2EHandler(t *testing.T) *Handler {
 
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
 	baseCompiler := service.NewCompiler(executor)
-	checkerCompiler := service.NewCachedCompiler(service.NewCompiler(executor), compileCache)
+	checkerCompiler, err := service.NewCachedCompiler(baseCompiler, 100)
+	require.NoError(t, err)
 	baseRunner := service.NewRunner(executor)
 	judge := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
 		bundledResources, externalResources, 10, model.DefaultJudgeLimits())

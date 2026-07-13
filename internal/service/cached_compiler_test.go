@@ -7,7 +7,6 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"afterglow-judge-engine/internal/cache"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/workspace"
 
@@ -25,14 +24,12 @@ func testCompileRequest(content string) CompileRequest {
 }
 
 func TestCachedCompiler_CacheHit(t *testing.T) {
-	c, err := cache.New[CompileOutput](16)
-	require.NoError(t, err)
-
 	inner := &fakeCompiler{
 		result:   model.CompileResult{Succeeded: true},
 		artifact: testCompiledArtifact(),
 	}
-	cc := NewCachedCompiler(inner, c)
+	cc, err := NewCachedCompiler(inner, 16)
+	require.NoError(t, err)
 
 	req := testCompileRequest("hello")
 	out1, err := cc.Compile(context.Background(), req)
@@ -46,13 +43,11 @@ func TestCachedCompiler_CacheHit(t *testing.T) {
 }
 
 func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
-	c, err := cache.New[CompileOutput](16)
-	require.NoError(t, err)
-
 	inner := &fakeCompiler{
 		result: model.CompileResult{Succeeded: false, Log: "error"},
 	}
-	cc := NewCachedCompiler(inner, c)
+	cc, err := NewCachedCompiler(inner, 16)
+	require.NoError(t, err)
 
 	req := testCompileRequest("bad")
 	_, err = cc.Compile(context.Background(), req)
@@ -65,9 +60,6 @@ func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
 
 func TestCachedCompiler_Singleflight(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		c, err := cache.New[CompileOutput](16)
-		require.NoError(t, err)
-
 		var compileCount atomic.Int32
 		release := make(chan struct{})
 		inner := &gatedCompiler{
@@ -76,7 +68,8 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 			result:       model.CompileResult{Succeeded: true},
 			artifact:     testCompiledArtifact(),
 		}
-		cc := NewCachedCompiler(inner, c)
+		cc, err := NewCachedCompiler(inner, 16)
+		require.NoError(t, err)
 
 		req := testCompileRequest("concurrent")
 		const goroutines = 5
@@ -99,12 +92,10 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 }
 
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {
-	c, err := cache.New[CompileOutput](16)
-	require.NoError(t, err)
-
 	var calls atomic.Int32
 	inner := &countingErrCompiler{calls: &calls, err: errors.New("infra error")}
-	cc := NewCachedCompiler(inner, c)
+	cc, err := NewCachedCompiler(inner, 16)
+	require.NoError(t, err)
 
 	req := testCompileRequest("err")
 	_, err = cc.Compile(context.Background(), req)
