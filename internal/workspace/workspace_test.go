@@ -66,7 +66,7 @@ func TestWorkspace_RejectsUnsafeNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ws.WriteFile(tt.path, []byte("content"), 0o644)
+			err := ws.WriteFiles([]File{{Name: tt.path, Content: []byte("content"), Mode: 0o644}})
 			require.Error(t, err)
 		})
 	}

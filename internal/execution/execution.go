@@ -94,7 +94,7 @@ func (e *executor) PreflightCheck(ctx context.Context) error {
 	return e.sandbox.PreflightCheck(ctx)
 }
 
-func (e *executor) Execute(ctx context.Context, job Job) (Result, error) {
+func (e *executor) Execute(ctx context.Context, job Job) (result Result, err error) {
 	if err := validateJob(job); err != nil {
 		return Result{}, err
 	}
@@ -103,7 +103,9 @@ func (e *executor) Execute(ctx context.Context, job Job) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("create workspace: %w", err)
 	}
-	defer func() { _ = ws.Cleanup() }()
+	defer func() {
+		err = errors.Join(err, ws.Cleanup())
+	}()
 
 	if err := ws.WriteFiles(job.Files); err != nil {
 		return Result{}, fmt.Errorf("write execution files: %w", err)
@@ -132,7 +134,7 @@ func (e *executor) Execute(ctx context.Context, job Job) (Result, error) {
 		return Result{}, fmt.Errorf("sandbox execute: %w", err)
 	}
 
-	result := Result{RawResult: sandboxResult}
+	result = Result{RawResult: sandboxResult}
 
 	if len(job.Artifacts) == 0 || result.ExitCode != 0 || result.Verdict != VerdictOK {
 		return result, nil
