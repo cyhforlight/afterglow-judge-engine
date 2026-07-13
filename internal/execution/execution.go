@@ -70,8 +70,8 @@ type Result struct {
 
 // Default execution policy values shared by compile and run primitives.
 const (
-	// WallTimeMultiplier turns a CPU time limit into a wall-clock deadline.
-	// Wall time accounts for I/O waits, scheduling latency, and container overhead.
+	// WallTimeMultiplier turns a CPU time limit into a task-lifetime deadline.
+	// Wall time stops tasks whose CPU time does not advance, such as blocked or sleeping programs.
 	WallTimeMultiplier = 3
 
 	// DefaultRunOutputLimitBytes caps user program and checker output.

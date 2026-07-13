@@ -60,6 +60,20 @@ func TestBuildVerdict_UsesWallTimeWhenCPUStatsAreMissing(t *testing.T) {
 	assert.Equal(t, 42, got.CPUTimeMs)
 }
 
+func TestBuildVerdict_CPUTimeAtLimitIsTLE(t *testing.T) {
+	limits := ResourceLimits{
+		CPUTimeMs:   100,
+		WallTimeMs:  300,
+		MemoryMB:    128,
+		OutputBytes: 1024,
+	}
+	stdout, stderr := verdictWriters(t, limits.OutputBytes, "")
+
+	got := buildVerdict(0, 100*time.Millisecond, cgroupMetrics{cpuNanos: 100 * nanosPerMs}, limits, stdout, stderr)
+
+	assert.Equal(t, VerdictTLE, got.Verdict)
+}
+
 func TestBuildForcedStopVerdict_PrioritizesConcreteResourceFailures(t *testing.T) {
 	limits := ResourceLimits{
 		CPUTimeMs:   100,
@@ -86,7 +100,7 @@ func TestBuildForcedStopVerdict_PrioritizesConcreteResourceFailures(t *testing.T
 			},
 			want:     VerdictOLE,
 			wantInfo: "output limit exceeded",
-			wantCPU:  100,
+			wantCPU:  500,
 		},
 		{
 			name:     "memory event beats generic timeout",
@@ -96,11 +110,11 @@ func TestBuildForcedStopVerdict_PrioritizesConcreteResourceFailures(t *testing.T
 			wantCPU:  0,
 		},
 		{
-			name:     "timeout caps reported cpu at requested limit",
+			name:     "timeout reports measured CPU time",
 			metrics:  cgroupMetrics{cpuNanos: 500 * nanosPerMs},
 			want:     VerdictTLE,
 			wantInfo: "wall time limit exceeded",
-			wantCPU:  100,
+			wantCPU:  500,
 		},
 	}
 

@@ -20,7 +20,7 @@ type JudgeRequestDTO struct {
 	SourceCode  string             `json:"sourceCode"`
 	Checker     string             `json:"checker,omitempty"`
 	Language    string             `json:"language"`
-	TimeLimit   int                `json:"timeLimit"`   // milliseconds
+	TimeLimit   int                `json:"timeLimit"`   // CPU milliseconds
 	MemoryLimit int                `json:"memoryLimit"` // megabytes
 	TestCases   []JudgeTestCaseDTO `json:"testcases"`
 }
@@ -35,7 +35,7 @@ type CompileResultDTO struct {
 type JudgeCaseResultDTO struct {
 	Verdict    string `json:"verdict"`
 	Stdout     string `json:"stdout"`
-	TimeUsed   int    `json:"timeUsed"`   // milliseconds
+	TimeUsed   int    `json:"timeUsed"`   // CPU milliseconds
 	MemoryUsed int    `json:"memoryUsed"` // megabytes
 	ExitCode   int    `json:"exitCode"`
 	ExtraInfo  string `json:"extraInfo"`

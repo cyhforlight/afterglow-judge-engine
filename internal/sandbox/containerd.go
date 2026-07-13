@@ -22,6 +22,10 @@ const (
 	defaultSocketPath         = "/run/containerd/containerd.sock"
 	defaultNamespace          = "afterglow"
 	lifecycleOperationTimeout = 5 * time.Second
+	cpuTimeCheckInterval      = 10 * time.Millisecond
+	cpuTimeLimitReason        = "CPU time limit exceeded"
+	outputLimitReason         = "output limit exceeded"
+	wallTimeLimitReason       = "wall time limit exceeded"
 )
 
 type taskController interface {
@@ -34,6 +38,14 @@ type taskController interface {
 type cleanupAction struct {
 	resource string
 	run      func(context.Context) error
+}
+
+type executionEvent struct {
+	status  containerd.ExitStatus
+	exited  bool
+	reason  string
+	metrics cgroupMetrics
+	err     error
 }
 
 // ContainerdSandbox implements Sandbox using containerd.
@@ -231,51 +243,82 @@ func (*ContainerdSandbox) watchExecution(
 
 	wallDeadline := time.NewTimer(time.Duration(limits.WallTimeMs) * time.Millisecond)
 	defer wallDeadline.Stop()
+	cpuTicker := time.NewTicker(cpuTimeCheckInterval)
+	defer cpuTicker.Stop()
 
-	var forcedStopReason string
-	select {
-	case status, ok := <-exitCh:
-		if !ok {
-			return ExecuteResult{}, errors.New("wait for task exit: exit channel closed without status")
-		}
-		wallElapsed := time.Since(startTime)
-		code, _, err := status.Result()
-		if err != nil {
-			return ExecuteResult{}, fmt.Errorf("read task exit result: %w", err)
-		}
-		metrics, err := collectMetrics(ctx, task)
-		if err != nil {
-			return ExecuteResult{}, fmt.Errorf("collect cgroup metrics: %w", err)
-		}
-		return buildVerdict(code, wallElapsed, metrics, limits, stdoutLW, stderrLW), nil
-
-	case <-oleLimiter.ch:
-		forcedStopReason = "output limit exceeded"
-
-	case <-wallDeadline.C:
-		forcedStopReason = "wall time limit exceeded"
-
-	case <-ctx.Done():
-		cancelErr := ctx.Err()
-		if err := stopTask(ctx, task, exitCh, lifecycleOperationTimeout); err != nil {
-			return ExecuteResult{}, errors.Join(
-				fmt.Errorf("execution canceled: %w", cancelErr),
-				err,
-			)
-		}
-		return ExecuteResult{}, fmt.Errorf("execution canceled: %w", cancelErr)
+	event := waitForExecutionEvent(ctx, task, exitCh, oleLimiter.ch, wallDeadline.C, cpuTicker.C, limits.CPUTimeMs)
+	if event.exited {
+		return resultAfterTaskExit(ctx, task, event.status, startTime, limits, stdoutLW, stderrLW)
 	}
 
-	metrics, metricsErr := collectMetrics(ctx, task)
-	if metricsErr != nil {
-		metricsErr = fmt.Errorf("collect cgroup metrics: %w", metricsErr)
+	if event.reason != cpuTimeLimitReason && event.err == nil {
+		event.metrics, event.err = collectMetrics(ctx, task)
+		if event.err != nil {
+			event.err = fmt.Errorf("collect cgroup metrics: %w", event.err)
+		}
 	}
 	stopErr := stopTask(ctx, task, exitCh, lifecycleOperationTimeout)
-	if err := errors.Join(metricsErr, stopErr); err != nil {
+	if err := errors.Join(event.err, stopErr); err != nil {
 		return ExecuteResult{}, err
 	}
 
-	return buildForcedStopVerdict(forcedStopReason, metrics, limits, stdoutLW, stderrLW), nil
+	return buildForcedStopVerdict(event.reason, event.metrics, limits, stdoutLW, stderrLW), nil
+}
+
+func waitForExecutionEvent(
+	ctx context.Context,
+	task metricsReader,
+	exitCh <-chan containerd.ExitStatus,
+	outputLimit <-chan struct{},
+	wallDeadline, cpuTicks <-chan time.Time,
+	cpuTimeLimitMs int,
+) executionEvent {
+	for {
+		select {
+		case status, ok := <-exitCh:
+			if !ok {
+				return executionEvent{err: errors.New("wait for task exit: exit channel closed without status")}
+			}
+			return executionEvent{status: status, exited: true}
+
+		case <-cpuTicks:
+			metrics, err := collectMetrics(ctx, task)
+			if err != nil {
+				return executionEvent{err: fmt.Errorf("monitor CPU time: %w", err)}
+			}
+			if metrics.cpuMillis() >= cpuTimeLimitMs {
+				return executionEvent{reason: cpuTimeLimitReason, metrics: metrics}
+			}
+
+		case <-outputLimit:
+			return executionEvent{reason: outputLimitReason}
+
+		case <-wallDeadline:
+			return executionEvent{reason: wallTimeLimitReason}
+
+		case <-ctx.Done():
+			return executionEvent{err: fmt.Errorf("execution canceled: %w", ctx.Err())}
+		}
+	}
+}
+
+func resultAfterTaskExit(
+	ctx context.Context,
+	task metricsReader,
+	status containerd.ExitStatus,
+	startTime time.Time,
+	limits ResourceLimits,
+	stdoutLW, stderrLW *limitedWriter,
+) (ExecuteResult, error) {
+	code, _, err := status.Result()
+	if err != nil {
+		return ExecuteResult{}, fmt.Errorf("read task exit result: %w", err)
+	}
+	metrics, err := collectMetrics(ctx, task)
+	if err != nil {
+		return ExecuteResult{}, fmt.Errorf("collect cgroup metrics: %w", err)
+	}
+	return buildVerdict(code, time.Since(startTime), metrics, limits, stdoutLW, stderrLW), nil
 }
 
 func stopTask(

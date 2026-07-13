@@ -23,6 +23,13 @@ func (r fakeMetricsReader) Metrics(context.Context) (*types.Metric, error) {
 	return r.metric, r.err
 }
 
+type blockingMetricsReader struct{}
+
+func (blockingMetricsReader) Metrics(ctx context.Context) (*types.Metric, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestParseCgroupMetrics_MapsV2Stats(t *testing.T) {
 	raw, err := typeurl.MarshalAny(&cgroupsv2.Metrics{
 		CPU: &cgroupsv2.CPUStat{
@@ -92,6 +99,12 @@ func TestParseCgroupMetrics_ReturnsMalformedDataError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmarshal cgroup v2 metrics")
+}
+
+func TestCollectMetrics_TimesOut(t *testing.T) {
+	_, err := collectMetrics(context.Background(), blockingMetricsReader{})
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestUint64ToInt_SaturatesOverflow(t *testing.T) {

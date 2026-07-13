@@ -40,9 +40,9 @@ func buildVerdict(
 		res.Verdict = VerdictMLE
 		res.ExtraInfo = fmt.Sprintf("memory limit exceeded (peak %dMB, limit %dMB)", peakMemMB, limits.MemoryMB)
 
-	case cpuMs > limits.CPUTimeMs:
+	case cpuMs >= limits.CPUTimeMs:
 		res.Verdict = VerdictTLE
-		res.ExtraInfo = fmt.Sprintf("CPU time exceeded: %dms > %dms", cpuMs, limits.CPUTimeMs)
+		res.ExtraInfo = fmt.Sprintf("CPU time exceeded: %dms >= %dms", cpuMs, limits.CPUTimeMs)
 
 	case exitCode == 0:
 		res.Verdict = VerdictOK
@@ -60,7 +60,7 @@ func buildForcedStopVerdict(
 	limits ResourceLimits,
 	stdoutLW, stderrLW *limitedWriter,
 ) ExecuteResult {
-	cpuMs := min(metrics.cpuMillis(), limits.CPUTimeMs)
+	cpuMs := metrics.cpuMillis()
 	peakMemMB := metrics.peakMemMB()
 
 	res := ExecuteResult{
@@ -81,7 +81,13 @@ func buildForcedStopVerdict(
 		return res
 	}
 	res.Verdict = VerdictTLE
-	res.ExtraInfo = fmt.Sprintf("%s (%dms wall, cpu limit %dms)", reason, limits.WallTimeMs, limits.CPUTimeMs)
+	res.ExtraInfo = fmt.Sprintf(
+		"%s (cpu %dms, cpu limit %dms, wall limit %dms)",
+		reason,
+		cpuMs,
+		limits.CPUTimeMs,
+		limits.WallTimeMs,
+	)
 	return res
 }
 

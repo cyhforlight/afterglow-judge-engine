@@ -112,7 +112,7 @@ type CompiledArtifact struct {
 type ExecuteResult struct {
 	Verdict    Verdict `json:"verdict"`
 	Stdout     string  `json:"stdout"`
-	TimeUsed   int     `json:"timeUsed"`   // milliseconds
+	TimeUsed   int     `json:"timeUsed"`   // CPU milliseconds
 	MemoryUsed int     `json:"memoryUsed"` // megabytes
 	ExitCode   int     `json:"exitCode"`
 	ExtraInfo  string  `json:"extraInfo"`
@@ -131,7 +131,7 @@ type JudgeRequest struct {
 	SourceCode  string          `json:"sourceCode"`
 	Checker     string          `json:"checker,omitempty"`
 	Language    Language        `json:"language"`
-	TimeLimit   int             `json:"timeLimit"`   // milliseconds, per test case
+	TimeLimit   int             `json:"timeLimit"`   // CPU milliseconds, per test case
 	MemoryLimit int             `json:"memoryLimit"` // megabytes, per test case
 	TestCases   []JudgeTestCase `json:"testcases"`
 }
@@ -146,7 +146,7 @@ type CompileResult struct {
 type JudgeCaseResult struct {
 	Verdict    Verdict `json:"verdict"`
 	Stdout     string  `json:"stdout"`
-	TimeUsed   int     `json:"timeUsed"`   // milliseconds
+	TimeUsed   int     `json:"timeUsed"`   // CPU milliseconds
 	MemoryUsed int     `json:"memoryUsed"` // megabytes
 	ExitCode   int     `json:"exitCode"`
 	ExtraInfo  string  `json:"extraInfo"`

@@ -204,7 +204,7 @@ Authorization: Bearer <token>
 |------|------|------|------|
 | `sourceCode` | string | 是 | 源代码文本 |
 | `language` | string | 是 | `C` / `C++` / `Java` / `Python` |
-| `timeLimit` | int | 是 | 单测试点时间限制，单位毫秒 |
+| `timeLimit` | int | 是 | 单测试点 CPU 时间限制，单位毫秒 |
 | `memoryLimit` | int | 是 | 单测试点内存限制，单位 MB；Java 中对应最大堆容量（`-Xmx`） |
 | `checker` | string | 否 | 内置 checker 短名，或 `external:<path>.cpp` |
 | `testcases` | array | 是 | 测试点列表 |
@@ -226,6 +226,7 @@ Authorization: Bearer <token>
 - 未知字段会被直接拒绝
 - Java 的 JVM 堆外开销由 Judge Engine 额外预留，不从 `memoryLimit` 中扣除
 - `memoryUsed` 表示容器整体内存峰值；Java 中包含 JVM 堆外内存，可能高于 `memoryLimit`
+- Judge Engine 会在达到 `timeLimit` 时主动停止任务，并以三倍 wall time 作为阻塞和休眠程序的生命周期兜底
 
 文本型 testcase 示例：
 
@@ -288,6 +289,8 @@ Authorization: Bearer <token>
 ```
 
 顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`、`passedCount` 和 `totalCount`。
+
+`cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 
 错误响应示例：
 

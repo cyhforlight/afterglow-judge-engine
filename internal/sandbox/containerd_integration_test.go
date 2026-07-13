@@ -59,6 +59,7 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 		expectedCode    int
 		expectedVerdict Verdict
 		checkExtraInfo  string // Substring to check in ExtraInfo
+		minCPUTimeMs    int
 	}{
 		{
 			name:            "OK - simple output",
@@ -73,7 +74,16 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 			limits:          tightLimits(100, 128),
 			expectedCode:    0,
 			expectedVerdict: VerdictTLE,
-			checkExtraInfo:  "limit",
+			checkExtraInfo:  "CPU time limit exceeded",
+			minCPUTimeMs:    100,
+		},
+		{
+			name:            "TLE - wall watchdog",
+			script:          "import time; time.sleep(1)",
+			limits:          tightLimits(100, 128),
+			expectedCode:    0,
+			expectedVerdict: VerdictTLE,
+			checkExtraInfo:  "wall time limit exceeded",
 		},
 		{
 			name:            "MLE - large allocation",
@@ -120,6 +130,9 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 
 			if tt.checkExtraInfo != "" {
 				assert.Contains(t, result.ExtraInfo, tt.checkExtraInfo)
+			}
+			if tt.minCPUTimeMs > 0 {
+				assert.GreaterOrEqual(t, result.CPUTimeMs, tt.minCPUTimeMs)
 			}
 		})
 	}

@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/containerd/containerd/api/types"
 	typeurl "github.com/containerd/typeurl/v2"
 )
 
-const nanosPerMs = uint64(1_000_000)
+const (
+	nanosPerMs         = uint64(1_000_000)
+	metricsReadTimeout = 100 * time.Millisecond
+)
 
 type cgroupMetrics struct {
 	cpuNanos        uint64
@@ -40,7 +44,10 @@ func uint64ToInt(value uint64) int {
 }
 
 func collectMetrics(ctx context.Context, task metricsReader) (cgroupMetrics, error) {
-	metric, err := task.Metrics(ctx)
+	metricsCtx, cancel := context.WithTimeout(ctx, metricsReadTimeout)
+	defer cancel()
+
+	metric, err := task.Metrics(metricsCtx)
 	if err != nil {
 		return cgroupMetrics{}, fmt.Errorf("read task metrics: %w", err)
 	}

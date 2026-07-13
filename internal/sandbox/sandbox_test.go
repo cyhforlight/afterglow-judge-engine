@@ -7,11 +7,14 @@ import (
 	"testing"
 	"time"
 
+	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/containerd/containerd/api/types"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	typeurl "github.com/containerd/typeurl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type fakeTaskController struct {
@@ -43,6 +46,19 @@ func (f *fakeTaskController) Metrics(ctx context.Context) (*types.Metric, error)
 		return f.metrics(ctx)
 	}
 	return nil, errors.New("metrics unavailable in lifecycle test")
+}
+
+func metricWithCPUTime(t *testing.T, cpuMs int) *types.Metric {
+	t.Helper()
+
+	data, err := typeurl.MarshalAny(&cgroupsv2.Metrics{
+		CPU: &cgroupsv2.CPUStat{UsageUsec: uint64(cpuMs) * 1000},
+	})
+	require.NoError(t, err)
+	return &types.Metric{Data: &anypb.Any{
+		TypeUrl: data.GetTypeUrl(),
+		Value:   data.GetValue(),
+	}}
 }
 
 func TestValidateExecuteLimits(t *testing.T) {
@@ -284,6 +300,75 @@ func TestWatchExecution_ForcedStopStillKillsTaskWhenMetricsFail(t *testing.T) {
 		newLimitedWriter(limiter),
 		limiter,
 		standardLimits(),
+	)
+
+	assert.Equal(t, ExecuteResult{}, result)
+	require.ErrorIs(t, err, metricsErr)
+	assert.True(t, killed)
+}
+
+func TestWatchExecution_StopsTaskAtCPUTimeLimit(t *testing.T) {
+	exitCh := make(chan containerd.ExitStatus, 1)
+	killed := false
+	metric := metricWithCPUTime(t, 6)
+	task := &fakeTaskController{
+		metrics: func(context.Context) (*types.Metric, error) {
+			return metric, nil
+		},
+		kill: func(context.Context, syscall.Signal, ...containerd.KillOpts) error {
+			killed = true
+			exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
+			return nil
+		},
+	}
+	limiter := newOutputLimiter(1024)
+	limits := standardLimits()
+	limits.CPUTimeMs = 5
+	limits.WallTimeMs = 1000
+
+	result, err := (&ContainerdSandbox{}).watchExecution(
+		context.Background(),
+		task,
+		exitCh,
+		newLimitedWriter(limiter),
+		newLimitedWriter(limiter),
+		limiter,
+		limits,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, killed)
+	assert.Equal(t, VerdictTLE, result.Verdict)
+	assert.Equal(t, 6, result.CPUTimeMs)
+	assert.Contains(t, result.ExtraInfo, "CPU time limit exceeded")
+}
+
+func TestWatchExecution_CPUMetricsFailureStopsTask(t *testing.T) {
+	metricsErr := errors.New("CPU metrics unavailable")
+	exitCh := make(chan containerd.ExitStatus, 1)
+	killed := false
+	task := &fakeTaskController{
+		metrics: func(context.Context) (*types.Metric, error) {
+			return nil, metricsErr
+		},
+		kill: func(context.Context, syscall.Signal, ...containerd.KillOpts) error {
+			killed = true
+			exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
+			return nil
+		},
+	}
+	limiter := newOutputLimiter(1024)
+	limits := standardLimits()
+	limits.WallTimeMs = 1000
+
+	result, err := (&ContainerdSandbox{}).watchExecution(
+		context.Background(),
+		task,
+		exitCh,
+		newLimitedWriter(limiter),
+		newLimitedWriter(limiter),
+		limiter,
+		limits,
 	)
 
 	assert.Equal(t, ExecuteResult{}, result)
