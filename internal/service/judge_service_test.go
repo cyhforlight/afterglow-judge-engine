@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
@@ -82,42 +84,37 @@ func (r *fakeRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
 	return r.runResult, nil
 }
 
-type fakeResourceStore struct {
+type fakeResourceFS struct {
 	mu    sync.Mutex
 	files map[string][]byte
 	err   error
 	keys  []string
 }
 
-func (s *fakeResourceStore) Get(_ context.Context, key string) ([]byte, error) {
+func (s *fakeResourceFS) Open(key string) (fs.File, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.keys = append(s.keys, key)
 	if s.err != nil {
-		return nil, s.err
+		err := s.err
+		s.mu.Unlock()
+		return nil, err
 	}
-
 	content, ok := s.files[key]
+	s.mu.Unlock()
+
 	if !ok {
-		return nil, fmt.Errorf("resource not found: %s", key)
+		return nil, &fs.PathError{Op: "open", Path: key, Err: fs.ErrNotExist}
 	}
 
-	return append([]byte(nil), content...), nil
+	return testFileSystem(map[string][]byte{key: content}).Open(key)
 }
 
-func (s *fakeResourceStore) Stat(_ context.Context, key string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.keys = append(s.keys, key)
-	if s.err != nil {
-		return s.err
+func testFileSystem(files map[string][]byte) fstest.MapFS {
+	fsys := make(fstest.MapFS, len(files))
+	for name, data := range files {
+		fsys[name] = &fstest.MapFile{Data: data}
 	}
-	if _, ok := s.files[key]; !ok {
-		return fmt.Errorf("resource not found: %s", key)
-	}
-	return nil
+	return fsys
 }
 
 func testCompiledArtifact() *model.CompiledArtifact {
@@ -172,16 +169,16 @@ func checkerWARunResult(message string) RunResult {
 func newTestJudgeEngine(
 	runner *fakeRunner,
 	compiler *fakeCompiler,
-	resources *fakeResourceStore,
+	bundledFS *fakeResourceFS,
 ) *JudgeEngine {
-	return newTestJudgeEngineWithExternalResources(runner, compiler, resources, nil)
+	return newTestJudgeEngineWithExternalResources(runner, compiler, bundledFS, nil)
 }
 
 func newTestJudgeEngineWithExternalResources(
 	runner *fakeRunner,
 	compiler *fakeCompiler,
-	resources *fakeResourceStore,
-	externalResources ResourceStore,
+	bundledFS *fakeResourceFS,
+	externalFS fs.FS,
 ) *JudgeEngine {
 	if runner == nil {
 		runner = &fakeRunner{}
@@ -191,13 +188,13 @@ func newTestJudgeEngineWithExternalResources(
 			compileResults: successCompileResults(),
 		}
 	}
-	if resources == nil {
-		resources = &fakeResourceStore{files: map[string][]byte{
+	if bundledFS == nil {
+		bundledFS = &fakeResourceFS{files: map[string][]byte{
 			"checkers/default.cpp": []byte("checker source"),
 			testlibHeaderKey:       []byte("header"),
 		}}
 	}
-	engine := NewJudgeEngine(compiler, compiler, runner, resources, externalResources, 10, model.DefaultJudgeLimits())
+	engine := NewJudgeEngine(compiler, compiler, runner, bundledFS, externalFS, 10, model.DefaultJudgeLimits())
 	return engine
 }
 
@@ -371,10 +368,10 @@ func TestJudgeEngine_CheckerCompileFailureReturnsUnknownError(t *testing.T) {
 
 func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 	// Only checker source, no testlib.h — prepareChecker will fail loading testlib.h
-	resources := &fakeResourceStore{files: map[string][]byte{
+	bundledFS := &fakeResourceFS{files: map[string][]byte{
 		"checkers/default.cpp": []byte("checker source"),
 	}}
-	engine := newTestJudgeEngine(nil, nil, resources)
+	engine := newTestJudgeEngine(nil, nil, bundledFS)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{},
@@ -388,11 +385,11 @@ func TestJudgeEngine_MissingCheckerResourceReturnsUnknownError(t *testing.T) {
 
 func TestJudgeEngine_ValidateRequest(t *testing.T) {
 	tests := []struct {
-		name              string
-		req               model.JudgeRequest
-		resources         *fakeResourceStore
-		externalResources ResourceStore
-		wantErr           string
+		name       string
+		req        model.JudgeRequest
+		bundledFS  *fakeResourceFS
+		externalFS fs.FS
+		wantErr    string
 	}{
 		{
 			name: "invalid checker name",
@@ -424,8 +421,8 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 			req: baseJudgeRequest(model.JudgeTestCase{
 				InputFile: "cases/1.in",
 			}),
-			externalResources: &fakeExternalResources{files: map[string][]byte{}},
-			wantErr:           `testcases[0]: inputFile "cases/1.in" is not available`,
+			externalFS: testFileSystem(nil),
+			wantErr:    `testcases[0]: inputFile "cases/1.in" is not available`,
 		},
 		{
 			name: "missing external checker file",
@@ -434,13 +431,13 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 				req.Checker = "external:checkers/custom.cpp"
 				return req
 			}(),
-			externalResources: &fakeExternalResources{files: map[string][]byte{}},
-			wantErr:           `external checker "checkers/custom.cpp" is not available`,
+			externalFS: testFileSystem(nil),
+			wantErr:    `external checker "checkers/custom.cpp" is not available`,
 		},
 		{
 			name: "missing builtin checker dependency",
 			req:  baseJudgeRequest(),
-			resources: &fakeResourceStore{files: map[string][]byte{
+			bundledFS: &fakeResourceFS{files: map[string][]byte{
 				"checkers/default.cpp": []byte("checker source"),
 			}},
 			wantErr: `checker dependency "testlib.h" is not available`,
@@ -452,10 +449,10 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 				req.Checker = "external:checkers/custom.cpp"
 				return req
 			}(),
-			resources: &fakeResourceStore{files: map[string][]byte{}},
-			externalResources: &fakeExternalResources{files: map[string][]byte{
+			bundledFS: &fakeResourceFS{files: map[string][]byte{}},
+			externalFS: testFileSystem(map[string][]byte{
 				"checkers/custom.cpp": []byte("checker source"),
-			}},
+			}),
 			wantErr: `checker dependency "testlib.h" is not available`,
 		},
 		{
@@ -471,8 +468,8 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := newTestJudgeEngine(nil, nil, tt.resources)
-			engine.externalResources = tt.externalResources
+			engine := newTestJudgeEngine(nil, nil, tt.bundledFS)
+			engine.externalFS = tt.externalFS
 
 			err := engine.ValidateRequest(context.Background(), tt.req)
 			require.Error(t, err)
@@ -482,7 +479,7 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 }
 
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
-	resources := &fakeResourceStore{files: map[string][]byte{
+	bundledFS := &fakeResourceFS{files: map[string][]byte{
 		"checkers/default.cpp": []byte("default checker source"),
 		"checkers/yesno.cpp":   []byte("yesno checker source"),
 		testlibHeaderKey:       []byte("header"),
@@ -490,7 +487,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	runner := &fakeRunner{runResults: []RunResult{
 		userOKRunResult("YES\n"), checkerOKRunResult(),
 	}}
-	engine := newTestJudgeEngine(runner, nil, resources)
+	engine := newTestJudgeEngine(runner, nil, bundledFS)
 
 	result := engine.Judge(context.Background(), model.JudgeRequest{
 		SourceCode:  "code",
@@ -504,8 +501,8 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	})
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Contains(t, resources.keys, "checkers/yesno.cpp")
-	assert.NotContains(t, resources.keys, "checkers/default.cpp")
+	assert.Contains(t, bundledFS.keys, "checkers/yesno.cpp")
+	assert.NotContains(t, bundledFS.keys, "checkers/default.cpp")
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
@@ -635,12 +632,10 @@ func (r *inputKeyedRunner) Run(_ context.Context, req RunRequest) (RunResult, er
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
-	fakeResources := &fakeExternalResources{
-		files: map[string][]byte{
-			"test.in":  []byte("input data"),
-			"test.out": []byte("expected output"),
-		},
-	}
+	fakeResources := testFileSystem(map[string][]byte{
+		"test.in":  []byte("input data"),
+		"test.out": []byte("expected output"),
+	})
 
 	runner := &fakeRunner{runResults: []RunResult{
 		userOKRunResult("expected output"), checkerOKRunResult(),
@@ -669,32 +664,6 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 	assert.Equal(t, "test.out", originalReq.TestCases[0].ExpectedOutputFile, "ExpectedOutputFile should not be cleared")
 	assert.Empty(t, originalReq.TestCases[0].InputText, "InputText should remain empty")
 	assert.Empty(t, originalReq.TestCases[0].ExpectedOutput, "ExpectedOutput should remain empty")
-}
-
-type fakeExternalResources struct {
-	mu    sync.Mutex
-	files map[string][]byte
-}
-
-func (f *fakeExternalResources) Get(_ context.Context, path string) ([]byte, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	data, ok := f.files[path]
-	if !ok {
-		return nil, fmt.Errorf("file not found: %s", path)
-	}
-	return data, nil
-}
-
-func (f *fakeExternalResources) Stat(_ context.Context, path string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if _, ok := f.files[path]; !ok {
-		return fmt.Errorf("file not found: %s", path)
-	}
-	return nil
 }
 
 func TestAggregateStatus(t *testing.T) {

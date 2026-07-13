@@ -166,11 +166,11 @@ func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
 	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
-	bundledResources, err := resource.NewBundled()
+	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
 
 	testdataDir := filepath.Join(projectRoot(t), "testdata")
-	externalResources, err := resource.NewExternal(testdataDir)
+	externalFS, err := resource.NewExternal(testdataDir)
 	require.NoError(t, err)
 
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
@@ -179,7 +179,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	require.NoError(t, err)
 	baseRunner := service.NewRunner(executor)
 	judge := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
-		bundledResources, externalResources, 10, model.DefaultJudgeLimits())
+		bundledFS, externalFS, 10, model.DefaultJudgeLimits())
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {

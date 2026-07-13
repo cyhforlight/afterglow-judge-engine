@@ -51,12 +51,12 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		}
 
 		compiler := &fakeCompiler{compileResults: successCompileResults()}
-		resources := &fakeResourceStore{files: map[string][]byte{
+		bundledFS := &fakeResourceFS{files: map[string][]byte{
 			"checkers/default.cpp": []byte("checker"),
 			testlibHeaderKey:       []byte("header"),
 		}}
 
-		engine := NewJudgeEngine(compiler, compiler, runner, resources, nil, maxConcurrent, model.DefaultJudgeLimits())
+		engine := NewJudgeEngine(compiler, compiler, runner, bundledFS, nil, maxConcurrent, model.DefaultJudgeLimits())
 		req := baseJudgeRequest()
 		results := make([]model.JudgeResult, numRequests)
 
@@ -92,12 +92,12 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 		}
 
 		compiler := &fakeCompiler{compileResults: successCompileResults()}
-		resources := &fakeResourceStore{files: map[string][]byte{
+		bundledFS := &fakeResourceFS{files: map[string][]byte{
 			"checkers/default.cpp": []byte("checker"),
 			testlibHeaderKey:       []byte("header"),
 		}}
 
-		engine := NewJudgeEngine(compiler, compiler, runner, resources, nil, 1, model.DefaultJudgeLimits())
+		engine := NewJudgeEngine(compiler, compiler, runner, bundledFS, nil, 1, model.DefaultJudgeLimits())
 		req := baseJudgeRequest()
 
 		go engine.Judge(t.Context(), req)
@@ -129,12 +129,12 @@ func TestJudgeEngine_ConcurrencyRaceCondition(t *testing.T) {
 	}
 
 	compiler := &fakeCompiler{compileResults: successCompileResults()}
-	resources := &fakeResourceStore{files: map[string][]byte{
+	bundledFS := &fakeResourceFS{files: map[string][]byte{
 		"checkers/default.cpp": []byte("checker"),
 		testlibHeaderKey:       []byte("header"),
 	}}
 
-	engine := NewJudgeEngine(compiler, compiler, runner, resources, nil, 1, model.DefaultJudgeLimits())
+	engine := NewJudgeEngine(compiler, compiler, runner, bundledFS, nil, 1, model.DefaultJudgeLimits())
 
 	req := baseJudgeRequest()
 

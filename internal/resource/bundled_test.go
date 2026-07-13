@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,10 +12,10 @@ func TestNewBundled(t *testing.T) {
 	b, err := NewBundled()
 	require.NoError(t, err)
 
-	header, err := b.Get(context.Background(), "testlib.h")
+	header, err := fs.ReadFile(b, "testlib.h")
 	require.NoError(t, err)
 	assert.NotEmpty(t, header)
 
-	err = b.Stat(context.Background(), "checkers/default.cpp")
+	_, err = fs.Stat(b, "checkers/default.cpp")
 	require.NoError(t, err)
 }

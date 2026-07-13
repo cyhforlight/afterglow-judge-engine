@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ type checkerScenario struct {
 func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, externalDir string) model.CompiledArtifact {
 	t.Helper()
 
-	resourceStore, err := resource.NewBundled()
+	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
 
 	var checkerSource []byte
@@ -42,11 +43,11 @@ func compileCheckerForTest(ctx context.Context, t *testing.T, checkerName, exter
 		require.NoError(t, err, "failed to read external checker: %s", checkerPath)
 	} else {
 		// Builtin checker — load from bundled resources.
-		checkerSource, err = resourceStore.Get(ctx, filepath.ToSlash(filepath.Join("checkers", checkerName)))
+		checkerSource, err = fs.ReadFile(bundledFS, filepath.ToSlash(filepath.Join("checkers", checkerName)))
 		require.NoError(t, err)
 	}
 
-	testlibHeader, err := resourceStore.Get(ctx, testlibHeaderKey)
+	testlibHeader, err := fs.ReadFile(bundledFS, testlibHeaderKey)
 	require.NoError(t, err)
 
 	compiler := NewCompiler(newExecutorForTest(t))

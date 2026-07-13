@@ -1,10 +1,9 @@
 package resource
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 )
 
@@ -13,9 +12,8 @@ type External struct {
 	mountPoint string
 }
 
-// NewExternal creates a read-only resource store mounted at the specified directory.
+// NewExternal creates a read-only file system rooted at the specified directory.
 func NewExternal(mountPoint string) (*External, error) {
-	// Verify mount point exists and is a directory
 	info, err := os.Stat(mountPoint)
 	if err != nil {
 		return nil, fmt.Errorf("mount point not accessible: %w", err)
@@ -29,33 +27,12 @@ func NewExternal(mountPoint string) (*External, error) {
 	}, nil
 }
 
-// Get retrieves file content by relative path.
-// The path is relative to the mount point (e.g., "testdata/input.txt").
-func (e *External) Get(_ context.Context, relPath string) ([]byte, error) {
-	file, err := e.openRegularFile(relPath)
-	if err != nil {
-		return nil, err
+// Open opens a regular file relative to the external resource root.
+func (e *External) Open(relPath string) (fs.File, error) {
+	if !fs.ValidPath(relPath) {
+		return nil, &fs.PathError{Op: "open", Path: relPath, Err: fs.ErrInvalid}
 	}
 
-	// Let the operating system page cache handle repeated reads.
-	data, readErr := io.ReadAll(file)
-	if err := errors.Join(readErr, file.Close()); err != nil {
-		return nil, fmt.Errorf("read external resource %q: %w", relPath, err)
-	}
-
-	return data, nil
-}
-
-// Stat verifies that a relative path resolves to an accessible regular file inside the mount.
-func (e *External) Stat(_ context.Context, relPath string) error {
-	file, err := e.openRegularFile(relPath)
-	if err != nil {
-		return err
-	}
-	return file.Close()
-}
-
-func (e *External) openRegularFile(relPath string) (*os.File, error) {
 	file, err := os.OpenInRoot(e.mountPoint, relPath)
 	if err != nil {
 		return nil, fmt.Errorf("open external resource %q: %w", relPath, err)

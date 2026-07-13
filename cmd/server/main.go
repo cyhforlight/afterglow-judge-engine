@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -62,19 +63,19 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 
 	// 2. Load bundled internal resources before the service starts listening.
-	bundledResources, err := resource.NewBundled()
+	bundledFS, err := resource.NewBundled()
 	if err != nil {
 		return nil, fmt.Errorf("initialize bundled resources: %w", err)
 	}
 
 	// 3. Optionally enable external test data / checker files when configured.
-	var externalResources service.ResourceStore
+	var externalFS fs.FS
 	if cfg.ExternalDataDir != "" {
 		ext, err := resource.NewExternal(cfg.ExternalDataDir)
 		if err != nil {
 			return nil, fmt.Errorf("initialize external resources %q: %w", cfg.ExternalDataDir, err)
 		}
-		externalResources = ext
+		externalFS = ext
 	}
 
 	// 4. Create shared execution primitives.
@@ -92,8 +93,8 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 		compiler,
 		checkerCompiler,
 		runner,
-		bundledResources,
-		externalResources,
+		bundledFS,
+		externalFS,
 		cfg.MaxConcurrentJudges,
 		cfg.JudgeLimits,
 	)

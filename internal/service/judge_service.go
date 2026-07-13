@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"strings"
 	"sync"
@@ -22,13 +23,13 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	compiler          Compiler
-	checkerCompiler   Compiler
-	runner            Runner
-	resources         ResourceStore
-	externalResources ResourceStore
-	concurrencySem    chan struct{}
-	limits            model.JudgeLimits
+	compiler        Compiler
+	checkerCompiler Compiler
+	runner          Runner
+	bundledFS       fs.FS
+	externalFS      fs.FS
+	concurrencySem  chan struct{}
+	limits          model.JudgeLimits
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -36,8 +37,8 @@ func NewJudgeEngine(
 	compiler Compiler,
 	checkerCompiler Compiler,
 	runner Runner,
-	resources ResourceStore,
-	externalResources ResourceStore,
+	bundledFS fs.FS,
+	externalFS fs.FS,
 	maxConcurrent int,
 	limits model.JudgeLimits,
 ) *JudgeEngine {
@@ -46,13 +47,13 @@ func NewJudgeEngine(
 	}
 
 	return &JudgeEngine{
-		compiler:          compiler,
-		checkerCompiler:   checkerCompiler,
-		runner:            runner,
-		resources:         resources,
-		externalResources: externalResources,
-		concurrencySem:    make(chan struct{}, maxConcurrent),
-		limits:            limits,
+		compiler:        compiler,
+		checkerCompiler: checkerCompiler,
+		runner:          runner,
+		bundledFS:       bundledFS,
+		externalFS:      externalFS,
+		concurrencySem:  make(chan struct{}, maxConcurrent),
+		limits:          limits,
 	}
 }
 
@@ -62,7 +63,7 @@ func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
 }
 
 // ValidateRequest verifies whether the request can be handled by the judge.
-func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeRequest) error {
+func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest) error {
 	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
 		return err
 	}
@@ -72,18 +73,18 @@ func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeReques
 		return err
 	}
 
-	if err := s.validateCheckerDependencies(ctx, checkerLoc); err != nil {
+	if err := s.validateCheckerDependencies(checkerLoc); err != nil {
 		return err
 	}
 
 	for index, testCase := range req.TestCases {
 		if testCase.InputFile != "" {
-			if err := s.validateExternalDependency(ctx, testCase.InputFile, "inputFile"); err != nil {
+			if err := s.validateExternalDependency(testCase.InputFile, "inputFile"); err != nil {
 				return fmt.Errorf("testcases[%d]: %w", index, err)
 			}
 		}
 		if testCase.ExpectedOutputFile != "" {
-			if err := s.validateExternalDependency(ctx, testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
+			if err := s.validateExternalDependency(testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
 				return fmt.Errorf("testcases[%d]: %w", index, err)
 			}
 		}
@@ -92,30 +93,30 @@ func (s *JudgeEngine) ValidateRequest(ctx context.Context, req model.JudgeReques
 	return nil
 }
 
-func (s *JudgeEngine) validateCheckerDependencies(ctx context.Context, checkerLoc CheckerLocation) error {
+func (s *JudgeEngine) validateCheckerDependencies(checkerLoc CheckerLocation) error {
 	if checkerLoc.IsExternal {
-		if err := s.validateExternalDependency(ctx, checkerLoc.Path, "external checker"); err != nil {
+		if err := s.validateExternalDependency(checkerLoc.Path, "external checker"); err != nil {
 			return err
 		}
 	} else {
 		checkerSourceKey := builtinCheckerPath(checkerLoc.Path)
-		if err := s.resources.Stat(ctx, checkerSourceKey); err != nil {
+		if _, err := fs.Stat(s.bundledFS, checkerSourceKey); err != nil {
 			return fmt.Errorf("builtin checker %q is not available: %w", checkerLoc.Path, err)
 		}
 	}
 
-	if err := s.resources.Stat(ctx, testlibHeaderKey); err != nil {
+	if _, err := fs.Stat(s.bundledFS, testlibHeaderKey); err != nil {
 		return fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
 	}
 
 	return nil
 }
 
-func (s *JudgeEngine) validateExternalDependency(ctx context.Context, path, label string) error {
-	if s.externalResources == nil {
+func (s *JudgeEngine) validateExternalDependency(path, label string) error {
+	if s.externalFS == nil {
 		return fmt.Errorf("%s %q requires external resources", label, path)
 	}
-	if err := s.externalResources.Stat(ctx, path); err != nil {
+	if _, err := fs.Stat(s.externalFS, path); err != nil {
 		return fmt.Errorf("%s %q is not available: %w", label, path, err)
 	}
 	return nil
@@ -202,7 +203,7 @@ func (s *JudgeEngine) runAllCases(
 	var wg sync.WaitGroup
 	for i, tc := range req.TestCases {
 		wg.Go(func() {
-			if err := s.loadTestCaseData(ctx, &tc); err != nil {
+			if err := s.loadTestCaseData(&tc); err != nil {
 				slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
 				results[i] = model.JudgeCaseResult{
 					Verdict:   model.VerdictUKE,
@@ -227,12 +228,12 @@ func (s *JudgeEngine) runAllCases(
 
 // loadTestCaseData resolves file paths to actual content strings.
 // Modifies testCase in-place, converting file paths to text.
-func (s *JudgeEngine) loadTestCaseData(ctx context.Context, testCase *model.JudgeTestCase) error {
+func (s *JudgeEngine) loadTestCaseData(testCase *model.JudgeTestCase) error {
 	if testCase.InputFile != "" {
-		if s.externalResources == nil {
+		if s.externalFS == nil {
 			return fmt.Errorf("external resources not configured, cannot load inputFile: %s", testCase.InputFile)
 		}
-		data, err := s.externalResources.Get(ctx, testCase.InputFile)
+		data, err := fs.ReadFile(s.externalFS, testCase.InputFile)
 		if err != nil {
 			return fmt.Errorf("load inputFile %q: %w", testCase.InputFile, err)
 		}
@@ -241,10 +242,10 @@ func (s *JudgeEngine) loadTestCaseData(ctx context.Context, testCase *model.Judg
 	}
 
 	if testCase.ExpectedOutputFile != "" {
-		if s.externalResources == nil {
+		if s.externalFS == nil {
 			return fmt.Errorf("external resources not configured, cannot load expectedOutputFile: %s", testCase.ExpectedOutputFile)
 		}
-		data, err := s.externalResources.Get(ctx, testCase.ExpectedOutputFile)
+		data, err := fs.ReadFile(s.externalFS, testCase.ExpectedOutputFile)
 		if err != nil {
 			return fmt.Errorf("load expectedOutputFile %q: %w", testCase.ExpectedOutputFile, err)
 		}
@@ -302,23 +303,23 @@ func (s *JudgeEngine) prepareChecker(
 	var err error
 
 	if loc.IsExternal {
-		if s.externalResources == nil {
+		if s.externalFS == nil {
 			return nil, model.CompileResult{}, errors.New("external resources not configured")
 		}
-		checkerSource, err = s.externalResources.Get(ctx, loc.Path)
+		checkerSource, err = fs.ReadFile(s.externalFS, loc.Path)
 		if err != nil {
 			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
 		}
 	} else {
 		checkerSourceKey := builtinCheckerPath(loc.Path)
-		checkerSource, err = s.resources.Get(ctx, checkerSourceKey)
+		checkerSource, err = fs.ReadFile(s.bundledFS, checkerSourceKey)
 		if err != nil {
 			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, checkerSourceKey, err)
 		}
 	}
 
 	// Load testlib.h.
-	testlibHeader, err := s.resources.Get(ctx, testlibHeaderKey)
+	testlibHeader, err := fs.ReadFile(s.bundledFS, testlibHeaderKey)
 	if err != nil {
 		return nil, model.CompileResult{}, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
 	}
