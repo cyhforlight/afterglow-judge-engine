@@ -30,7 +30,7 @@ func TestRecoveryMiddleware_ReturnsJSON(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-	var resp ErrorResponseDTO
+	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "INTERNAL_ERROR", resp.Code)
@@ -42,7 +42,7 @@ func TestAuthMiddleware(t *testing.T) {
 		apiKey        string
 		authHeader    string
 		expectedCode  int
-		expectedError ErrorResponseDTO
+		expectedError errorResponse
 	}{
 		{
 			name:         "no api key allows all requests",
@@ -53,7 +53,7 @@ func TestAuthMiddleware(t *testing.T) {
 			name:         "missing auth header returns 401",
 			apiKey:       "valid-key",
 			expectedCode: http.StatusUnauthorized,
-			expectedError: ErrorResponseDTO{
+			expectedError: errorResponse{
 				Error:   http.StatusText(http.StatusUnauthorized),
 				Code:    "UNAUTHORIZED",
 				Details: "missing Authorization header",
@@ -64,7 +64,7 @@ func TestAuthMiddleware(t *testing.T) {
 			apiKey:       "valid-key",
 			authHeader:   "InvalidFormat token",
 			expectedCode: http.StatusUnauthorized,
-			expectedError: ErrorResponseDTO{
+			expectedError: errorResponse{
 				Error:   http.StatusText(http.StatusUnauthorized),
 				Code:    "UNAUTHORIZED",
 				Details: "Authorization header must use Bearer token",
@@ -75,7 +75,7 @@ func TestAuthMiddleware(t *testing.T) {
 			apiKey:       "valid-key",
 			authHeader:   "Bearer invalid-key",
 			expectedCode: http.StatusUnauthorized,
-			expectedError: ErrorResponseDTO{
+			expectedError: errorResponse{
 				Error:   http.StatusText(http.StatusUnauthorized),
 				Code:    "UNAUTHORIZED",
 				Details: "invalid API key",
@@ -92,7 +92,7 @@ func TestAuthMiddleware(t *testing.T) {
 			apiKey:       "valid-key",
 			authHeader:   "Bearer ",
 			expectedCode: http.StatusUnauthorized,
-			expectedError: ErrorResponseDTO{
+			expectedError: errorResponse{
 				Error:   http.StatusText(http.StatusUnauthorized),
 				Code:    "UNAUTHORIZED",
 				Details: "invalid API key",
@@ -129,7 +129,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-			var resp ErrorResponseDTO
+			var resp errorResponse
 			err := json.NewDecoder(w.Body).Decode(&resp)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedError, resp)

@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+type errorResponse struct {
+	Error   string `json:"error"`
+	Code    string `json:"code"`
+	Details string `json:"details,omitempty"`
+}
+
 // LoggingMiddleware logs all HTTP requests.
 func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -95,7 +101,7 @@ func writeErrorResponse(w http.ResponseWriter, logger *slog.Logger, status int, 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	if err := json.NewEncoder(w).Encode(ErrorResponseDTO{
+	if err := json.NewEncoder(w).Encode(errorResponse{
 		Error:   http.StatusText(status),
 		Code:    code,
 		Details: details,

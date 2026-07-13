@@ -29,7 +29,7 @@ func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-	var resp ErrorResponseDTO
+	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "UNAUTHORIZED", resp.Code)

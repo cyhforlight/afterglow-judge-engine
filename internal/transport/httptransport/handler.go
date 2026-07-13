@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/service"
 )
 
@@ -32,7 +33,7 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxSize)
 
-	var req JudgeRequestDTO
+	var req model.JudgeRequest
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
@@ -44,18 +45,13 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	judgeRequest, err := req.ToModel()
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
-		return
-	}
-	if err := h.judge.ValidateRequest(ctx, judgeRequest); err != nil {
+	if err := h.judge.ValidateRequest(ctx, req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 
-	result := h.judge.Judge(ctx, judgeRequest)
-	h.writeJSON(w, http.StatusOK, ToJudgeResponse(result))
+	result := h.judge.Judge(ctx, req)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 // HandleHealth handles GET /health requests.

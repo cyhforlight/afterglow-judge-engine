@@ -41,22 +41,22 @@ func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) mode
 	return m.result
 }
 
-func makeJudgeBody(t *testing.T, dto JudgeRequestDTO) io.Reader {
+func makeJudgeBody(t *testing.T, req model.JudgeRequest) io.Reader {
 	t.Helper()
-	body, err := json.Marshal(dto)
+	body, err := json.Marshal(req)
 	require.NoError(t, err)
 	return bytes.NewReader(body)
 }
 
-func validJudgeRequest() JudgeRequestDTO {
-	return JudgeRequestDTO{
+func validJudgeRequest() model.JudgeRequest {
+	return model.JudgeRequest{
 		SourceCode:  "print(42)",
 		Checker:     "default",
-		Language:    "Python",
+		Language:    model.LanguagePython,
 		TimeLimit:   1000,
 		MemoryLimit: 128,
-		TestCases: []JudgeTestCaseDTO{
-			{InputText: "", ExpectedOutputText: "42\n"},
+		TestCases: []model.JudgeTestCase{
+			{InputText: "", ExpectedOutput: "42\n"},
 		},
 	}
 }
@@ -113,13 +113,22 @@ func TestHandleExecute_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp JudgeResponseDTO
+	var resp struct {
+		Status string `json:"status"`
+		Cases  []struct {
+			Verdict string `json:"verdict"`
+		} `json:"cases"`
+		PassedCount int `json:"passedCount"`
+	}
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", resp.Status)
+	require.Len(t, resp.Cases, 1)
+	assert.Equal(t, "OK", resp.Cases[0].Verdict)
 	assert.Equal(t, 1, resp.PassedCount)
 	assert.Equal(t, "Python", judge.lastRequest.Language.String())
 	assert.Equal(t, "default", judge.lastRequest.Checker)
+	assert.Equal(t, "42\n", judge.lastRequest.TestCases[0].ExpectedOutput)
 }
 
 func TestHandleExecute_InvalidJSON(t *testing.T) {
@@ -145,10 +154,8 @@ func TestHandleExecute_UnknownField(t *testing.T) {
 func TestHandleExecute_InvalidLanguage(t *testing.T) {
 	handler := newTestHandler(&mockJudgeService{})
 
-	dto := validJudgeRequest()
-	dto.Language = "Ruby"
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	body := `{"sourceCode":"x","language":"Ruby","timeLimit":1,"memoryLimit":1,"testcases":[{}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	handler.HandleExecute(w, req)
 
@@ -169,7 +176,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, 0, judge.judgeCalls)
 
-	var resp ErrorResponseDTO
+	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)

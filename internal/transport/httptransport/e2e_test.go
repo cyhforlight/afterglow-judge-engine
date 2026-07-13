@@ -34,7 +34,7 @@ type e2eProblemSuite struct {
 
 type e2eCodeExpectation struct {
 	filename      string
-	language      string
+	language      model.Language
 	overallStatus string
 	caseVerdicts  []e2eVerdictExpectation
 	passedCount   int
@@ -43,6 +43,17 @@ type e2eCodeExpectation struct {
 type e2eVerdictExpectation struct {
 	name    string
 	allowed []string
+}
+
+type judgeHTTPResponse struct {
+	Status      string                  `json:"status"`
+	Cases       []judgeCaseHTTPResponse `json:"cases"`
+	PassedCount int                     `json:"passedCount"`
+	TotalCount  int                     `json:"totalCount"`
+}
+
+type judgeCaseHTTPResponse struct {
+	Verdict string `json:"verdict"`
 }
 
 var e2eProblemSuites = []e2eProblemSuite{
@@ -55,7 +66,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 		codes: []e2eCodeExpectation{
 			{
 				filename:      "code_1_ac.cpp",
-				language:      "C++",
+				language:      model.LanguageCPP,
 				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
@@ -68,7 +79,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			},
 			{
 				filename:      "code_2_tle.cpp",
-				language:      "C++",
+				language:      model.LanguageCPP,
 				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
@@ -81,7 +92,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			},
 			{
 				filename:      "code_3_wa_and_tle.cpp",
-				language:      "C++",
+				language:      model.LanguageCPP,
 				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
@@ -94,7 +105,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			},
 			{
 				filename:      "code_4_wa_and_tle.py",
-				language:      "Python",
+				language:      model.LanguagePython,
 				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
@@ -107,7 +118,7 @@ var e2eProblemSuites = []e2eProblemSuite{
 			},
 			{
 				filename:      "code_5_wa_and_tle.c",
-				language:      "C",
+				language:      model.LanguageC,
 				overallStatus: "OK",
 				caseVerdicts: []e2eVerdictExpectation{
 					{name: "sum1", allowed: []string{"OK"}},
@@ -178,7 +189,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	return NewHandler(judge, slog.Default(), 256)
 }
 
-func executeJudgeRequest(t *testing.T, handler *Handler, reqBody JudgeRequestDTO) JudgeResponseDTO {
+func executeJudgeRequest(t *testing.T, handler *Handler, reqBody model.JudgeRequest) judgeHTTPResponse {
 	t.Helper()
 
 	body, err := json.Marshal(reqBody)
@@ -190,7 +201,7 @@ func executeJudgeRequest(t *testing.T, handler *Handler, reqBody JudgeRequestDTO
 	handler.HandleExecute(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp JudgeResponseDTO
+	var resp judgeHTTPResponse
 	err = json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	return resp
@@ -207,7 +218,7 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 			for _, codeExpectation := range suite.codes {
 				t.Run(codeExpectation.filename, func(t *testing.T) {
 					t.Parallel()
-					reqBody := JudgeRequestDTO{
+					reqBody := model.JudgeRequest{
 						SourceCode:  readSourceCode(t, suite.dir, codeExpectation.filename),
 						Checker:     suite.checker,
 						Language:    codeExpectation.language,
@@ -229,7 +240,7 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 	}
 }
 
-func loadProblemTestCases(t *testing.T, problemDir string) []JudgeTestCaseDTO {
+func loadProblemTestCases(t *testing.T, problemDir string) []model.JudgeTestCase {
 	t.Helper()
 
 	pattern := filepath.Join(projectRoot(t), "testdata", problemDir, "data", "*.in")
@@ -238,7 +249,7 @@ func loadProblemTestCases(t *testing.T, problemDir string) []JudgeTestCaseDTO {
 	require.NotEmpty(t, inputFiles, "no input files found for %s", problemDir)
 	slices.Sort(inputFiles)
 
-	testCases := make([]JudgeTestCaseDTO, 0, len(inputFiles))
+	testCases := make([]model.JudgeTestCase, 0, len(inputFiles))
 	for _, inputPath := range inputFiles {
 		name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 		outputPath := strings.TrimSuffix(inputPath, ".in") + ".out"
@@ -247,7 +258,7 @@ func loadProblemTestCases(t *testing.T, problemDir string) []JudgeTestCaseDTO {
 			t.Fatalf("missing output file for %s: %v", inputPath, err)
 		}
 
-		testCases = append(testCases, JudgeTestCaseDTO{
+		testCases = append(testCases, model.JudgeTestCase{
 			InputFile:          filepath.ToSlash(filepath.Join(problemDir, "data", name+".in")),
 			ExpectedOutputFile: filepath.ToSlash(filepath.Join(problemDir, "data", name+".out")),
 		})
@@ -265,7 +276,7 @@ func readSourceCode(t *testing.T, problemDir, filename string) string {
 	return string(content)
 }
 
-func assertCaseVerdicts(t *testing.T, expected []e2eVerdictExpectation, actual []JudgeCaseResultDTO) {
+func assertCaseVerdicts(t *testing.T, expected []e2eVerdictExpectation, actual []judgeCaseHTTPResponse) {
 	t.Helper()
 
 	for i, caseResult := range actual {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
 const unknownString = "Unknown"
@@ -21,22 +20,6 @@ const (
 	LanguageJava
 	LanguagePython
 )
-
-// ParseLanguage converts a string to a Language constant.
-func ParseLanguage(raw string) (Language, error) {
-	switch strings.ToUpper(strings.TrimSpace(raw)) {
-	case "C":
-		return LanguageC, nil
-	case "C++", "CPP":
-		return LanguageCPP, nil
-	case "JAVA":
-		return LanguageJava, nil
-	case "PYTHON", "PY", "PY3":
-		return LanguagePython, nil
-	default:
-		return LanguageUnknown, fmt.Errorf("unsupported language: %q", raw)
-	}
-}
 
 func (l Language) String() string {
 	switch l {
@@ -56,6 +39,28 @@ func (l Language) String() string {
 // MarshalJSON implements json.Marshaler for Language.
 func (l Language) MarshalJSON() ([]byte, error) {
 	return json.Marshal(l.String())
+}
+
+// UnmarshalJSON implements json.Unmarshaler for Language.
+func (l *Language) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decode language: %w", err)
+	}
+
+	switch raw {
+	case "C":
+		*l = LanguageC
+	case "C++":
+		*l = LanguageCPP
+	case "Java":
+		*l = LanguageJava
+	case "Python":
+		*l = LanguagePython
+	default:
+		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", raw)
+	}
+	return nil
 }
 
 // Verdict represents the execution result status.

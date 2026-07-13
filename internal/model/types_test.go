@@ -1,33 +1,37 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseLanguage(t *testing.T) {
+func TestLanguage_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
-		raw  string
+		data string
 		want Language
 	}{
-		{"C", LanguageC},
-		{"c++", LanguageCPP},
-		{"CPP", LanguageCPP},
-		{"Java", LanguageJava},
-		{"python", LanguagePython},
-		{"py", LanguagePython},
-		{"PY3", LanguagePython},
+		{`"C"`, LanguageC},
+		{`"C++"`, LanguageCPP},
+		{`"Java"`, LanguageJava},
+		{`"Python"`, LanguagePython},
 	}
 	for _, tt := range tests {
-		got, err := ParseLanguage(tt.raw)
-		require.NoError(t, err, "ParseLanguage(%q)", tt.raw)
-		assert.Equal(t, tt.want, got, "ParseLanguage(%q)", tt.raw)
+		var got Language
+		err := json.Unmarshal([]byte(tt.data), &got)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, got)
 	}
 }
 
-func TestParseLanguageRejectsUnknown(t *testing.T) {
-	_, err := ParseLanguage("COBOL")
-	assert.Error(t, err)
+func TestLanguage_UnmarshalJSON_RejectsNonCanonicalValues(t *testing.T) {
+	tests := []string{`"c++"`, `"CPP"`, `"java"`, `"py"`, `"Python "`, `"Ruby"`}
+	for _, data := range tests {
+		var language Language
+		err := json.Unmarshal([]byte(data), &language)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "expected one of C, C++, Java, Python")
+	}
 }
