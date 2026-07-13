@@ -166,7 +166,8 @@ func projectRoot(t *testing.T) string {
 func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
-	sb := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
+	sb, err := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
+	require.NoError(t, err)
 	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
 

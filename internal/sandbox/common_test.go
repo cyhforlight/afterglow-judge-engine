@@ -17,7 +17,10 @@ func requireSandboxIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
-	sb := NewContainerdSandbox("", "")
+	sb, err := NewContainerdSandbox("", "")
+	if err != nil {
+		t.Skipf("sandbox integration environment unavailable: %v", err)
+	}
 	if err := sb.PreflightCheck(ctx); err != nil {
 		t.Skipf("sandbox integration environment unavailable: %v", err)
 	}
@@ -40,8 +43,13 @@ func newSandboxTestEnv(t *testing.T) sandboxTestEnv {
 	t.Helper()
 	requireSandboxIntegrationTest(t)
 
+	sb, err := NewContainerdSandbox("", "")
+	if err != nil {
+		t.Fatalf("initialize sandbox: %v", err)
+	}
+
 	return sandboxTestEnv{
-		sb:  NewContainerdSandbox("", ""),
+		sb:  sb,
 		ctx: newSandboxTestContext(t, 10*time.Second),
 	}
 }

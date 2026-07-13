@@ -18,13 +18,14 @@ import (
 func TestContainerdSandbox_Cancellation(t *testing.T) {
 	requireSandboxIntegrationTest(t)
 
-	sb := NewContainerdSandbox("", "")
+	sb, err := NewContainerdSandbox("", "")
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	// Ensure image setup is not part of the cancellation window under test.
 	warmupCtx := newSandboxTestContext(t, 30*time.Second)
-	_, err := sb.Execute(warmupCtx, ExecuteRequest{
+	_, err = sb.Execute(warmupCtx, ExecuteRequest{
 		ImageRef: testPythonImageRef,
 		Command:  []string{"python3", "-c", "pass"},
 		Limits:   standardLimits(),
@@ -49,6 +50,19 @@ func TestContainerdSandbox_Cancellation(t *testing.T) {
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Less(t, time.Since(startedAt), 5*time.Second)
+}
+
+func TestContainerdSandbox_PinsExecutionToOneCPU(t *testing.T) {
+	env := newSandboxTestEnv(t)
+
+	result, err := env.sb.Execute(env.ctx, ExecuteRequest{
+		ImageRef: testPythonImageRef,
+		Command:  []string{"python3", "-c", "import os; print(len(os.sched_getaffinity(0)))"},
+		Limits:   standardLimits(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, VerdictOK, result.Verdict)
+	assert.Equal(t, "1\n", result.Stdout)
 }
 
 func TestContainerdSandbox_VerdictScenarios(t *testing.T) {

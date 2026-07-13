@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"runtime"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -19,10 +17,7 @@ const bytesPerMiB = int64(1024 * 1024)
 
 const pidsLimit = 128
 
-// cpuCounter is used for round-robin CPU allocation across all sandbox instances.
-var cpuCounter atomic.Uint32
-
-func sandboxSpecOpts(req ExecuteRequest) ([]oci.SpecOpts, error) {
+func sandboxSpecOpts(req ExecuteRequest, cpuID int) ([]oci.SpecOpts, error) {
 	opts, err := mountSpecOpts(req.MountDir)
 	if err != nil {
 		return nil, err
@@ -44,7 +39,7 @@ func sandboxSpecOpts(req ExecuteRequest) ([]oci.SpecOpts, error) {
 	opts = append(opts,
 		oci.WithMemoryLimit(uint64(memoryLimitBytes)), //nolint:gosec // memoryBytesFromMB guarantees a positive int64 value.
 		oci.WithMemorySwap(memoryLimitBytes),
-		sandboxSecurityOpts(req.EnableSeccomp),
+		sandboxSecurityOpts(req.EnableSeccomp, cpuID),
 	)
 
 	return opts, nil
@@ -105,19 +100,7 @@ func resolveCwd(req ExecuteRequest) (string, bool, error) {
 	return "", false, nil
 }
 
-// pickCPU selects a CPU core using round-robin allocation.
-// This distributes load evenly across all available cores.
-func pickCPU() string {
-	cpuCount := runtime.NumCPU()
-	if cpuCount <= 1 {
-		return "0"
-	}
-	next := int(cpuCounter.Add(1))
-	cpu := next % cpuCount
-	return strconv.Itoa(cpu)
-}
-
-func sandboxSecurityOpts(enableSeccomp bool) oci.SpecOpts {
+func sandboxSecurityOpts(enableSeccomp bool, cpuID int) oci.SpecOpts {
 	opts := []oci.SpecOpts{
 		oci.WithRootFSReadonly(),
 		oci.WithMounts([]specs.Mount{{
@@ -126,7 +109,7 @@ func sandboxSecurityOpts(enableSeccomp bool) oci.SpecOpts {
 			Source:      "tmpfs",
 			Options:     []string{"nosuid", "nodev"},
 		}}),
-		oci.WithCPUs(pickCPU()),
+		oci.WithCPUs(strconv.Itoa(cpuID)),
 		oci.WithCapabilities([]string{}),
 		oci.WithNoNewPrivileges,
 		oci.WithPidsLimit(pidsLimit),

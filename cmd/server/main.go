@@ -62,7 +62,10 @@ func setupLogger(logLevel string) *slog.Logger {
 
 func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	// 1. Create shared Sandbox instance
-	sb := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
+	sb, err := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
+	if err != nil {
+		return nil, fmt.Errorf("initialize sandbox: %w", err)
+	}
 
 	// 2. Load bundled internal resources before the service starts listening.
 	bundledFS, err := resource.NewBundled()

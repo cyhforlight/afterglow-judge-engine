@@ -46,10 +46,11 @@ type executionEvent struct {
 type ContainerdSandbox struct {
 	socketPath string
 	namespace  string
+	cpus       cpuPool
 }
 
 // NewContainerdSandbox creates a new containerd-based sandbox.
-func NewContainerdSandbox(socketPath, namespace string) *ContainerdSandbox {
+func NewContainerdSandbox(socketPath, namespace string) (*ContainerdSandbox, error) {
 	if socketPath == "" {
 		socketPath = defaultSocketPath
 	}
@@ -57,10 +58,16 @@ func NewContainerdSandbox(socketPath, namespace string) *ContainerdSandbox {
 		namespace = defaultNamespace
 	}
 
+	cpus, err := newCPUPool()
+	if err != nil {
+		return nil, err
+	}
+
 	return &ContainerdSandbox{
 		socketPath: socketPath,
 		namespace:  namespace,
-	}
+		cpus:       cpus,
+	}, nil
 }
 
 // PreflightCheck verifies that cgroup v2 and containerd are available.
@@ -135,8 +142,14 @@ func (s *ContainerdSandbox) executeInContainer(
 	image containerd.Image,
 	req ExecuteRequest,
 ) (ExecuteResult, error) {
+	cpuID, err := s.cpus.acquire(ctx)
+	if err != nil {
+		return ExecuteResult{}, fmt.Errorf("acquire CPU: %w", err)
+	}
+	defer s.cpus.release(cpuID)
+
 	containerID := generateContainerID()
-	requestSpecOpts, err := sandboxSpecOpts(req)
+	requestSpecOpts, err := sandboxSpecOpts(req, cpuID)
 	if err != nil {
 		return ExecuteResult{}, err
 	}

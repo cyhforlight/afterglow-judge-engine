@@ -31,7 +31,10 @@ func requireServiceIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
-	sb := sandbox.NewContainerdSandbox("", "")
+	sb, err := sandbox.NewContainerdSandbox("", "")
+	if err != nil {
+		t.Skipf("service integration environment unavailable: %v", err)
+	}
 	if err := sb.PreflightCheck(ctx); err != nil {
 		t.Skipf("service integration environment unavailable: %v", err)
 	}
@@ -47,7 +50,8 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 
 func newExecutorForTest(t *testing.T) execution.Executor {
 	t.Helper()
-	sb := sandbox.NewContainerdSandbox("", "")
+	sb, err := sandbox.NewContainerdSandbox("", "")
+	require.NoError(t, err)
 	return execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
 }
 
