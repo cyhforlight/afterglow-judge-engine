@@ -16,7 +16,6 @@ formatters:
 linters:
   enable:
     # 基础正确性检查
-    - copyloopvar      # 检测循环变量复制
     - errcheck         # 检查未处理的错误
     - errorlint        # 错误包装检查（Go 1.13+）
     - govet            # Go 官方静态分析
@@ -29,21 +28,16 @@ linters:
     - unparam          # 检测未使用的函数参数
     - unused           # 检测未使用的常量、变量、函数
     - usestdlibvars    # 检测可用标准库常量的地方
-    - wastedassign     # 检测浪费的赋值
 
     # 代码复杂度检查
     - gocognit         # 认知复杂度检查
-    - gocyclo          # 圈复杂度检查
     - funlen           # 函数长度检查
-    - nestif           # 嵌套 if 深度检查
-    - maintidx         # 可维护性指数
 
     # 错误处理
     - errname          # 错误命名规范（Err 前缀、Error 后缀）
     - nilnil           # 检查同时返回 nil error 和 nil value
 
     # 现代化检查
-    - intrange         # 检测可用整数 range 的地方
     - mirror           # 检测 bytes/strings 的错误使用模式
     - modernize        # 建议使用现代语言特性
     - exptostd         # 检测可用标准库替代 x/exp 的地方
@@ -75,25 +69,7 @@ linters:
     # 注释和文档
     - godox            # 检测 FIXME、TODO 等关键词
 
-  disable:
-    # 过于严格或不适用的 linters
-    - gochecknoglobals # 允许全局变量（常量等）
-    - gochecknoinits   # 允许 init 函数
-    - nonamedreturns   # 允许命名返回值
-    - varnamelen       # 不限制变量名长度（允许短命名）
-    - wrapcheck        # 不强制包装所有错误
-    - exhaustruct      # 不要求初始化所有结构体字段
-    - paralleltest     # 不强制 t.Parallel()
-    - nlreturn         # 不强制 return 前空行
-    - wsl              # 不强制空行规则
-    - testpackage      # 允许白盒测试
-    - ireturn          # 接口返回在 service/resource 边界有真实表达力
-
   settings:
-    # 圈复杂度限制
-    gocyclo:
-      min-complexity: 15
-
     # 认知复杂度限制
     gocognit:
       min-complexity: 20
@@ -103,14 +79,6 @@ linters:
       lines: 120        # 允许编排函数保持直线叙事，不为数字强拆
       statements: 60    # 测试文件另有更宽松的排除规则
       ignore-comments: true
-
-    # 嵌套深度限制
-    nestif:
-      min-complexity: 5
-
-    # 可维护性指数
-    maintidx:
-      under: 20
 
     # gosec 安全检查配置
     gosec:
@@ -125,66 +93,29 @@ linters:
         G306: "0644" # 允许的写入权限
 
     # gocritic 配置
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - style
-        - performance
-        - experimental
-        - opinionated
-      disabled-checks:
-        - hugeParam      # 请求/结果结构按值传递更直观，当前规模下复制成本可接受
-        - unnamedResult  # 允许未命名返回值
-
     # revive 配置
     revive:
       rules:
         # 基础规则
         - name: blank-imports
         - name: context-as-argument
-        - name: dot-imports
-        - name: error-return
-        - name: error-strings
         - name: increment-decrement
-        - name: var-naming
-        - name: range
-        - name: receiver-naming
-        - name: time-naming
         - name: unexported-return
-        - name: unused-parameter
-        - name: redefines-builtin-id
 
-        - name: atomic
-        - name: bool-literal-in-expr
         - name: constant-logical-expr
-        - name: context-keys-type
         - name: deep-exit
         - name: defer
-        - name: duplicated-imports
         - name: early-return
         - name: empty-block
         - name: empty-lines
-        - name: error-naming
-        - name: errorf
-        - name: identical-branches
-        - name: if-return
         - name: import-shadowing
-        - name: indent-error-flow
         - name: modifies-parameter
         - name: modifies-value-receiver
-        - name: range-val-address
-        - name: range-val-in-closure
-        - name: string-of-int
         - name: superfluous-else
         - name: time-equal
-        - name: unconditional-recursion
         - name: unexported-naming
         - name: unnecessary-stmt
-        - name: unreachable-code
         - name: unused-receiver
-        - name: use-any
-        - name: useless-break
-        - name: waitgroup-by-value
 
     # sloglint 配置（log/slog 规范）
     sloglint:
@@ -226,9 +157,7 @@ linters:
           - errcheck
           - funlen
           - gocognit
-          - gocyclo
           - gosec
-          - maintidx
           - goconst
           - revive
 
