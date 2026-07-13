@@ -243,7 +243,10 @@ func (*ContainerdSandbox) watchExecution(
 		if err != nil {
 			return ExecuteResult{}, fmt.Errorf("read task exit result: %w", err)
 		}
-		metrics := collectMetrics(ctx, task)
+		metrics, err := collectMetrics(ctx, task)
+		if err != nil {
+			return ExecuteResult{}, fmt.Errorf("collect cgroup metrics: %w", err)
+		}
 		return buildVerdict(code, wallElapsed, metrics, limits, stdoutLW, stderrLW), nil
 
 	case <-oleLimiter.ch:
@@ -263,8 +266,12 @@ func (*ContainerdSandbox) watchExecution(
 		return ExecuteResult{}, fmt.Errorf("execution canceled: %w", cancelErr)
 	}
 
-	metrics := collectMetrics(ctx, task)
-	if err := stopTask(ctx, task, exitCh, lifecycleOperationTimeout); err != nil {
+	metrics, metricsErr := collectMetrics(ctx, task)
+	if metricsErr != nil {
+		metricsErr = fmt.Errorf("collect cgroup metrics: %w", metricsErr)
+	}
+	stopErr := stopTask(ctx, task, exitCh, lifecycleOperationTimeout)
+	if err := errors.Join(metricsErr, stopErr); err != nil {
 		return ExecuteResult{}, err
 	}
 

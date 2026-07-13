@@ -15,8 +15,9 @@ import (
 )
 
 type fakeTaskController struct {
-	start func(context.Context) error
-	kill  func(context.Context, syscall.Signal, ...containerd.KillOpts) error
+	start   func(context.Context) error
+	kill    func(context.Context, syscall.Signal, ...containerd.KillOpts) error
+	metrics func(context.Context) (*types.Metric, error)
 }
 
 func (f *fakeTaskController) Start(ctx context.Context) error {
@@ -37,7 +38,10 @@ func (f *fakeTaskController) Kill(ctx context.Context, signal syscall.Signal, op
 	return f.kill(ctx, signal, opts...)
 }
 
-func (*fakeTaskController) Metrics(context.Context) (*types.Metric, error) {
+func (f *fakeTaskController) Metrics(ctx context.Context) (*types.Metric, error) {
+	if f.metrics != nil {
+		return f.metrics(ctx)
+	}
 	return nil, errors.New("metrics unavailable in lifecycle test")
 }
 
@@ -233,6 +237,58 @@ func TestWatchExecution_CancellationStopsTask(t *testing.T) {
 	assert.Equal(t, syscall.SIGKILL, killSignal)
 	require.NoError(t, killOptErr)
 	assert.True(t, killAll)
+}
+
+func TestWatchExecution_NaturalExitReturnsMetricsError(t *testing.T) {
+	exitCh := make(chan containerd.ExitStatus, 1)
+	exitCh <- *containerd.NewExitStatus(0, time.Now(), nil)
+	limiter := newOutputLimiter(1024)
+
+	result, err := (&ContainerdSandbox{}).watchExecution(
+		context.Background(),
+		&fakeTaskController{},
+		exitCh,
+		newLimitedWriter(limiter),
+		newLimitedWriter(limiter),
+		limiter,
+		standardLimits(),
+	)
+
+	assert.Equal(t, ExecuteResult{}, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "collect cgroup metrics")
+}
+
+func TestWatchExecution_ForcedStopStillKillsTaskWhenMetricsFail(t *testing.T) {
+	metricsErr := errors.New("metrics unavailable")
+	exitCh := make(chan containerd.ExitStatus, 1)
+	killed := false
+	task := &fakeTaskController{
+		metrics: func(context.Context) (*types.Metric, error) {
+			return nil, metricsErr
+		},
+		kill: func(context.Context, syscall.Signal, ...containerd.KillOpts) error {
+			killed = true
+			exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
+			return nil
+		},
+	}
+	limiter := newOutputLimiter(1024)
+	limiter.signal()
+
+	result, err := (&ContainerdSandbox{}).watchExecution(
+		context.Background(),
+		task,
+		exitCh,
+		newLimitedWriter(limiter),
+		newLimitedWriter(limiter),
+		limiter,
+		standardLimits(),
+	)
+
+	assert.Equal(t, ExecuteResult{}, result)
+	require.ErrorIs(t, err, metricsErr)
+	assert.True(t, killed)
 }
 
 func TestStopTask_WaitIsBounded(t *testing.T) {

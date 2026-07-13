@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
@@ -37,20 +39,23 @@ func uint64ToInt(value uint64) int {
 	return int(value)
 }
 
-func collectMetrics(ctx context.Context, task metricsReader) cgroupMetrics {
+func collectMetrics(ctx context.Context, task metricsReader) (cgroupMetrics, error) {
 	metric, err := task.Metrics(ctx)
 	if err != nil {
-		return cgroupMetrics{}
+		return cgroupMetrics{}, fmt.Errorf("read task metrics: %w", err)
+	}
+	if metric == nil || metric.Data == nil {
+		return cgroupMetrics{}, errors.New("read task metrics: response contains no data")
 	}
 	return parseCgroupMetrics(metric.Data)
 }
 
-func parseCgroupMetrics(data typeurl.Any) cgroupMetrics {
+func parseCgroupMetrics(data typeurl.Any) (cgroupMetrics, error) {
 	var m cgroupMetrics
 
 	var v2 cgroupsv2.Metrics
 	if err := typeurl.UnmarshalTo(data, &v2); err != nil {
-		return m
+		return m, fmt.Errorf("unmarshal cgroup v2 metrics: %w", err)
 	}
 
 	if v2.CPU != nil {
@@ -67,5 +72,5 @@ func parseCgroupMetrics(data typeurl.Any) cgroupMetrics {
 			m.memoryLimitHit = true
 		}
 	}
-	return m
+	return m, nil
 }
