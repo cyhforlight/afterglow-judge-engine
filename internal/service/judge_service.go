@@ -164,7 +164,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 }
 
 // runAllCases loads test data and executes each case concurrently.
-// Actual parallelism is bounded by the shared container semaphore.
+// Actual parallelism is bounded by the execution module.
 func (s *JudgeEngine) runAllCases(
 	ctx context.Context,
 	req model.JudgeRequest,

@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/semaphore"
 )
 
 type e2eProblemSuite struct {
@@ -133,9 +132,6 @@ func requireE2EPrerequisites(t *testing.T) {
 	}
 }
 
-// testContainerSem limits concurrent container operations across all tests in this package.
-var testContainerSem = semaphore.NewWeighted(8)
-
 func projectRoot(t *testing.T) string {
 	t.Helper()
 
@@ -167,7 +163,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	externalFS, err := resource.NewExternal(testdataDir)
 	require.NoError(t, err)
 
-	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
+	executor := execution.NewExecutor(sb, 8)
 	baseCompiler := service.NewCompiler(executor)
 	baseRunner := service.NewRunner(executor)
 	judge, err := service.NewJudgeEngine(baseCompiler, baseRunner,

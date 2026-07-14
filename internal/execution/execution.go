@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"afterglow-judge-engine/internal/sandbox"
+
+	"golang.org/x/sync/semaphore"
 )
 
 // Artifact is a file produced by an execution job.
@@ -91,17 +93,28 @@ type sandboxExecutor interface {
 
 type executor struct {
 	sandbox sandboxExecutor
+	sem     *semaphore.Weighted
 }
 
-// NewExecutor creates an executor backed by a sandbox.
-func NewExecutor(sb sandboxExecutor) Executor {
-	return &executor{sandbox: sb}
+// NewExecutor creates a capacity-limited executor backed by a sandbox.
+func NewExecutor(sb sandboxExecutor, maxConcurrent int) Executor {
+	if maxConcurrent <= 0 {
+		panic("max concurrent executions must be positive")
+	}
+	return &executor{
+		sandbox: sb,
+		sem:     semaphore.NewWeighted(int64(maxConcurrent)),
+	}
 }
 
 func (e *executor) Execute(ctx context.Context, job Job) (result Result, err error) {
 	if err := validateJob(job); err != nil {
 		return Result{}, err
 	}
+	if err := e.sem.Acquire(ctx, 1); err != nil {
+		return Result{}, err
+	}
+	defer e.sem.Release(1)
 
 	ws, err := newWorkspace()
 	if err != nil {

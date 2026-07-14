@@ -15,7 +15,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -59,7 +58,7 @@ func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 		},
 	}
 
-	exec := NewExecutor(sb)
+	exec := NewExecutor(sb, 1)
 	result, err := exec.Execute(context.Background(), compileJobWithArtifact())
 	require.NoError(t, err)
 
@@ -94,7 +93,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 		},
 	}
 
-	exec := NewExecutor(sb)
+	exec := NewExecutor(sb, 1)
 	_, err := exec.Execute(context.Background(), Job{
 		Files: []File{{
 			Name:    testProgramName,
@@ -123,7 +122,7 @@ func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
 			t.Helper()
 			return sandbox.ExecuteResult{ExitCode: 0, Verdict: sandbox.VerdictOK}, nil
 		},
-	})
+	}, 1)
 
 	_, err := exec.Execute(context.Background(), validJobWithArtifact("missing"))
 	require.Error(t, err)
@@ -136,7 +135,7 @@ func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
 			t.Helper()
 			return sandbox.ExecuteResult{}, errors.New("boom")
 		},
-	})
+	}, 1)
 
 	_, err := exec.Execute(context.Background(), validJobWithArtifact(testProgramName))
 	require.Error(t, err)
@@ -155,7 +154,7 @@ func TestExecutor_ValidateJob(t *testing.T) {
 		{name: "missing mount path", job: Job{ImageRef: testImageRef, Command: []string{testCommand}, Files: oneFile()}, wantErr: "execution mount path is required"},
 	}
 
-	exec := NewExecutor(&fakeSandbox{})
+	exec := NewExecutor(&fakeSandbox{}, 1)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := exec.Execute(context.Background(), tt.job)
@@ -165,56 +164,66 @@ func TestExecutor_ValidateJob(t *testing.T) {
 	}
 }
 
-type blockingExecutor struct {
+type blockingSandbox struct {
 	unblock    chan struct{}
 	concurrent atomic.Int32
 }
 
-func (e *blockingExecutor) Execute(_ context.Context, _ Job) (Result, error) {
-	e.concurrent.Add(1)
-	defer e.concurrent.Add(-1)
+func (s *blockingSandbox) Execute(_ context.Context, _ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+	s.concurrent.Add(1)
+	defer s.concurrent.Add(-1)
 
-	<-e.unblock
-	return Result{}, nil
+	<-s.unblock
+	return sandbox.ExecuteResult{}, nil
 }
 
-func TestThrottledExecutor_ConcurrencyLimit(t *testing.T) {
+func TestExecutor_ConcurrencyLimit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const limit = 2
-		sem := semaphore.NewWeighted(limit)
-		inner := &blockingExecutor{unblock: make(chan struct{})}
-		throttled := NewThrottledExecutor(inner, sem)
+		sb := &blockingSandbox{unblock: make(chan struct{})}
+		exec := NewExecutor(sb, limit)
 
 		for range 5 {
-			go throttled.Execute(t.Context(), Job{})
+			go exec.Execute(t.Context(), validJob())
 		}
 
 		synctest.Wait()
-		assert.Equal(t, int32(limit), inner.concurrent.Load())
+		assert.Equal(t, int32(limit), sb.concurrent.Load())
 
-		close(inner.unblock)
+		close(sb.unblock)
 	})
 }
 
-func TestThrottledExecutor_ContextCancel(t *testing.T) {
-	sem := semaphore.NewWeighted(1)
-	require.NoError(t, sem.Acquire(t.Context(), 1))
-	throttled := NewThrottledExecutor(&blockingExecutor{unblock: make(chan struct{})}, sem)
+func TestExecutor_ContextCancelWhileWaitingForCapacity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sb := &blockingSandbox{unblock: make(chan struct{})}
+		exec := NewExecutor(sb, 1)
+		go exec.Execute(t.Context(), validJob())
+		synctest.Wait()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
-	_, err := throttled.Execute(ctx, Job{})
-	require.ErrorIs(t, err, context.Canceled)
+		_, err := exec.Execute(ctx, validJob())
+		require.ErrorIs(t, err, context.Canceled)
+
+		close(sb.unblock)
+	})
 }
 
-func TestNewThrottledExecutor_RequiresSemaphore(t *testing.T) {
-	assert.PanicsWithValue(t, "semaphore is required", func() {
-		NewThrottledExecutor(&blockingExecutor{unblock: make(chan struct{})}, nil)
+func TestNewExecutor_RequiresPositiveConcurrency(t *testing.T) {
+	assert.PanicsWithValue(t, "max concurrent executions must be positive", func() {
+		NewExecutor(&fakeSandbox{}, 0)
 	})
 }
 
 func validJobWithArtifact(name string) Job {
+	job := validJob()
+	job.Artifacts = []string{name}
+	return job
+}
+
+func validJob() Job {
 	return Job{
 		Files:     oneFile(),
 		ImageRef:  testImageRef,
@@ -226,7 +235,6 @@ func validJobWithArtifact(name string) Job {
 			MemoryMB:    128,
 			OutputBytes: DefaultCompileOutputLimitBytes,
 		},
-		Artifacts: []string{name},
 	}
 }
 

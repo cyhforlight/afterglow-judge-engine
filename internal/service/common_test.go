@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"afterglow-judge-engine/internal/sandbox"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/semaphore"
 )
 
 type serviceIntegrationEnv struct {
@@ -22,8 +22,13 @@ type serviceIntegrationEnv struct {
 	language language
 }
 
-// testContainerSem limits concurrent container operations across all tests in this package.
-var testContainerSem = semaphore.NewWeighted(8)
+var sharedTestExecutor = sync.OnceValues(func() (execution.Executor, error) {
+	sb, err := sandbox.New("", "")
+	if err != nil {
+		return nil, err
+	}
+	return execution.NewExecutor(sb, 8), nil
+})
 
 func requireServiceIntegrationTest(t *testing.T) {
 	t.Helper()
@@ -50,16 +55,17 @@ func newIntegrationContext(t *testing.T, timeout time.Duration) context.Context 
 
 func newExecutorForTest(t *testing.T) execution.Executor {
 	t.Helper()
-	sb, err := sandbox.New("", "")
+	executor, err := sharedTestExecutor()
 	require.NoError(t, err)
-	return execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
+	return executor
 }
 
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {
 	t.Helper()
 
-	compiler := NewCompiler(newExecutorForTest(t))
-	runner := NewRunner(newExecutorForTest(t))
+	executor := newExecutorForTest(t)
+	compiler := NewCompiler(executor)
+	runner := NewRunner(executor)
 	return serviceIntegrationEnv{
 		ctx:      newIntegrationContext(t, timeout),
 		compiler: compiler,
