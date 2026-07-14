@@ -8,6 +8,7 @@ import (
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
+	"afterglow-judge-engine/internal/resource"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,26 +22,26 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 		checker string
 		want    model.Verdict
 	}{
-		{1, "default.cpp", model.VerdictOK},
-		{2, "rcmp6.cpp", model.VerdictOK},
-		{3, "ncmp.cpp", model.VerdictOK},
-		{4, "wcmp.cpp", model.VerdictOK},
-		{5, "lcmp.cpp", model.VerdictOK},
-		{6, "nyesno.cpp", model.VerdictOK},
-		{7, "rcmp6.cpp", model.VerdictOK},
-		{8, "lcmp.cpp", model.VerdictOK},
-		{9, "default.cpp", model.VerdictWA},
-		{10, "rcmp6.cpp", model.VerdictWA},
-		{11, "ncmp.cpp", model.VerdictWA},
-		{12, "wcmp.cpp", model.VerdictWA},
-		{13, "lcmp.cpp", model.VerdictWA},
-		{14, "nyesno.cpp", model.VerdictWA},
-		{15, "testcase-15/checker.cpp", model.VerdictOK},
-		{16, "testcase-16/checker.cpp", model.VerdictWA},
-		{17, "ncmp.cpp", model.VerdictWA},
-		{18, "rcmp6.cpp", model.VerdictWA},
-		{19, "default.cpp", model.VerdictWA},
-		{20, "lcmp.cpp", model.VerdictWA},
+		{1, "default", model.VerdictOK},
+		{2, "rcmp6", model.VerdictOK},
+		{3, "ncmp", model.VerdictOK},
+		{4, "wcmp", model.VerdictOK},
+		{5, "lcmp", model.VerdictOK},
+		{6, "nyesno", model.VerdictOK},
+		{7, "rcmp6", model.VerdictOK},
+		{8, "lcmp", model.VerdictOK},
+		{9, "default", model.VerdictWA},
+		{10, "rcmp6", model.VerdictWA},
+		{11, "ncmp", model.VerdictWA},
+		{12, "wcmp", model.VerdictWA},
+		{13, "lcmp", model.VerdictWA},
+		{14, "nyesno", model.VerdictWA},
+		{15, "external:testcase-15/checker.cpp", model.VerdictOK},
+		{16, "external:testcase-16/checker.cpp", model.VerdictWA},
+		{17, "ncmp", model.VerdictWA},
+		{18, "rcmp6", model.VerdictWA},
+		{19, "default", model.VerdictWA},
+		{20, "lcmp", model.VerdictWA},
 	}
 
 	for _, tc := range testcases {
@@ -62,9 +63,12 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			runOut := runUserProgram(t, env, artifact, lang, inputData, 2000, 256)
 			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
-			checker := compileCheckerForTest(env.ctx, t, tc.checker, testdataPath("ok-and-checker-cases"))
-			verdict, _ := runCheckerForTest(env.ctx, t, checker, inputData, runOut.Stdout, expectedOutput)
-			assert.Equal(t, tc.want, verdict)
+			externalFS, err := resource.NewExternal(testdataPath("ok-and-checker-cases"))
+			require.NoError(t, err)
+			checkerModule := newCheckerForTest(t, env.compiler, env.runner, externalFS)
+			prepared := prepareCheckerForTest(env.ctx, t, checkerModule, tc.checker)
+			checkResult := checkForTest(env.ctx, t, prepared, inputData, runOut.Stdout, expectedOutput)
+			assert.Equal(t, tc.want, checkResult.Verdict)
 		})
 	}
 }

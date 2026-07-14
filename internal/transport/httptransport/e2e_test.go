@@ -177,11 +177,10 @@ func newE2EHandler(t *testing.T) *Handler {
 
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), testContainerSem)
 	baseCompiler := service.NewCompiler(executor)
-	checkerCompiler, err := service.NewCachedCompiler(baseCompiler, 100)
-	require.NoError(t, err)
 	baseRunner := service.NewRunner(executor)
-	judge := service.NewJudgeEngine(baseCompiler, checkerCompiler, baseRunner,
+	judge, err := service.NewJudgeEngine(baseCompiler, baseRunner,
 		bundledFS, externalFS, 10, model.DefaultJudgeLimits())
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {

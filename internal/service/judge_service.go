@@ -25,21 +25,35 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	compiler        Compiler
-	checkerCompiler Compiler
-	runner          Runner
-	bundledFS       fs.FS
-	externalFS      fs.FS
-	concurrencySem  *semaphore.Weighted
-	limits          model.JudgeLimits
+	compiler       Compiler
+	runner         Runner
+	checker        checker
+	externalFS     fs.FS
+	concurrencySem *semaphore.Weighted
+	limits         model.JudgeLimits
 }
 
 // NewJudgeEngine creates a judge engine.
 func NewJudgeEngine(
 	compiler Compiler,
-	checkerCompiler Compiler,
 	runner Runner,
 	bundledFS fs.FS,
+	externalFS fs.FS,
+	maxConcurrent int,
+	limits model.JudgeLimits,
+) (*JudgeEngine, error) {
+	checkerModule, err := newChecker(compiler, runner, bundledFS, externalFS)
+	if err != nil {
+		return nil, fmt.Errorf("initialize checker: %w", err)
+	}
+
+	return newJudgeEngine(compiler, runner, checkerModule, externalFS, maxConcurrent, limits), nil
+}
+
+func newJudgeEngine(
+	compiler Compiler,
+	runner Runner,
+	checkerModule checker,
 	externalFS fs.FS,
 	maxConcurrent int,
 	limits model.JudgeLimits,
@@ -49,13 +63,12 @@ func NewJudgeEngine(
 	}
 
 	return &JudgeEngine{
-		compiler:        compiler,
-		checkerCompiler: checkerCompiler,
-		runner:          runner,
-		bundledFS:       bundledFS,
-		externalFS:      externalFS,
-		concurrencySem:  semaphore.NewWeighted(int64(maxConcurrent)),
-		limits:          limits,
+		compiler:       compiler,
+		runner:         runner,
+		checker:        checkerModule,
+		externalFS:     externalFS,
+		concurrencySem: semaphore.NewWeighted(int64(maxConcurrent)),
+		limits:         limits,
 	}
 }
 
@@ -70,12 +83,12 @@ func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest)
 		return err
 	}
 
-	checkerLoc, err := ResolveChecker(req.Checker)
+	resolved, err := s.checker.Resolve(req.Checker)
 	if err != nil {
 		return err
 	}
 
-	if err := s.validateCheckerDependencies(checkerLoc); err != nil {
+	if err := resolved.Validate(); err != nil {
 		return err
 	}
 
@@ -90,25 +103,6 @@ func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest)
 				return fmt.Errorf("testcases[%d]: %w", index, err)
 			}
 		}
-	}
-
-	return nil
-}
-
-func (s *JudgeEngine) validateCheckerDependencies(checkerLoc CheckerLocation) error {
-	if checkerLoc.IsExternal {
-		if err := s.validateExternalDependency(checkerLoc.Path, "external checker"); err != nil {
-			return err
-		}
-	} else {
-		checkerSourceKey := builtinCheckerPath(checkerLoc.Path)
-		if _, err := fs.Stat(s.bundledFS, checkerSourceKey); err != nil {
-			return fmt.Errorf("builtin checker %q is not available: %w", checkerLoc.Path, err)
-		}
-	}
-
-	if _, err := fs.Stat(s.bundledFS, testlibHeaderKey); err != nil {
-		return fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
 	}
 
 	return nil
@@ -136,7 +130,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	defer s.concurrencySem.Release(1)
 
 	// Resolve checker before compilation so direct callers get early validation.
-	checkerLoc, err := ResolveChecker(req.Checker)
+	resolved, err := s.checker.Resolve(req.Checker)
 	if err != nil {
 		return failedBeforeRun(req.TestCases, err.Error())
 	}
@@ -156,25 +150,13 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	checkerArtifact, checkerResult, err := s.prepareChecker(ctx, checkerLoc)
+	prepared, err := resolved.Prepare(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
-		return s.unknownJudgeResult(req.TestCases, compileResult, fmt.Sprintf("checker setup failed: %v", err))
-	}
-	if !checkerResult.Succeeded {
-		message := strings.TrimSpace(checkerResult.Log)
-		if message == "" {
-			message = "checker compilation failed"
-		}
-		slog.ErrorContext(ctx, "checker compilation failed", "log", message)
-		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation failed: "+message)
-	}
-	if checkerArtifact == nil {
-		slog.ErrorContext(ctx, "checker compilation succeeded without artifact")
-		return s.unknownJudgeResult(req.TestCases, compileResult, "checker compilation succeeded without artifact")
+		return s.unknownJudgeResult(req.TestCases, compileResult, err.Error())
 	}
 
-	caseResults, passedCount := s.runAllCases(ctx, req, compileOut, checkerArtifact)
+	caseResults, passedCount := s.runAllCases(ctx, req, compileOut, prepared)
 
 	return model.JudgeResult{
 		Status:      aggregateStatus(caseResults),
@@ -191,7 +173,7 @@ func (s *JudgeEngine) runAllCases(
 	ctx context.Context,
 	req model.JudgeRequest,
 	userArtifact *model.CompiledArtifact,
-	checkerArtifact *model.CompiledArtifact,
+	prepared preparedChecker,
 ) ([]model.JudgeCaseResult, int) {
 	results := make([]model.JudgeCaseResult, len(req.TestCases))
 
@@ -206,7 +188,7 @@ func (s *JudgeEngine) runAllCases(
 				}
 				return
 			}
-			results[i] = s.runSingleCase(ctx, req, userArtifact, checkerArtifact, tc, i)
+			results[i] = s.runSingleCase(ctx, req, userArtifact, prepared, tc, i)
 		})
 	}
 	wg.Wait()
@@ -287,62 +269,6 @@ func (s *JudgeEngine) compileUserCode(
 	return compileOut.Artifact, compileOut.Result, nil
 }
 
-// prepareChecker loads checker source and testlib.h, then delegates compilation
-// to the checkerCompiler (which handles caching and singleflight internally).
-func (s *JudgeEngine) prepareChecker(
-	ctx context.Context,
-	loc CheckerLocation,
-) (*model.CompiledArtifact, model.CompileResult, error) {
-	// Load checker source.
-	var checkerSource []byte
-	var err error
-
-	if loc.IsExternal {
-		if s.externalFS == nil {
-			return nil, model.CompileResult{}, errors.New("external resources not configured")
-		}
-		checkerSource, err = fs.ReadFile(s.externalFS, loc.Path)
-		if err != nil {
-			return nil, model.CompileResult{}, fmt.Errorf("load external checker %q: %w", loc.Path, err)
-		}
-	} else {
-		checkerSourceKey := builtinCheckerPath(loc.Path)
-		checkerSource, err = fs.ReadFile(s.bundledFS, checkerSourceKey)
-		if err != nil {
-			return nil, model.CompileResult{}, fmt.Errorf("load builtin checker %q from %q: %w", loc.Path, checkerSourceKey, err)
-		}
-	}
-
-	// Load testlib.h.
-	testlibHeader, err := fs.ReadFile(s.bundledFS, testlibHeaderKey)
-	if err != nil {
-		return nil, model.CompileResult{}, fmt.Errorf("load %q: %w", testlibHeaderKey, err)
-	}
-
-	// Build compile request and delegate to checkerCompiler.
-	profile := checkerProfile()
-	compileOut, err := s.checkerCompiler.Compile(ctx, CompileRequest{
-		Files: []workspace.File{
-			{Name: profile.Compile.SourceFile, Content: checkerSource, Mode: 0o644},
-			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
-		},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand,
-		ArtifactName: profile.Compile.ArtifactName,
-		Limits: execution.Limits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: execution.DefaultCompileOutputLimitBytes,
-		},
-	})
-	if err != nil {
-		return nil, model.CompileResult{}, err
-	}
-
-	return compileOut.Artifact, compileOut.Result, nil
-}
-
 // executeUserCode runs compiled user code with given input and limits.
 func (s *JudgeEngine) executeUserCode(
 	ctx context.Context,
@@ -411,82 +337,11 @@ func convertVerdict(v execution.Verdict) model.Verdict {
 	}
 }
 
-// runChecker executes the checker to validate user output.
-func (s *JudgeEngine) runChecker(
-	ctx context.Context,
-	checkerArtifact *model.CompiledArtifact,
-	inputText string,
-	actualOutput string,
-	expectedOutput string,
-) (model.Verdict, string, error) {
-	if checkerArtifact == nil || len(checkerArtifact.Data) == 0 {
-		return model.VerdictUKE, "", errors.New("checker artifact is required")
-	}
-
-	profile := checkerProfile()
-	runOut, err := s.runner.Run(ctx, RunRequest{
-		Files: []workspace.File{
-			{Name: profile.Run.ArtifactName, Content: checkerArtifact.Data, Mode: checkerArtifact.Mode},
-			{Name: checkerInputFileName, Content: []byte(inputText), Mode: 0o644},
-			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},
-			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0o644},
-		},
-		ImageRef: profile.Run.ImageRef,
-		Command: []string{
-			runMountDir + "/" + profile.Run.ArtifactName,
-			runMountDir + "/" + checkerInputFileName,
-			runMountDir + "/" + checkerOutputFileName,
-			runMountDir + "/" + checkerAnswerFileName,
-		},
-		Limits: checkerRunLimits(),
-	})
-	if err != nil {
-		return model.VerdictUKE, "", err
-	}
-
-	// Extract message
-	message := strings.TrimSpace(runOut.Stderr)
-	if message == "" {
-		message = strings.TrimSpace(runOut.Stdout)
-	}
-	if message == "" {
-		message = strings.TrimSpace(runOut.ExtraInfo)
-	}
-
-	// Check for sandbox failures
-	switch runOut.Verdict {
-	case execution.VerdictTLE, execution.VerdictMLE, execution.VerdictOLE:
-		return model.VerdictUKE, message, nil
-	}
-
-	// Parse exit code
-	switch runOut.ExitCode {
-	case 0:
-		if runOut.Verdict != execution.VerdictOK {
-			return model.VerdictUKE, message, nil
-		}
-		return model.VerdictOK, message, nil
-	case 1, 2:
-		return model.VerdictWA, message, nil
-	default:
-		return model.VerdictUKE, message, nil
-	}
-}
-
-func checkerRunLimits() execution.Limits {
-	return execution.Limits{
-		CPUTimeMs:   checkerCPUTimeLimitMs,
-		WallTimeMs:  checkerCPUTimeLimitMs * execution.WallTimeMultiplier,
-		MemoryMB:    checkerMemoryLimitMB,
-		OutputBytes: execution.DefaultRunOutputLimitBytes,
-	}
-}
-
 func (s *JudgeEngine) runSingleCase(
 	ctx context.Context,
 	req model.JudgeRequest,
 	userArtifact *model.CompiledArtifact,
-	checkerArtifact *model.CompiledArtifact,
+	prepared preparedChecker,
 	testCase model.JudgeTestCase,
 	index int,
 ) model.JudgeCaseResult {
@@ -510,7 +365,7 @@ func (s *JudgeEngine) runSingleCase(
 		return judgeCaseResultFromExecution(runResult, convertVerdict(runResult.Verdict), runResult.ExtraInfo)
 	}
 
-	checkerVerdict, checkerMessage, err := s.runChecker(ctx, checkerArtifact, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
+	checkResult, err := prepared.Check(ctx, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
 		return judgeCaseResultFromExecution(
@@ -520,9 +375,9 @@ func (s *JudgeEngine) runSingleCase(
 		)
 	}
 
-	message := checkerMessage
+	message := checkResult.Message
 	if message == "" {
-		switch checkerVerdict {
+		switch checkResult.Verdict {
 		case model.VerdictWA:
 			message = "checker reported wrong answer"
 		case model.VerdictUKE:
@@ -530,7 +385,7 @@ func (s *JudgeEngine) runSingleCase(
 		}
 	}
 
-	return judgeCaseResultFromExecution(runResult, checkerVerdict, message)
+	return judgeCaseResultFromExecution(runResult, checkResult.Verdict, message)
 }
 
 func (*JudgeEngine) unknownJudgeResult(

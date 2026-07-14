@@ -105,30 +105,6 @@ func cppProfile() LanguageProfile {
 	}
 }
 
-// checkerProfile returns the profile for checker compilation and execution.
-// Checkers are C++ programs that use testlib.h to validate test outputs.
-func checkerProfile() LanguageProfile {
-	return LanguageProfile{
-		Compile: CompileConfig{
-			ImageRef:     gccImage,
-			SourceFile:   "checker.cpp",
-			ArtifactName: "checker",
-			BuildCommand: []string{
-				"g++", "-std=c++20", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
-				"-o", compileMountDir + "/checker",
-				compileMountDir + "/checker.cpp", mathLibraryFlag,
-			},
-			TimeoutMs: 30000,
-			MemoryMB:  512,
-		},
-		Run: RunConfig{
-			ImageRef:       staticRuntimeImage,
-			ArtifactName:   "checker",
-			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
-		},
-	}
-}
-
 // javaProfile returns the profile for Java language.
 func javaProfile() LanguageProfile {
 	return LanguageProfile{

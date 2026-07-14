@@ -87,22 +87,20 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	containerSem := semaphore.NewWeighted(int64(cfg.MaxConcurrentContainers))
 	executor := execution.NewThrottledExecutor(execution.NewExecutor(sb), containerSem)
 	compiler := service.NewCompiler(executor)
-	checkerCompiler, err := service.NewCachedCompiler(compiler, 64)
-	if err != nil {
-		return nil, fmt.Errorf("initialize checker compile cache: %w", err)
-	}
 	runner := service.NewRunner(executor)
 
 	// 5. Create judge engine with internal checker resources.
-	judge := service.NewJudgeEngine(
+	judge, err := service.NewJudgeEngine(
 		compiler,
-		checkerCompiler,
 		runner,
 		bundledFS,
 		externalFS,
 		cfg.MaxConcurrentJudges,
 		cfg.JudgeLimits,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize judge engine: %w", err)
+	}
 
 	ctx := context.Background()
 	if err := judge.PreflightCheck(ctx); err != nil {
