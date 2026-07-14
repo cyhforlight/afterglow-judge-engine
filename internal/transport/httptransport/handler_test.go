@@ -19,15 +19,10 @@ import (
 )
 
 type mockJudgeService struct {
-	preflightErr error
-	validateErr  error
-	result       model.JudgeResult
-	lastRequest  model.JudgeRequest
-	judgeCalls   int
-}
-
-func (m *mockJudgeService) PreflightCheck(_ context.Context) error {
-	return m.preflightErr
+	validateErr error
+	result      model.JudgeResult
+	lastRequest model.JudgeRequest
+	judgeCalls  int
 }
 
 func (m *mockJudgeService) ValidateRequest(_ context.Context, req model.JudgeRequest) error {
@@ -67,27 +62,6 @@ func newTestHandler(judge service.JudgeService) *Handler {
 
 func newTestHandlerWithSize(judge service.JudgeService, maxSizeMB int) *Handler {
 	return NewHandler(judge, slog.Default(), maxSizeMB)
-}
-
-func TestHandleHealth_Success(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{})
-
-	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
-	w := httptest.NewRecorder()
-	handler.HandleHealth(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "healthy")
-}
-
-func TestHandleHealth_Unhealthy(t *testing.T) {
-	handler := newTestHandler(&mockJudgeService{preflightErr: errors.New("down")})
-
-	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
-	w := httptest.NewRecorder()
-	handler.HandleHealth(w, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestHandleExecute_Success(t *testing.T) {

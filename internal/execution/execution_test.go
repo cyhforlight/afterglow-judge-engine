@@ -41,10 +41,6 @@ func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sa
 	return s.executeFunc(req)
 }
 
-func (s *fakeSandbox) PreflightCheck(_ context.Context) error {
-	return nil
-}
-
 func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 	sb := &fakeSandbox{
 		executeFunc: func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
@@ -175,8 +171,6 @@ type blockingExecutor struct {
 	unblock    chan struct{}
 	concurrent atomic.Int32
 }
-
-func (e *blockingExecutor) PreflightCheck(_ context.Context) error { return nil }
 
 func (e *blockingExecutor) Execute(_ context.Context, _ Job) (Result, error) {
 	e.concurrent.Add(1)

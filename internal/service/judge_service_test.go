@@ -16,18 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeRunner struct {
-	preflightErr error
-}
-
-func (r *fakeRunner) PreflightCheck(_ context.Context) error {
-	return r.preflightErr
-}
-
-func (*fakeRunner) Run(context.Context, RunRequest) (RunResult, error) {
-	return RunResult{}, errors.New("unexpected direct runner call")
-}
-
 type fakeLanguage struct {
 	mu         sync.Mutex
 	resolveErr error
@@ -227,7 +215,6 @@ func newTestJudgeEngineWithExternalResources(
 		checkerModule = newFakeChecker()
 	}
 	return newJudgeEngine(
-		&fakeRunner{},
 		languageModule,
 		checkerModule,
 		externalFS,

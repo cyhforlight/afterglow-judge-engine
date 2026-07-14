@@ -27,7 +27,6 @@ type RunResult = execution.RawResult
 
 // Runner executes generic commands inside a sandboxed container.
 type Runner interface {
-	PreflightCheck(ctx context.Context) error
 	Run(ctx context.Context, req RunRequest) (RunResult, error)
 }
 
@@ -39,11 +38,6 @@ type runner struct {
 // NewRunner creates a generic runner primitive.
 func NewRunner(executor execution.Executor) Runner {
 	return &runner{executor: executor}
-}
-
-// PreflightCheck verifies that cgroup v2 and containerd are available.
-func (r *runner) PreflightCheck(ctx context.Context) error {
-	return r.executor.PreflightCheck(ctx)
 }
 
 // Run executes the given request and returns the raw execution result.

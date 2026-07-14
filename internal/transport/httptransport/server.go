@@ -27,7 +27,6 @@ func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logg
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/execute", handler.HandleExecute)
-	mux.HandleFunc("GET /health", handler.HandleHealth)
 
 	var finalHandler http.Handler = mux
 	if cfg.APIKey != "" {

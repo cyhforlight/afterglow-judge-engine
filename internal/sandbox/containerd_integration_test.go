@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestContainerdSandbox_Integration tests require containerd to be running.
+// Sandbox integration tests require containerd to be running.
 // Run with: go test -tags=integration ./internal/sandbox/...
 
-func TestContainerdSandbox_Cancellation(t *testing.T) {
+func TestSandbox_Cancellation(t *testing.T) {
 	requireSandboxIntegrationTest(t)
 
-	sb, err := NewContainerdSandbox("", "")
+	sb, err := New("", "")
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -52,7 +52,7 @@ func TestContainerdSandbox_Cancellation(t *testing.T) {
 	assert.Less(t, time.Since(startedAt), 5*time.Second)
 }
 
-func TestContainerdSandbox_PinsExecutionToOneCPU(t *testing.T) {
+func TestSandbox_PinsExecutionToOneCPU(t *testing.T) {
 	env := newSandboxTestEnv(t)
 
 	result, err := env.sb.Execute(env.ctx, ExecuteRequest{
@@ -65,7 +65,7 @@ func TestContainerdSandbox_PinsExecutionToOneCPU(t *testing.T) {
 	assert.Equal(t, "1\n", result.Stdout)
 }
 
-func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
+func TestSandbox_VerdictScenarios(t *testing.T) {
 	tests := []struct {
 		name            string
 		script          string
@@ -157,7 +157,7 @@ func TestContainerdSandbox_VerdictScenarios(t *testing.T) {
 	}
 }
 
-func TestContainerdSandbox_IOOperations(t *testing.T) {
+func TestSandbox_IOOperations(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMount  func(t *testing.T, tmpDir string)
@@ -236,7 +236,7 @@ print('done')
 	}
 }
 
-func TestContainerdSandbox_SeccompEnforcement(t *testing.T) {
+func TestSandbox_SeccompEnforcement(t *testing.T) {
 	env := newSandboxTestEnv(t)
 	result, err := env.sb.Execute(env.ctx, ExecuteRequest{
 		ImageRef: testPythonImageRef,

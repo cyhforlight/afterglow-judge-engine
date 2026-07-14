@@ -166,7 +166,7 @@ func projectRoot(t *testing.T) string {
 func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
-	sb, err := sandbox.NewContainerdSandbox("/run/containerd/containerd.sock", "")
+	sb, err := sandbox.New("/run/containerd/containerd.sock", "")
 	require.NoError(t, err)
 	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	if err := judge.PreflightCheck(ctx); err != nil {
+	if err := sb.CheckReadiness(ctx); err != nil {
 		t.Skipf("Containerd not available: %v", err)
 	}
 

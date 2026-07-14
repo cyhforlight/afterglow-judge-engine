@@ -299,18 +299,6 @@ Authorization: Bearer <token>
 }
 ```
 
-### `GET /health`
-
-```http
-GET /health
-```
-
-如果 containerd 和底层运行环境正常，返回：
-
-```json
-{"status":"healthy"}
-```
-
 ## Checker 说明
 
 ### 内置 checker

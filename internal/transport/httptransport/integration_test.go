@@ -20,7 +20,7 @@ func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 
 	server := NewServer(cfg, &mockJudgeService{}, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
+	req := httptest.NewRequest(http.MethodPost, "/v1/execute", http.NoBody)
 	w := httptest.NewRecorder()
 
 	server.httpServer.Handler.ServeHTTP(w, req)

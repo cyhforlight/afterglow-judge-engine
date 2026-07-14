@@ -49,7 +49,6 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		}
 
 		engine := newJudgeEngine(
-			&fakeRunner{},
 			newFakeLanguageWithProgram(program),
 			newFakeChecker(),
 			nil,
@@ -91,7 +90,6 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 		}
 
 		engine := newJudgeEngine(
-			&fakeRunner{},
 			newFakeLanguageWithProgram(program),
 			newFakeChecker(),
 			nil,
@@ -127,7 +125,6 @@ func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
 	}
 
 	engine := newJudgeEngine(
-		&fakeRunner{},
 		newFakeLanguageWithProgram(program),
 		newFakeChecker(),
 		nil,

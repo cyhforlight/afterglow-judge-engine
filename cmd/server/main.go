@@ -61,8 +61,8 @@ func setupLogger(logLevel string) *slog.Logger {
 }
 
 func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
-	// 1. Create shared Sandbox instance
-	sb, err := sandbox.NewContainerdSandbox(cfg.ContainerdSocket, cfg.ContainerdNamespace)
+	// 1. Create the shared containerd sandbox.
+	sb, err := sandbox.New(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("initialize sandbox: %w", err)
 	}
@@ -103,8 +103,8 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	ctx := context.Background()
-	if err := judge.PreflightCheck(ctx); err != nil {
-		return nil, fmt.Errorf("preflight check failed: %w", err)
+	if err := sb.CheckReadiness(ctx); err != nil {
+		return nil, fmt.Errorf("readiness check failed: %w", err)
 	}
 
 	return judge, nil

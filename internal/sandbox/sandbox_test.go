@@ -191,7 +191,7 @@ func TestWatchExecution_CancellationStopsTask(t *testing.T) {
 		var watchErr error
 		go func() {
 			limiter := newOutputLimiter(1024)
-			result, watchErr = (&ContainerdSandbox{}).watchExecution(
+			result, watchErr = (&Sandbox{}).watchExecution(
 				ctx,
 				task,
 				exitCh,
@@ -221,7 +221,7 @@ func TestWatchExecution_NaturalExitReturnsMetricsError(t *testing.T) {
 	exitCh <- *containerd.NewExitStatus(0, time.Now(), nil)
 	limiter := newOutputLimiter(1024)
 
-	result, err := (&ContainerdSandbox{}).watchExecution(
+	result, err := (&Sandbox{}).watchExecution(
 		context.Background(),
 		&fakeTaskController{},
 		exitCh,
@@ -253,7 +253,7 @@ func TestWatchExecution_ForcedStopStillKillsTaskWhenMetricsFail(t *testing.T) {
 	limiter := newOutputLimiter(1024)
 	limiter.signal()
 
-	result, err := (&ContainerdSandbox{}).watchExecution(
+	result, err := (&Sandbox{}).watchExecution(
 		context.Background(),
 		task,
 		exitCh,
@@ -287,7 +287,7 @@ func TestWatchExecution_StopsTaskAtCPUTimeLimit(t *testing.T) {
 	limits.CPUTimeMs = 5
 	limits.WallTimeMs = 1000
 
-	result, err := (&ContainerdSandbox{}).watchExecution(
+	result, err := (&Sandbox{}).watchExecution(
 		context.Background(),
 		task,
 		exitCh,
@@ -322,7 +322,7 @@ func TestWatchExecution_CPUMetricsFailureStopsTask(t *testing.T) {
 	limits := standardLimits()
 	limits.WallTimeMs = 1000
 
-	result, err := (&ContainerdSandbox{}).watchExecution(
+	result, err := (&Sandbox{}).watchExecution(
 		context.Background(),
 		task,
 		exitCh,

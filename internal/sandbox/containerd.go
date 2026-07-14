@@ -42,15 +42,15 @@ type executionEvent struct {
 	err     error
 }
 
-// ContainerdSandbox implements Sandbox using containerd.
-type ContainerdSandbox struct {
+// Sandbox executes commands in isolated containerd containers.
+type Sandbox struct {
 	socketPath string
 	namespace  string
 	cpus       cpuPool
 }
 
-// NewContainerdSandbox creates a new containerd-based sandbox.
-func NewContainerdSandbox(socketPath, namespace string) (*ContainerdSandbox, error) {
+// New creates a containerd-based sandbox.
+func New(socketPath, namespace string) (*Sandbox, error) {
 	if socketPath == "" {
 		socketPath = defaultSocketPath
 	}
@@ -63,27 +63,27 @@ func NewContainerdSandbox(socketPath, namespace string) (*ContainerdSandbox, err
 		return nil, err
 	}
 
-	return &ContainerdSandbox{
+	return &Sandbox{
 		socketPath: socketPath,
 		namespace:  namespace,
 		cpus:       cpus,
 	}, nil
 }
 
-// PreflightCheck verifies that cgroup v2 and containerd are available.
-func (s *ContainerdSandbox) PreflightCheck(ctx context.Context) error {
+// CheckReadiness verifies that cgroup v2 and containerd are available.
+func (s *Sandbox) CheckReadiness(ctx context.Context) error {
 	if err := ensureCgroupV2Enabled(); err != nil {
 		return err
 	}
 	if err := ensureContainerdAvailable(ctx, s.socketPath); err != nil {
 		return err
 	}
-	slog.DebugContext(ctx, "sandbox preflight checks passed")
+	slog.DebugContext(ctx, "sandbox readiness checks passed")
 	return nil
 }
 
 // Execute runs a command in an isolated container.
-func (s *ContainerdSandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+func (s *Sandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
 	if err := validateExecuteLimits(req.Limits); err != nil {
 		return ExecuteResult{}, err
 	}
@@ -119,7 +119,7 @@ func validateExecuteLimits(limits ResourceLimits) error {
 	}
 }
 
-func (*ContainerdSandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
+func (*Sandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
 	image, err := client.GetImage(ctx, imageRef)
 	if err == nil {
 		slog.DebugContext(ctx, "image found locally", "ref", imageRef)
@@ -136,7 +136,7 @@ func (*ContainerdSandbox) ensureImage(ctx context.Context, client *containerd.Cl
 	return image, nil
 }
 
-func (s *ContainerdSandbox) executeInContainer(
+func (s *Sandbox) executeInContainer(
 	ctx context.Context,
 	client *containerd.Client,
 	image containerd.Image,
@@ -216,7 +216,7 @@ func cleanupResource(ctx context.Context, resource string, cleanup func(context.
 	}
 }
 
-func (*ContainerdSandbox) watchExecution(
+func (*Sandbox) watchExecution(
 	ctx context.Context,
 	task taskController,
 	exitCh <-chan containerd.ExitStatus,

@@ -19,10 +19,6 @@ func NewThrottledExecutor(inner Executor, sem *semaphore.Weighted) Executor {
 	return &throttledExecutor{inner: inner, sem: sem}
 }
 
-func (e *throttledExecutor) PreflightCheck(ctx context.Context) error {
-	return e.inner.PreflightCheck(ctx)
-}
-
 func (e *throttledExecutor) Execute(ctx context.Context, job Job) (Result, error) {
 	if err := e.sem.Acquire(ctx, 1); err != nil {
 		return Result{}, err

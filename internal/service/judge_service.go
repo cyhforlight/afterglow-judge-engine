@@ -15,7 +15,6 @@ import (
 
 // JudgeService handles full judge orchestration.
 type JudgeService interface {
-	PreflightCheck(ctx context.Context) error
 	ValidateRequest(ctx context.Context, req model.JudgeRequest) error
 	Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult
 }
@@ -23,7 +22,6 @@ type JudgeService interface {
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
 	language       language
-	runner         Runner
 	checker        checker
 	externalFS     fs.FS
 	concurrencySem *semaphore.Weighted
@@ -44,11 +42,10 @@ func NewJudgeEngine(
 		return nil, fmt.Errorf("initialize checker: %w", err)
 	}
 
-	return newJudgeEngine(runner, newLanguage(compiler, runner), checkerModule, externalFS, maxConcurrent, limits), nil
+	return newJudgeEngine(newLanguage(compiler, runner), checkerModule, externalFS, maxConcurrent, limits), nil
 }
 
 func newJudgeEngine(
-	runner Runner,
 	languageModule language,
 	checkerModule checker,
 	externalFS fs.FS,
@@ -61,17 +58,11 @@ func newJudgeEngine(
 
 	return &JudgeEngine{
 		language:       languageModule,
-		runner:         runner,
 		checker:        checkerModule,
 		externalFS:     externalFS,
 		concurrencySem: semaphore.NewWeighted(int64(maxConcurrent)),
 		limits:         limits,
 	}
-}
-
-// PreflightCheck verifies backend runtime readiness.
-func (s *JudgeEngine) PreflightCheck(ctx context.Context) error {
-	return s.runner.PreflightCheck(ctx)
 }
 
 // ValidateRequest verifies whether the request can be handled by the judge.

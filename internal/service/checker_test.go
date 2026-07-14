@@ -36,8 +36,6 @@ type recordingCheckerRunner struct {
 	requests []RunRequest
 }
 
-func (*recordingCheckerRunner) PreflightCheck(context.Context) error { return nil }
-
 func (r *recordingCheckerRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

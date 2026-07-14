@@ -54,18 +54,6 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
-// HandleHealth handles GET /health requests.
-func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	if err := h.judge.PreflightCheck(ctx); err != nil {
-		h.writeError(w, http.StatusServiceUnavailable, "UNHEALTHY", err.Error())
-		return
-	}
-
-	h.writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
-}
-
 // writeJSON writes a JSON response.
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")

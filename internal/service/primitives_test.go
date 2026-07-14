@@ -12,8 +12,7 @@ import (
 )
 
 type fakeExecutor struct {
-	preflightErr error
-	executeFunc  func(job execution.Job) execution.Result
+	executeFunc func(job execution.Job) execution.Result
 }
 
 func (e *fakeExecutor) Execute(_ context.Context, job execution.Job) (execution.Result, error) {
@@ -21,10 +20,6 @@ func (e *fakeExecutor) Execute(_ context.Context, job execution.Job) (execution.
 		return execution.Result{}, nil
 	}
 	return e.executeFunc(job), nil
-}
-
-func (e *fakeExecutor) PreflightCheck(_ context.Context) error {
-	return e.preflightErr
 }
 
 func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {

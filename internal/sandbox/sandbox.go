@@ -1,17 +1,9 @@
-// Package sandbox provides a unified container execution abstraction for both
-// compilation and runtime execution.
+// Package sandbox executes compilation and runtime commands with containerd.
 package sandbox
 
 import (
-	"context"
 	"io"
 )
-
-// Sandbox executes commands in isolated containers.
-type Sandbox interface {
-	Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error)
-	PreflightCheck(ctx context.Context) error
-}
 
 // ExecuteRequest contains all parameters needed to run a command in a container.
 type ExecuteRequest struct {

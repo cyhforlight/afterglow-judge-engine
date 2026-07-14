@@ -76,21 +76,20 @@ const (
 
 // Executor runs generic execution jobs.
 type Executor interface {
-	PreflightCheck(ctx context.Context) error
 	Execute(ctx context.Context, job Job) (Result, error)
 }
 
+type sandboxExecutor interface {
+	Execute(ctx context.Context, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error)
+}
+
 type executor struct {
-	sandbox sandbox.Sandbox
+	sandbox sandboxExecutor
 }
 
 // NewExecutor creates an executor backed by a sandbox.
-func NewExecutor(sb sandbox.Sandbox) Executor {
+func NewExecutor(sb sandboxExecutor) Executor {
 	return &executor{sandbox: sb}
-}
-
-func (e *executor) PreflightCheck(ctx context.Context) error {
-	return e.sandbox.PreflightCheck(ctx)
 }
 
 func (e *executor) Execute(ctx context.Context, job Job) (result Result, err error) {

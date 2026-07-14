@@ -42,8 +42,6 @@ type recordingRunner struct {
 	requests []recordedRun
 }
 
-func (*recordingRunner) PreflightCheck(context.Context) error { return nil }
-
 func (r *recordingRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
 	input, err := io.ReadAll(req.Stdin)
 	if err != nil {
