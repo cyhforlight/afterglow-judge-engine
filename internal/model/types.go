@@ -28,6 +28,15 @@ const (
 	LanguagePython  Language = "Python"
 )
 
+func (l Language) isSupported() bool {
+	switch l {
+	case LanguageC, LanguageCPP, LanguageJava, LanguagePython:
+		return true
+	default:
+		return false
+	}
+}
+
 func (l Language) String() string {
 	return stringOrUnknown(string(l))
 }
@@ -45,12 +54,10 @@ func (l *Language) UnmarshalJSON(data []byte) error {
 	}
 
 	language := Language(raw)
-	switch language {
-	case LanguageC, LanguageCPP, LanguageJava, LanguagePython:
-		*l = language
-	default:
+	if !language.isSupported() {
 		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", raw)
 	}
+	*l = language
 	return nil
 }
 

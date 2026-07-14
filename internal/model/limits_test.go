@@ -43,6 +43,11 @@ func TestValidateJudgeRequest(t *testing.T) {
 			wantErr: "language is required",
 		},
 		{
+			name:    "unsupported language",
+			mutate:  func(req *JudgeRequest) { req.Language = Language("Rust") },
+			wantErr: `unsupported language "Rust"; expected one of C, C++, Java, Python`,
+		},
+		{
 			name:    "source too large",
 			mutate:  func(req *JudgeRequest) { req.SourceCode = strings.Repeat("x", 17) },
 			wantErr: "sourceCode must be at most 16 bytes",

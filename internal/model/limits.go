@@ -58,6 +58,9 @@ func ValidateJudgeRequest(req JudgeRequest, limits JudgeLimits) error {
 	if req.Language == LanguageUnknown {
 		return errors.New("language is required")
 	}
+	if !req.Language.isSupported() {
+		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", req.Language)
+	}
 	if len(req.SourceCode) > limits.MaxSourceBytes {
 		return fmt.Errorf("sourceCode must be at most %d bytes", limits.MaxSourceBytes)
 	}

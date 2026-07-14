@@ -148,16 +148,13 @@ transport -> service -> model
 一次 `POST /v1/execute` 的处理流程如下：
 
 1. HTTP 层限制请求体大小并做严格 JSON 解码
-2. DTO 校验字段合法性和请求资源上限，并转换为领域模型
-3. service 层再次做防御性请求校验，避免绕过 HTTP 时产生超大任务
-4. service 层解析 checker
-5. 如果 testcase 使用了 `inputFile` / `expectedOutputFile`，先从外部资源加载文件内容
-6. 编译用户代码
-7. 准备 checker
-8. compiler / runner 通过 execution 层执行容器任务
-9. 逐个测试点执行用户程序，并用 checker 判定结果
-10. 汇总逐点结果、通过数量和判题流程状态
-11. 返回 JSON 响应
+2. transport 调用 service 校验请求限制、checker 引用和外部资源是否可用
+3. service 在判题入口再次做防御性请求校验，并限制并发判题请求数
+4. service 解析 checker 和语言，随后编译用户代码并准备 checker
+5. 编译成功后，各 testcase 按需加载 `inputFile` / `expectedOutputFile`
+6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
+7. service 汇总逐点结果、通过数量和判题流程状态
+8. transport 返回 JSON 响应
 
 ### 目录结构
 
