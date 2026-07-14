@@ -27,8 +27,8 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 			t.Helper()
 
 			assert.Equal(t, "compiler-image", job.ImageRef)
-			assert.Equal(t, []string{"gcc", "-o", "/work/program", "/work/main.c"}, job.Command)
-			assert.Equal(t, compileMountDir, job.MountPath)
+			assert.Equal(t, []string{"gcc", "-o", "program", "main.c"}, job.Command)
+			assert.Equal(t, "/work", job.MountPath)
 			assert.False(t, job.ReadOnlyMount)
 			assert.False(t, job.EnableSeccomp)
 			assert.Equal(t, []string{"program"}, job.Artifacts)
@@ -57,7 +57,7 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 			Mode:    0o644,
 		}},
 		ImageRef:     "compiler-image",
-		Command:      []string{"gcc", "-o", "/work/program", "/work/main.c"},
+		Command:      []string{"gcc", "-o", "program", "main.c"},
 		ArtifactName: "program",
 		Limits: execution.Limits{
 			CPUTimeMs:   1000,
@@ -78,8 +78,8 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 			t.Helper()
 
 			assert.Equal(t, "runtime-image", job.ImageRef)
-			assert.Equal(t, []string{"/sandbox/program"}, job.Command)
-			assert.Equal(t, runMountDir, job.MountPath)
+			assert.Equal(t, []string{"./program"}, job.Command)
+			assert.Equal(t, "/sandbox", job.MountPath)
 			assert.True(t, job.ReadOnlyMount)
 			assert.True(t, job.EnableSeccomp)
 			require.Len(t, job.Files, 1)
@@ -108,7 +108,7 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 			Mode:    0o755,
 		}},
 		ImageRef: "runtime-image",
-		Command:  []string{"/sandbox/program"},
+		Command:  []string{"./program"},
 		Limits: execution.Limits{
 			CPUTimeMs:   1000,
 			WallTimeMs:  3000,

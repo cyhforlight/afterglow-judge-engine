@@ -130,7 +130,6 @@ func (p *compiledLanguageProgram) Run(
 		return RunResult{}, errors.New("program artifact is required")
 	}
 
-	containerPath := runMountDir + "/" + p.profile.ArtifactName
 	runOut, err := p.runner.Run(ctx, RunRequest{
 		Files: []execution.File{{
 			Name:    p.profile.ArtifactName,
@@ -138,7 +137,7 @@ func (p *compiledLanguageProgram) Run(
 			Mode:    p.artifact.Mode,
 		}},
 		ImageRef: p.profile.ImageRef,
-		Command:  p.profile.RuntimeCommand(containerPath, memoryLimitMB),
+		Command:  p.profile.RuntimeCommand("./"+p.profile.ArtifactName, memoryLimitMB),
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimitMs,
@@ -177,8 +176,7 @@ func cProfile() languageProfile {
 			ArtifactName: "program",
 			BuildCommand: []string{
 				"gcc", "-O2", "-pipe", "-static", "-s",
-				"-o", compileMountDir + "/program",
-				compileMountDir + "/main.c", "-lm",
+				"-o", "program", "main.c", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -199,8 +197,7 @@ func cppProfile() languageProfile {
 			ArtifactName: "program",
 			BuildCommand: []string{
 				"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
-				"-o", compileMountDir + "/program",
-				compileMountDir + "/main.cpp", "-lm",
+				"-o", "program", "main.cpp", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -221,9 +218,9 @@ func javaProfile() languageProfile {
 			ArtifactName: "solution.jar",
 			BuildCommand: []string{
 				"sh", "-c",
-				"mkdir -p " + compileMountDir + "/classes && " +
-					"javac -encoding UTF-8 -d " + compileMountDir + "/classes " + compileMountDir + "/Main.java && " +
-					"jar --create --file " + compileMountDir + "/solution.jar --main-class Main -C " + compileMountDir + "/classes .",
+				"mkdir -p classes && " +
+					"javac -encoding UTF-8 -d classes Main.java && " +
+					"jar --create --file solution.jar --main-class Main -C classes .",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
@@ -253,7 +250,7 @@ func pythonProfile() languageProfile {
 			ArtifactName: "solution.pyc",
 			BuildCommand: []string{
 				"sh", "-c",
-				"python3 -c 'import py_compile; py_compile.compile(\"" + compileMountDir + "/solution.py\", cfile=\"" + compileMountDir + "/solution.pyc\", doraise=True)' || exit 1",
+				"python3 -c 'import py_compile; py_compile.compile(\"solution.py\", cfile=\"solution.pyc\", doraise=True)' || exit 1",
 			},
 			TimeoutMs: 10000,
 			MemoryMB:  256,

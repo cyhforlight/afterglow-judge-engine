@@ -23,6 +23,7 @@ const (
 	checkerInputFileName  = "input.txt"
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
+	checkerArtifactName   = "checker"
 
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
@@ -204,10 +205,10 @@ func (c *compiledChecker) Check(
 		},
 		ImageRef: profile.Run.ImageRef,
 		Command: []string{
-			runMountDir + "/" + profile.Run.ArtifactName,
-			runMountDir + "/" + checkerInputFileName,
-			runMountDir + "/" + checkerOutputFileName,
-			runMountDir + "/" + checkerAnswerFileName,
+			"./" + profile.Run.ArtifactName,
+			checkerInputFileName,
+			checkerOutputFileName,
+			checkerAnswerFileName,
 		},
 		Limits: checkerRunLimits(),
 	})
@@ -302,18 +303,17 @@ func checkerProfile() languageProfile {
 		Compile: compileConfig{
 			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFile:   "checker.cpp",
-			ArtifactName: "checker",
+			ArtifactName: checkerArtifactName,
 			BuildCommand: []string{
 				"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
-				"-o", compileMountDir + "/checker",
-				compileMountDir + "/checker.cpp", "-lm",
+				"-o", checkerArtifactName, "checker.cpp", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
 		},
 		Run: runConfig{
 			ImageRef:       "docker.io/library/debian:12-slim",
-			ArtifactName:   "checker",
+			ArtifactName:   checkerArtifactName,
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}

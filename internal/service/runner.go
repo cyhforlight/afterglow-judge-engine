@@ -10,8 +10,6 @@ import (
 	"afterglow-judge-engine/internal/execution"
 )
 
-const runMountDir = "/sandbox"
-
 // RunRequest contains a generic run job definition.
 type RunRequest struct {
 	Files    []execution.File
@@ -55,7 +53,7 @@ func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Files:         req.Files,
 		ImageRef:      req.ImageRef,
 		Command:       req.Command,
-		MountPath:     runMountDir,
+		MountPath:     "/sandbox",
 		ReadOnlyMount: true,
 		Stdin:         req.Stdin,
 		Limits:        req.Limits,

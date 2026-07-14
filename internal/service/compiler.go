@@ -10,8 +10,6 @@ import (
 	"afterglow-judge-engine/internal/model"
 )
 
-const compileMountDir = "/work"
-
 // CompileRequest contains a generic compilation job definition.
 type CompileRequest struct {
 	Files        []execution.File
@@ -90,7 +88,7 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		Files:         req.Files,
 		ImageRef:      req.ImageRef,
 		Command:       req.Command,
-		MountPath:     compileMountDir,
+		MountPath:     "/work",
 		ReadOnlyMount: false,
 		Limits:        req.Limits,
 		EnableSeccomp: false, // Compilation needs fork for shell scripts

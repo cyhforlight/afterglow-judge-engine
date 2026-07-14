@@ -342,10 +342,10 @@ func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
 	assert.Equal(t, "docker.io/library/debian:12-slim", req.ImageRef)
 	assert.Equal(t, checkerRunLimits(), req.Limits)
 	assert.Equal(t, []string{
-		runMountDir + "/checker",
-		runMountDir + "/input.txt",
-		runMountDir + "/output.txt",
-		runMountDir + "/answer.txt",
+		"./checker",
+		"input.txt",
+		"output.txt",
+		"answer.txt",
 	}, req.Command)
 	require.Len(t, req.Files, 4)
 	assert.Equal(t, []string{"checker", "input.txt", "output.txt", "answer.txt"}, []string{
