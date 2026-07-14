@@ -4,7 +4,6 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 )
 
 const unknownString = "Unknown"
@@ -73,7 +72,6 @@ const (
 	VerdictOLE     Verdict = "OutputLimitExceeded"
 	VerdictRE      Verdict = "RuntimeError"
 	VerdictWA      Verdict = "WrongAnswer"
-	VerdictCE      Verdict = "CompileError"
 	VerdictUKE     Verdict = "UnknownError"
 )
 
@@ -84,12 +82,6 @@ func (v Verdict) String() string {
 // MarshalJSON implements json.Marshaler for Verdict.
 func (v Verdict) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.String())
-}
-
-// CompiledArtifact is a compiled program transferred by value between layers.
-type CompiledArtifact struct {
-	Data []byte
-	Mode os.FileMode
 }
 
 // JudgeTestCase represents a single test case for judging.

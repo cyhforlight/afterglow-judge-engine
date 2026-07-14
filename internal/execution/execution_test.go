@@ -83,7 +83,6 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 			require.NotNil(t, req.MountDir)
 			assert.Equal(t, testSandboxMount, req.MountDir.ContainerPath)
 			assert.True(t, req.MountDir.ReadOnly)
-			assert.Nil(t, req.Cwd)
 			assert.True(t, req.EnableSeccomp)
 			assert.NotNil(t, req.Stdin)
 
@@ -264,7 +263,6 @@ func assertCompileSandboxRequest(t *testing.T, req sandbox.ExecuteRequest) {
 	assert.False(t, req.MountDir.ReadOnly)
 	assert.Equal(t, testImageRef, req.ImageRef)
 	assert.Equal(t, []string{"build"}, req.Command)
-	assert.Nil(t, req.Cwd)
 	assert.False(t, req.EnableSeccomp)
 	assert.Equal(t, sandbox.ResourceLimits{
 		CPUTimeMs:   1000,

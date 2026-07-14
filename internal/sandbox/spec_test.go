@@ -21,6 +21,21 @@ func TestSandboxSecurityOpts_PinsContainerToCPU(t *testing.T) {
 	assert.Equal(t, "7", spec.Linux.Resources.CPU.Cpus)
 }
 
+func TestMountSpecOpts_SetsContainerPathAsCwd(t *testing.T) {
+	opts, err := mountSpecOpts(&Mount{ContainerPath: "/sandbox"})
+	require.NoError(t, err)
+	require.Len(t, opts, 2)
+
+	spec := &oci.Spec{Process: &specs.Process{}}
+	require.NoError(t, opts[1](t.Context(), nil, nil, spec))
+	assert.Equal(t, "/sandbox", spec.Process.Cwd)
+}
+
+func TestMountSpecOpts_RejectsRelativeContainerPath(t *testing.T) {
+	_, err := mountSpecOpts(&Mount{ContainerPath: "sandbox"})
+	require.EqualError(t, err, `mount dir container path must be absolute: "sandbox"`)
+}
+
 func TestMemoryBytesFromMB_RejectsInvalidLimits(t *testing.T) {
 	tests := []struct {
 		name    string

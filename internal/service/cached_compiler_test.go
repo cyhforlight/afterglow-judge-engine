@@ -17,7 +17,7 @@ import (
 
 type cachedCompilerFake struct {
 	mu       sync.Mutex
-	artifact *model.CompiledArtifact
+	artifact *execution.Artifact
 	result   model.CompileResult
 	err      error
 	calls    int
@@ -31,8 +31,8 @@ func (c *cachedCompilerFake) Compile(_ context.Context, _ CompileRequest) (Compi
 	return CompileOutput{Result: c.result, Artifact: c.artifact}, c.err
 }
 
-func testCompiledArtifact() *model.CompiledArtifact {
-	return &model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755}
+func testCompiledArtifact() *execution.Artifact {
+	return &execution.Artifact{Data: []byte("binary"), Mode: 0o755}
 }
 
 func testCompileRequest(content string) CompileRequest {
@@ -131,7 +131,7 @@ type gatedCompiler struct {
 	release      chan struct{}
 	compileCount *atomic.Int32
 	result       model.CompileResult
-	artifact     *model.CompiledArtifact
+	artifact     *execution.Artifact
 }
 
 func (g *gatedCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {

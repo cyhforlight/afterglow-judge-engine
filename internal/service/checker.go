@@ -66,7 +66,7 @@ type checkerReference struct {
 
 type compiledChecker struct {
 	runner   Runner
-	artifact model.CompiledArtifact
+	artifact execution.Artifact
 }
 
 type checkerLocation struct {

@@ -50,7 +50,7 @@ type resolvedLanguage struct {
 type compiledLanguageProgram struct {
 	language model.Language
 	profile  runConfig
-	artifact model.CompiledArtifact
+	artifact execution.Artifact
 	runner   Runner
 }
 

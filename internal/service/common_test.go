@@ -35,7 +35,7 @@ func requireServiceIntegrationTest(t *testing.T) {
 	if err != nil {
 		t.Skipf("service integration environment unavailable: %v", err)
 	}
-	if err := sb.CheckReadiness(ctx); err != nil {
+	if err := sb.CheckEnvironment(ctx); err != nil {
 		t.Skipf("service integration environment unavailable: %v", err)
 	}
 }

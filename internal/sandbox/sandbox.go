@@ -10,7 +10,6 @@ type ExecuteRequest struct {
 	ImageRef      string
 	Command       []string
 	MountDir      *Mount
-	Cwd           *string
 	Stdin         io.Reader
 	Limits        ResourceLimits
 	EnableSeccomp bool // Enable seccomp restrictions (for user code execution)

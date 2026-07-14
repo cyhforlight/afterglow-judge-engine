@@ -23,14 +23,6 @@ func sandboxSpecOpts(req ExecuteRequest, cpuID int) ([]oci.SpecOpts, error) {
 		return nil, err
 	}
 
-	cwd, hasCwd, err := resolveCwd(req)
-	if err != nil {
-		return nil, err
-	}
-	if hasCwd {
-		opts = append(opts, oci.WithProcessCwd(cwd))
-	}
-
 	memoryLimitBytes, err := memoryBytesFromMB(req.Limits.MemoryMB)
 	if err != nil {
 		return nil, err
@@ -61,12 +53,15 @@ func mountSpecOpts(mount *Mount) ([]oci.SpecOpts, error) {
 		opts = append(opts, "ro")
 	}
 
-	return []oci.SpecOpts{oci.WithMounts([]specs.Mount{{
-		Destination: mount.ContainerPath,
-		Type:        "bind",
-		Source:      mount.HostPath,
-		Options:     opts,
-	}})}, nil
+	return []oci.SpecOpts{
+		oci.WithMounts([]specs.Mount{{
+			Destination: mount.ContainerPath,
+			Type:        "bind",
+			Source:      mount.HostPath,
+			Options:     opts,
+		}}),
+		oci.WithProcessCwd(mount.ContainerPath),
+	}, nil
 }
 
 func memoryBytesFromMB(memoryMB int) (int64, error) {
@@ -77,27 +72,6 @@ func memoryBytesFromMB(memoryMB int) (int64, error) {
 		return 0, fmt.Errorf("memory limit too large: %dMB", memoryMB)
 	}
 	return int64(memoryMB) * bytesPerMiB, nil
-}
-
-func resolveCwd(req ExecuteRequest) (string, bool, error) {
-	if req.Cwd != nil {
-		if !filepath.IsAbs(*req.Cwd) {
-			return "", false, fmt.Errorf("cwd must be an absolute path: %q", *req.Cwd)
-		}
-		return *req.Cwd, true, nil
-	}
-
-	if req.MountDir != nil {
-		if req.MountDir.ContainerPath == "" {
-			return "", false, errors.New("mount dir container path is required")
-		}
-		if !filepath.IsAbs(req.MountDir.ContainerPath) {
-			return "", false, fmt.Errorf("mount dir container path must be absolute: %q", req.MountDir.ContainerPath)
-		}
-		return req.MountDir.ContainerPath, true, nil
-	}
-
-	return "", false, nil
 }
 
 func sandboxSecurityOpts(enableSeccomp bool, cpuID int) oci.SpecOpts {

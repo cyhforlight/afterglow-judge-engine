@@ -24,7 +24,7 @@ type CompileRequest struct {
 // CompileOutput is the generic compiler output.
 type CompileOutput struct {
 	Result   model.CompileResult
-	Artifact *model.CompiledArtifact
+	Artifact *execution.Artifact
 }
 
 // Compiler compiles a file set into an artifact.
@@ -121,22 +121,10 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		Log:       compileLog,
 	}
 
-	artifact, err := compiledArtifactFromResult(result, req.ArtifactName)
-	if err != nil {
-		return out, err
+	artifact, ok := result.Artifacts[req.ArtifactName]
+	if !ok {
+		return out, fmt.Errorf("compiled artifact %q was not collected", req.ArtifactName)
 	}
 	out.Artifact = &artifact
 	return out, nil
-}
-
-func compiledArtifactFromResult(result execution.Result, name string) (model.CompiledArtifact, error) {
-	artifact, ok := result.Artifacts[name]
-	if !ok {
-		return model.CompiledArtifact{}, fmt.Errorf("compiled artifact %q was not collected", name)
-	}
-
-	return model.CompiledArtifact{
-		Data: artifact.Data,
-		Mode: artifact.Mode,
-	}, nil
 }

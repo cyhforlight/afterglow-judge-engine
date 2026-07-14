@@ -183,8 +183,8 @@ func newE2EHandler(t *testing.T) *Handler {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	if err := sb.CheckReadiness(ctx); err != nil {
-		t.Skipf("Containerd not available: %v", err)
+	if err := sb.CheckEnvironment(ctx); err != nil {
+		t.Skipf("sandbox environment unavailable: %v", err)
 	}
 
 	return NewHandler(judge, slog.Default(), 256)

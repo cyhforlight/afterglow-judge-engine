@@ -70,15 +70,15 @@ func New(socketPath, namespace string) (*Sandbox, error) {
 	}, nil
 }
 
-// CheckReadiness verifies that cgroup v2 and containerd are available.
-func (s *Sandbox) CheckReadiness(ctx context.Context) error {
+// CheckEnvironment verifies that the host can run sandboxed containers.
+func (s *Sandbox) CheckEnvironment(ctx context.Context) error {
 	if err := ensureCgroupV2Enabled(); err != nil {
 		return err
 	}
 	if err := ensureContainerdAvailable(ctx, s.socketPath); err != nil {
 		return err
 	}
-	slog.DebugContext(ctx, "sandbox readiness checks passed")
+	slog.DebugContext(ctx, "sandbox environment checks passed")
 	return nil
 }
 

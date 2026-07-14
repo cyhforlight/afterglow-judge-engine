@@ -21,7 +21,7 @@ func requireSandboxIntegrationTest(t *testing.T) {
 	if err != nil {
 		t.Skipf("sandbox integration environment unavailable: %v", err)
 	}
-	if err := sb.CheckReadiness(ctx); err != nil {
+	if err := sb.CheckEnvironment(ctx); err != nil {
 		t.Skipf("sandbox integration environment unavailable: %v", err)
 	}
 }

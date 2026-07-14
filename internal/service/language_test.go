@@ -132,7 +132,7 @@ func TestLanguageCompileAndRunRequests(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := &recordingCompiler{output: CompileOutput{
 				Result:   model.CompileResult{Succeeded: true},
-				Artifact: &model.CompiledArtifact{Data: []byte("program"), Mode: 0o755},
+				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 			}}
 			runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
 
@@ -208,7 +208,7 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 			name: "successful compile",
 			output: CompileOutput{
 				Result:   model.CompileResult{Succeeded: true, Log: "warning"},
-				Artifact: &model.CompiledArtifact{Data: []byte("program"), Mode: 0o755},
+				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 			},
 			wantResult:  model.CompileResult{Succeeded: true, Log: "warning"},
 			wantProgram: true,
@@ -269,7 +269,7 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := &recordingCompiler{output: CompileOutput{
 				Result:   model.CompileResult{Succeeded: true},
-				Artifact: &model.CompiledArtifact{Data: []byte("program"), Mode: 0o755},
+				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 			}}
 			runner := &recordingRunner{result: RunResult{Verdict: tt.verdict, Stderr: tt.stderr}}
 			toolchain, err := newLanguage(compiler, runner).Resolve(tt.language)
@@ -287,18 +287,18 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 func TestCompiledProgramRejectsEmptyArtifactAndPropagatesRunnerError(t *testing.T) {
 	tests := []struct {
 		name      string
-		artifact  *model.CompiledArtifact
+		artifact  *execution.Artifact
 		runnerErr error
 		wantErr   string
 	}{
 		{
 			name:     "empty artifact",
-			artifact: &model.CompiledArtifact{Mode: 0o755},
+			artifact: &execution.Artifact{Mode: 0o755},
 			wantErr:  "program artifact is required",
 		},
 		{
 			name:      "runner error",
-			artifact:  &model.CompiledArtifact{Data: []byte("program"), Mode: 0o755},
+			artifact:  &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 			runnerErr: errors.New("sandbox unavailable"),
 			wantErr:   "sandbox unavailable",
 		},
@@ -325,7 +325,7 @@ func TestCompiledProgramRejectsEmptyArtifactAndPropagatesRunnerError(t *testing.
 func TestCompiledProgramSupportsConcurrentRuns(t *testing.T) {
 	compiler := &recordingCompiler{output: CompileOutput{
 		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &model.CompiledArtifact{Data: []byte("program"), Mode: 0o755},
+		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 	}}
 	runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
 	toolchain, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)

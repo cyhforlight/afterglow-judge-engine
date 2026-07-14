@@ -103,8 +103,8 @@ func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
 	}
 
 	ctx := context.Background()
-	if err := sb.CheckReadiness(ctx); err != nil {
-		return nil, fmt.Errorf("readiness check failed: %w", err)
+	if err := sb.CheckEnvironment(ctx); err != nil {
+		return nil, fmt.Errorf("sandbox environment check failed: %w", err)
 	}
 
 	return judge, nil

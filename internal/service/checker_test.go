@@ -179,7 +179,7 @@ func TestCheckerReference_Validate(t *testing.T) {
 func TestCheckerReference_Prepare(t *testing.T) {
 	compiler := &recordingCheckerCompiler{output: CompileOutput{
 		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &model.CompiledArtifact{Data: []byte("checker binary"), Mode: 0o755},
+		Artifact: &execution.Artifact{Data: []byte("checker binary"), Mode: 0o755},
 	}}
 	runner := &recordingCheckerRunner{}
 	engine := &checkerEngine{
@@ -310,7 +310,7 @@ func TestCompiledChecker_Check(t *testing.T) {
 			runner := &recordingCheckerRunner{result: tt.runResult}
 			prepared := &compiledChecker{
 				runner:   runner,
-				artifact: model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755},
+				artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 			}
 
 			result, err := prepared.Check(context.Background(), "input", "actual", "expected")
@@ -325,7 +325,7 @@ func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
 	runner := &recordingCheckerRunner{result: RunResult{Verdict: execution.VerdictOK, ExitCode: 0}}
 	prepared := &compiledChecker{
 		runner:   runner,
-		artifact: model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755},
+		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 	}
 
 	_, err := prepared.Check(context.Background(), "input", "actual", "expected")
@@ -356,7 +356,7 @@ func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
 func TestCompiledChecker_CheckRunnerError(t *testing.T) {
 	prepared := &compiledChecker{
 		runner:   &recordingCheckerRunner{err: errors.New("sandbox unavailable")},
-		artifact: model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755},
+		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 	}
 
 	result, err := prepared.Check(context.Background(), "", "", "")
@@ -370,7 +370,7 @@ func TestCompiledChecker_CheckConcurrent(t *testing.T) {
 	runner := &recordingCheckerRunner{result: RunResult{Verdict: execution.VerdictOK, ExitCode: 0}}
 	prepared := &compiledChecker{
 		runner:   runner,
-		artifact: model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755},
+		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 	}
 
 	var wg sync.WaitGroup
