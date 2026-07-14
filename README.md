@@ -217,8 +217,8 @@ Authorization: Bearer <token>
 
 约束：
 
-- `inputText` 和 `inputFile` 不能同时出现
-- `expectedOutputText` 和 `expectedOutputFile` 不能同时出现
+- testcase 必须完整使用文本或文件：`inputText` / `expectedOutputText` 与 `inputFile` / `expectedOutputFile` 不能交叉使用
+- 文件型 testcase 必须同时提供 `inputFile` 和 `expectedOutputFile`
 - 请求体必须是且只能是一个 JSON 对象
 - 未知字段会被直接拒绝
 - Java 的 JVM 堆外开销由 Judge Engine 额外预留，不从 `memoryLimit` 中扣除

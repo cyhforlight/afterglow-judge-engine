@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -81,15 +82,14 @@ func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest)
 	}
 
 	for index, testCase := range req.TestCases {
-		if testCase.InputFile != "" {
-			if err := s.validateExternalDependency(testCase.InputFile, "inputFile"); err != nil {
-				return fmt.Errorf("testcases[%d]: %w", index, err)
-			}
+		if testCase.InputFile == "" {
+			continue
 		}
-		if testCase.ExpectedOutputFile != "" {
-			if err := s.validateExternalDependency(testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
-				return fmt.Errorf("testcases[%d]: %w", index, err)
-			}
+		if err := s.validateExternalDependency(testCase.InputFile, "inputFile"); err != nil {
+			return fmt.Errorf("testcases[%d]: %w", index, err)
+		}
+		if err := s.validateExternalDependency(testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
+			return fmt.Errorf("testcases[%d]: %w", index, err)
 		}
 	}
 
@@ -191,30 +191,26 @@ func (s *JudgeEngine) runAllCases(
 // loadTestCaseData resolves file paths to actual content strings.
 // Modifies testCase in-place, converting file paths to text.
 func (s *JudgeEngine) loadTestCaseData(testCase *model.JudgeTestCase) error {
-	if testCase.InputFile != "" {
-		if s.externalFS == nil {
-			return fmt.Errorf("external resources not configured, cannot load inputFile: %s", testCase.InputFile)
-		}
-		data, err := fs.ReadFile(s.externalFS, testCase.InputFile)
-		if err != nil {
-			return fmt.Errorf("load inputFile %q: %w", testCase.InputFile, err)
-		}
-		testCase.InputText = string(data)
-		testCase.InputFile = "" // Clear after loading
+	if testCase.InputFile == "" {
+		return nil
+	}
+	if s.externalFS == nil {
+		return errors.New("external resources not configured, cannot load testcase files")
 	}
 
-	if testCase.ExpectedOutputFile != "" {
-		if s.externalFS == nil {
-			return fmt.Errorf("external resources not configured, cannot load expectedOutputFile: %s", testCase.ExpectedOutputFile)
-		}
-		data, err := fs.ReadFile(s.externalFS, testCase.ExpectedOutputFile)
-		if err != nil {
-			return fmt.Errorf("load expectedOutputFile %q: %w", testCase.ExpectedOutputFile, err)
-		}
-		testCase.ExpectedOutput = string(data)
-		testCase.ExpectedOutputFile = "" // Clear after loading
+	input, err := fs.ReadFile(s.externalFS, testCase.InputFile)
+	if err != nil {
+		return fmt.Errorf("load inputFile %q: %w", testCase.InputFile, err)
+	}
+	expectedOutput, err := fs.ReadFile(s.externalFS, testCase.ExpectedOutputFile)
+	if err != nil {
+		return fmt.Errorf("load expectedOutputFile %q: %w", testCase.ExpectedOutputFile, err)
 	}
 
+	testCase.InputText = string(input)
+	testCase.ExpectedOutput = string(expectedOutput)
+	testCase.InputFile = ""
+	testCase.ExpectedOutputFile = ""
 	return nil
 }
 

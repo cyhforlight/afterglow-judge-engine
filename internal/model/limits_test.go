@@ -33,6 +33,15 @@ func TestValidateJudgeRequest(t *testing.T) {
 			name: "valid request",
 		},
 		{
+			name: "valid file testcase",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{
+					InputFile:          "cases/1.in",
+					ExpectedOutputFile: "cases/1.out",
+				}}
+			},
+		},
+		{
 			name:    "missing source",
 			mutate:  func(req *JudgeRequest) { req.SourceCode = "" },
 			wantErr: "sourceCode is required",
@@ -70,24 +79,38 @@ func TestValidateJudgeRequest(t *testing.T) {
 			wantErr: "testcases must contain at most 2 cases",
 		},
 		{
-			name: "both input text and file",
+			name: "text input with expected output file",
 			mutate: func(req *JudgeRequest) {
 				req.TestCases = []JudgeTestCase{{
-					InputText: "1\n",
-					InputFile: "cases/1.in",
-				}}
-			},
-			wantErr: "testcases[0]: cannot provide both inputText and inputFile",
-		},
-		{
-			name: "both expected output text and file",
-			mutate: func(req *JudgeRequest) {
-				req.TestCases = []JudgeTestCase{{
-					ExpectedOutput:     "1\n",
+					InputText:          "1\n",
 					ExpectedOutputFile: "cases/1.out",
 				}}
 			},
-			wantErr: "testcases[0]: cannot provide both expectedOutputText and expectedOutputFile",
+			wantErr: "testcases[0]: cannot mix text and file data",
+		},
+		{
+			name: "input file with expected output text",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{
+					InputFile:      "cases/1.in",
+					ExpectedOutput: "1\n",
+				}}
+			},
+			wantErr: "testcases[0]: cannot mix text and file data",
+		},
+		{
+			name: "input file without expected output file",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{InputFile: "cases/1.in"}}
+			},
+			wantErr: "testcases[0]: inputFile and expectedOutputFile must be provided together",
+		},
+		{
+			name: "expected output file without input file",
+			mutate: func(req *JudgeRequest) {
+				req.TestCases = []JudgeTestCase{{ExpectedOutputFile: "cases/1.out"}}
+			},
+			wantErr: "testcases[0]: inputFile and expectedOutputFile must be provided together",
 		},
 	}
 

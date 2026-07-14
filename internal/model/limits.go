@@ -91,14 +91,15 @@ func ValidateJudgeRequest(req JudgeRequest, limits JudgeLimits) error {
 }
 
 func validateJudgeTestCase(index int, testCase JudgeTestCase) error {
-	hasInputFile := strings.TrimSpace(testCase.InputFile) != ""
-	hasOutputFile := strings.TrimSpace(testCase.ExpectedOutputFile) != ""
+	hasInputFile := testCase.InputFile != ""
+	hasExpectedOutputFile := testCase.ExpectedOutputFile != ""
+	hasText := testCase.InputText != "" || testCase.ExpectedOutput != ""
 
-	if hasInputFile && testCase.InputText != "" {
-		return fmt.Errorf("testcases[%d]: cannot provide both inputText and inputFile", index)
+	if hasText && (hasInputFile || hasExpectedOutputFile) {
+		return fmt.Errorf("testcases[%d]: cannot mix text and file data", index)
 	}
-	if hasOutputFile && testCase.ExpectedOutput != "" {
-		return fmt.Errorf("testcases[%d]: cannot provide both expectedOutputText and expectedOutputFile", index)
+	if hasInputFile != hasExpectedOutputFile {
+		return fmt.Errorf("testcases[%d]: inputFile and expectedOutputFile must be provided together", index)
 	}
 	return nil
 }

@@ -396,14 +396,16 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 		{
 			name: "external input requires resources",
 			req: baseJudgeRequest(model.JudgeTestCase{
-				InputFile: "cases/1.in",
+				InputFile:          "cases/1.in",
+				ExpectedOutputFile: "cases/1.out",
 			}),
 			wantErr: `inputFile "cases/1.in" requires external resources`,
 		},
 		{
 			name: "missing external input file",
 			req: baseJudgeRequest(model.JudgeTestCase{
-				InputFile: "cases/1.in",
+				InputFile:          "cases/1.in",
+				ExpectedOutputFile: "cases/1.out",
 			}),
 			externalFS: testFileSystem(nil),
 			wantErr:    `testcases[0]: inputFile "cases/1.in" is not available`,
