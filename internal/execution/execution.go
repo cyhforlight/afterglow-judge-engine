@@ -1,4 +1,4 @@
-// Package execution runs generic commands in a prepared workspace.
+// Package execution prepares workspaces and runs generic container jobs.
 package execution
 
 import (
@@ -10,13 +10,19 @@ import (
 	"strings"
 
 	"afterglow-judge-engine/internal/sandbox"
-	"afterglow-judge-engine/internal/workspace"
 )
 
 // Artifact is a file produced by an execution job.
 type Artifact struct {
 	Data []byte
 	Mode os.FileMode
+}
+
+// File describes a file available to an execution job.
+type File struct {
+	Name    string
+	Content []byte
+	Mode    os.FileMode
 }
 
 // Limits defines resource constraints for an execution job.
@@ -41,7 +47,7 @@ const (
 
 // Job describes a single command executed in a temporary workspace.
 type Job struct {
-	Files         []workspace.File
+	Files         []File
 	ImageRef      string
 	Command       []string
 	MountPath     string
@@ -97,15 +103,15 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 		return Result{}, err
 	}
 
-	ws, err := workspace.New()
+	ws, err := newWorkspace()
 	if err != nil {
 		return Result{}, fmt.Errorf("create workspace: %w", err)
 	}
 	defer func() {
-		err = errors.Join(err, ws.Cleanup())
+		err = errors.Join(err, ws.cleanup())
 	}()
 
-	if err := ws.WriteFiles(job.Files); err != nil {
+	if err := ws.writeFiles(job.Files); err != nil {
 		return Result{}, fmt.Errorf("write execution files: %w", err)
 	}
 
@@ -113,7 +119,7 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 		ImageRef: job.ImageRef,
 		Command:  job.Command,
 		MountDir: &sandbox.Mount{
-			HostPath:      ws.Dir(),
+			HostPath:      ws.dir(),
 			ContainerPath: job.MountPath,
 			ReadOnly:      job.ReadOnlyMount,
 		},
@@ -166,19 +172,19 @@ func validateJob(job Job) error {
 	return nil
 }
 
-func collectArtifacts(ws *workspace.Workspace, names []string) (map[string]Artifact, error) {
+func collectArtifacts(ws *workspace, names []string) (map[string]Artifact, error) {
 	artifacts := make(map[string]Artifact, len(names))
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" {
 			return nil, errors.New("artifact name is required")
 		}
 
-		info, err := ws.Stat(name)
+		info, err := ws.stat(name)
 		if err != nil {
 			return nil, fmt.Errorf("stat artifact %q: %w", name, err)
 		}
 
-		data, err := ws.ReadFile(name)
+		data, err := ws.readFile(name)
 		if err != nil {
 			return nil, fmt.Errorf("read artifact %q: %w", name, err)
 		}

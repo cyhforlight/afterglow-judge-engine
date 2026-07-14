@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"slices"
 
+	"afterglow-judge-engine/internal/execution"
+
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
-
-	"afterglow-judge-engine/internal/workspace"
 )
 
 // cachedCompiler decorates a Compiler with an LRU cache and singleflight
@@ -75,9 +75,8 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 // Resource limits and artifact name are execution-time constraints
 // that do not change the resulting binary.
 func computeCacheKey(req CompileRequest) string {
-	sorted := make([]workspace.File, len(req.Files))
-	copy(sorted, req.Files)
-	slices.SortFunc(sorted, func(a, b workspace.File) int {
+	sorted := slices.Clone(req.Files)
+	slices.SortFunc(sorted, func(a, b execution.File) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
 

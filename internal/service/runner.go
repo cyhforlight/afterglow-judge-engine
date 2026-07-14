@@ -8,14 +8,13 @@ import (
 	"strings"
 
 	"afterglow-judge-engine/internal/execution"
-	"afterglow-judge-engine/internal/workspace"
 )
 
 const runMountDir = "/sandbox"
 
 // RunRequest contains a generic run job definition.
 type RunRequest struct {
-	Files    []workspace.File
+	Files    []execution.File
 	ImageRef string
 	Command  []string
 	Stdin    io.Reader

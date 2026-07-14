@@ -11,7 +11,6 @@ import (
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 )
 
 const (
@@ -132,7 +131,7 @@ func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error)
 
 	profile := checkerProfile()
 	compileOut, err := r.engine.compiler.Compile(ctx, CompileRequest{
-		Files: []workspace.File{
+		Files: []execution.File{
 			{Name: profile.Compile.SourceFile, Content: checkerSource, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
@@ -196,7 +195,7 @@ func (c *compiledChecker) Check(
 
 	profile := checkerProfile()
 	runOut, err := c.runner.Run(ctx, RunRequest{
-		Files: []workspace.File{
+		Files: []execution.File{
 			{Name: profile.Run.ArtifactName, Content: c.artifact.Data, Mode: c.artifact.Mode},
 			{Name: checkerInputFileName, Content: []byte(input), Mode: 0o644},
 			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},

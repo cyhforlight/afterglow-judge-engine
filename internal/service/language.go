@@ -9,7 +9,6 @@ import (
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 )
 
 const (
@@ -98,7 +97,7 @@ func (l *resolvedLanguage) Compile(
 ) (compiledProgram, model.CompileResult, error) {
 	config := l.profile.Compile
 	compileOut, err := l.compiler.Compile(ctx, CompileRequest{
-		Files: []workspace.File{{
+		Files: []execution.File{{
 			Name:    config.SourceFile,
 			Content: []byte(sourceCode),
 			Mode:    0o644,
@@ -143,7 +142,7 @@ func (p *compiledLanguageProgram) Run(
 
 	containerPath := runMountDir + "/" + p.profile.ArtifactName
 	runOut, err := p.runner.Run(ctx, RunRequest{
-		Files: []workspace.File{{
+		Files: []execution.File{{
 			Name:    p.profile.ArtifactName,
 			Content: p.artifact.Data,
 			Mode:    p.artifact.Mode,

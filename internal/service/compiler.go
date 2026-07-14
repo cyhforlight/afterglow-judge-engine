@@ -8,14 +8,13 @@ import (
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 )
 
 const compileMountDir = "/work"
 
 // CompileRequest contains a generic compilation job definition.
 type CompileRequest struct {
-	Files        []workspace.File
+	Files        []execution.File
 	ImageRef     string
 	Command      []string
 	ArtifactName string

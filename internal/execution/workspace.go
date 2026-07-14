@@ -1,5 +1,4 @@
-// Package workspace manages temporary directories for compilation and execution.
-package workspace
+package execution
 
 import (
 	"errors"
@@ -8,20 +7,11 @@ import (
 	"strings"
 )
 
-// File describes a file to be stored in a workspace.
-type File struct {
-	Name    string
-	Content []byte
-	Mode    os.FileMode
-}
-
-// Workspace manages a temporary directory for compilation or execution.
-type Workspace struct {
+type workspace struct {
 	root *os.Root
 }
 
-// New creates a new temporary workspace directory.
-func New() (*Workspace, error) {
+func newWorkspace() (*workspace, error) {
 	dir, err := os.MkdirTemp("", "sandbox-workspace-*")
 	if err != nil {
 		return nil, fmt.Errorf("create workspace: %w", err)
@@ -31,16 +21,14 @@ func New() (*Workspace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open workspace root: %w", errors.Join(err, os.RemoveAll(dir)))
 	}
-	return &Workspace{root: root}, nil
+	return &workspace{root: root}, nil
 }
 
-// Dir returns the workspace directory path.
-func (w *Workspace) Dir() string {
+func (w *workspace) dir() string {
 	return w.root.Name()
 }
 
-// WriteFiles writes multiple files to the workspace.
-func (w *Workspace) WriteFiles(files []File) error {
+func (w *workspace) writeFiles(files []File) error {
 	for _, file := range files {
 		if strings.TrimSpace(file.Name) == "" {
 			return errors.New("workspace path is required")
@@ -56,8 +44,7 @@ func (w *Workspace) WriteFiles(files []File) error {
 	return nil
 }
 
-// ReadFile reads a file from the workspace.
-func (w *Workspace) ReadFile(name string) ([]byte, error) {
+func (w *workspace) readFile(name string) ([]byte, error) {
 	data, err := w.root.ReadFile(name)
 	if err != nil {
 		return nil, fmt.Errorf("read file %q: %w", name, err)
@@ -65,8 +52,7 @@ func (w *Workspace) ReadFile(name string) ([]byte, error) {
 	return data, nil
 }
 
-// Stat returns file info for a file in the workspace.
-func (w *Workspace) Stat(name string) (os.FileInfo, error) {
+func (w *workspace) stat(name string) (os.FileInfo, error) {
 	info, err := w.root.Stat(name)
 	if err != nil {
 		return nil, fmt.Errorf("stat file %q: %w", name, err)
@@ -74,8 +60,7 @@ func (w *Workspace) Stat(name string) (os.FileInfo, error) {
 	return info, nil
 }
 
-// Cleanup removes the workspace directory and all its contents.
-func (w *Workspace) Cleanup() error {
+func (w *workspace) cleanup() error {
 	dir := w.root.Name()
 	if err := errors.Join(w.root.Close(), os.RemoveAll(dir)); err != nil {
 		return fmt.Errorf("cleanup workspace: %w", err)

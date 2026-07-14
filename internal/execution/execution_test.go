@@ -12,7 +12,6 @@ import (
 	"testing/synctest"
 
 	"afterglow-judge-engine/internal/sandbox"
-	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,7 +97,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 
 	exec := NewExecutor(sb)
 	_, err := exec.Execute(context.Background(), Job{
-		Files: []workspace.File{{
+		Files: []File{{
 			Name:    testProgramName,
 			Content: []byte(testBinary),
 			Mode:    0o755,
@@ -232,8 +231,8 @@ func validJobWithArtifact(name string) Job {
 	}
 }
 
-func oneFile() []workspace.File {
-	return []workspace.File{{
+func oneFile() []File {
+	return []File{{
 		Name:    testSourceName,
 		Content: []byte(testSource),
 		Mode:    0o644,

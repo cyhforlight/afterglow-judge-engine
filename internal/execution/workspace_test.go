@@ -1,4 +1,4 @@
-package workspace
+package execution
 
 import (
 	"os"
@@ -10,50 +10,47 @@ import (
 )
 
 func TestWorkspace_CreateAndCleanup(t *testing.T) {
-	ws, err := New()
+	ws, err := newWorkspace()
 	require.NoError(t, err)
 	require.NotNil(t, ws)
 
-	dir := ws.Dir()
+	dir := ws.dir()
 	assert.NotEmpty(t, dir)
 
-	// Verify directory exists
 	_, err = os.Stat(dir)
 	require.NoError(t, err)
 
-	// Cleanup
-	err = ws.Cleanup()
+	err = ws.cleanup()
 	require.NoError(t, err)
 
-	// Verify directory is removed
 	_, err = os.Stat(dir)
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
-	ws, err := New()
+	ws, err := newWorkspace()
 	require.NoError(t, err)
-	defer func() { _ = ws.Cleanup() }()
+	defer func() { _ = ws.cleanup() }()
 
-	err = ws.WriteFiles([]File{
+	err = ws.writeFiles([]File{
 		{Name: "main.cpp", Content: []byte("int main(){}"), Mode: 0o644},
 		{Name: "program", Content: []byte("binary"), Mode: 0o755},
 	})
 	require.NoError(t, err)
 
-	source, err := ws.ReadFile("main.cpp")
+	source, err := ws.readFile("main.cpp")
 	require.NoError(t, err)
 	assert.Equal(t, []byte("int main(){}"), source)
 
-	info, err := ws.Stat("program")
+	info, err := ws.stat("program")
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 }
 
 func TestWorkspace_RejectsUnsafeNames(t *testing.T) {
-	ws, err := New()
+	ws, err := newWorkspace()
 	require.NoError(t, err)
-	defer func() { _ = ws.Cleanup() }()
+	defer func() { _ = ws.cleanup() }()
 
 	tests := []struct {
 		name string
@@ -66,23 +63,23 @@ func TestWorkspace_RejectsUnsafeNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ws.WriteFiles([]File{{Name: tt.path, Content: []byte("content"), Mode: 0o644}})
+			err := ws.writeFiles([]File{{Name: tt.path, Content: []byte("content"), Mode: 0o644}})
 			require.Error(t, err)
 		})
 	}
 }
 
 func TestWorkspace_SymlinkEscapeRejected(t *testing.T) {
-	ws, err := New()
+	ws, err := newWorkspace()
 	require.NoError(t, err)
-	defer func() { _ = ws.Cleanup() }()
+	defer func() { _ = ws.cleanup() }()
 
 	outsideFile := filepath.Join(t.TempDir(), "outside.txt")
 	err = os.WriteFile(outsideFile, []byte("outside"), 0o644)
 	require.NoError(t, err)
-	err = os.Symlink(outsideFile, filepath.Join(ws.Dir(), "escape.txt"))
+	err = os.Symlink(outsideFile, filepath.Join(ws.dir(), "escape.txt"))
 	require.NoError(t, err)
 
-	_, err = ws.ReadFile("escape.txt")
+	_, err = ws.readFile("escape.txt")
 	require.Error(t, err)
 }

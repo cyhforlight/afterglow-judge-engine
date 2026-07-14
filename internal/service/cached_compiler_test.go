@@ -8,8 +8,8 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +37,7 @@ func testCompiledArtifact() *model.CompiledArtifact {
 
 func testCompileRequest(content string) CompileRequest {
 	return CompileRequest{
-		Files:        []workspace.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
+		Files:        []execution.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
 		ImageRef:     "gcc:12",
 		Command:      []string{"g++", "main.cpp"},
 		ArtifactName: "a.out",
