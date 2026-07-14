@@ -147,7 +147,11 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 	prepared, err := resolved.Prepare(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
-		return s.unknownJudgeResult(req.TestCases, compileResult, err.Error())
+		return model.JudgeResult{
+			Status:  model.JudgeStatusSystemError,
+			Compile: compileResult,
+			Cases:   []model.JudgeCaseResult{},
+		}
 	}
 
 	caseResults := s.runAllCases(ctx, req, program, prepared)
@@ -273,26 +277,6 @@ func runSingleCase(
 	}
 
 	return judgeCaseResultFromExecution(runResult, checkResult.Verdict, message)
-}
-
-func (*JudgeEngine) unknownJudgeResult(
-	testCases []model.JudgeTestCase,
-	compileResult model.CompileResult,
-	message string,
-) model.JudgeResult {
-	caseResults := make([]model.JudgeCaseResult, 0, len(testCases))
-	for range testCases {
-		caseResults = append(caseResults, model.JudgeCaseResult{
-			Verdict:   model.VerdictUKE,
-			ExtraInfo: message,
-		})
-	}
-
-	return model.JudgeResult{
-		Status:  model.JudgeStatusSystemError,
-		Compile: compileResult,
-		Cases:   caseResults,
-	}
 }
 
 func failedBeforeRun(log string) model.JudgeResult {

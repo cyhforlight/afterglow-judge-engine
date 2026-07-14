@@ -362,7 +362,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	assert.Len(t, checkerModule.resolved.prepared.calls, 3)
 }
 
-func TestJudgeEngine_CheckerPrepareFailureReturnsUnknownError(t *testing.T) {
+func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	checkerModule := newFakeChecker()
 	checkerModule.resolved.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
 	engine := newTestJudgeEngine(nil, checkerModule)
@@ -374,9 +374,7 @@ func TestJudgeEngine_CheckerPrepareFailureReturnsUnknownError(t *testing.T) {
 
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.True(t, result.Compile.Succeeded)
-	require.Len(t, result.Cases, 2)
-	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
-	assert.Contains(t, result.Cases[0].ExtraInfo, "checker compilation failed")
+	assert.Empty(t, result.Cases)
 }
 
 func TestJudgeEngine_ValidateRequest(t *testing.T) {
