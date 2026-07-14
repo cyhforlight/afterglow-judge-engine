@@ -18,7 +18,7 @@
 
 - 提供一个简单直接的 HTTP 评测入口
 - 支持多语言编译与隔离执行
-- 支持多测试点、逐点 verdict、通过数量和判题流程状态
+- 支持多测试点、逐点 verdict 和判题流程状态
 - 支持内置 checker，以及基于外部文件的测试数据和 checker
 
 ## 当前实现范围
@@ -29,7 +29,7 @@
 2. service 层加载测试数据、解析 checker、编译用户代码
 3. execution 层准备临时工作目录、调用 sandbox 并收集编译产物
 4. 对每个测试点执行程序并运行 checker
-5. 汇总逐点结果、通过数量和判题流程状态
+5. 汇总逐点结果和判题流程状态
 
 更大规模的能力目前没有展开实现，例如异步任务队列、评测结果持久化和多 worker 调度等。
 
@@ -153,7 +153,7 @@ transport -> service -> model
 4. service 解析 checker 和语言，随后编译用户代码并准备 checker
 5. 编译成功后，各 testcase 按需加载 `inputFile` / `expectedOutputFile`
 6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
-7. service 汇总逐点结果、通过数量和判题流程状态
+7. service 汇总逐点结果和判题流程状态
 8. transport 返回 JSON 响应
 
 ### 目录结构
@@ -279,13 +279,11 @@ Authorization: Bearer <token>
       "exitCode": 0,
       "extraInfo": "stdout does not match expected output"
     }
-  ],
-  "passedCount": 0,
-  "totalCount": 1
+  ]
 }
 ```
 
-顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`、`passedCount` 和 `totalCount`。
+顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致。
 
 `cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 

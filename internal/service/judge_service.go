@@ -109,39 +109,38 @@ func (s *JudgeEngine) validateExternalDependency(path, label string) error {
 // Judge compiles source code and evaluates all test cases.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
 	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
-		return failedBeforeRun(req.TestCases, err.Error())
+		return failedBeforeRun(err.Error())
 	}
 
 	if err := s.concurrencySem.Acquire(ctx, 1); err != nil {
-		return failedBeforeRun(req.TestCases, "judge request cancelled or timed out while waiting for capacity")
+		return failedBeforeRun("judge request cancelled or timed out while waiting for capacity")
 	}
 	defer s.concurrencySem.Release(1)
 
 	// Resolve checker before compilation so direct callers get early validation.
 	resolved, err := s.checker.Resolve(req.Checker)
 	if err != nil {
-		return failedBeforeRun(req.TestCases, err.Error())
+		return failedBeforeRun(err.Error())
 	}
 
 	toolchain, err := s.language.Resolve(req.Language)
 	if err != nil {
 		err = fmt.Errorf("get language profile: %w", err)
 		slog.ErrorContext(ctx, "compile step failed", "error", err)
-		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
+		return failedBeforeRun(fmt.Sprintf("compile infrastructure error: %v", err))
 	}
 
 	program, compileResult, err := toolchain.Compile(ctx, req.SourceCode)
 	if err != nil {
 		slog.ErrorContext(ctx, "compile step failed", "error", err)
-		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
+		return failedBeforeRun(fmt.Sprintf("compile infrastructure error: %v", err))
 	}
 
 	if !compileResult.Succeeded {
 		return model.JudgeResult{
-			Status:     model.JudgeStatusCompileError,
-			Compile:    compileResult,
-			TotalCount: len(req.TestCases),
-			Cases:      make([]model.JudgeCaseResult, 0, len(req.TestCases)),
+			Status:  model.JudgeStatusCompileError,
+			Compile: compileResult,
+			Cases:   []model.JudgeCaseResult{},
 		}
 	}
 
@@ -151,14 +150,12 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		return s.unknownJudgeResult(req.TestCases, compileResult, err.Error())
 	}
 
-	caseResults, passedCount := s.runAllCases(ctx, req, program, prepared)
+	caseResults := s.runAllCases(ctx, req, program, prepared)
 
 	return model.JudgeResult{
-		Status:      aggregateStatus(caseResults),
-		Compile:     compileResult,
-		Cases:       caseResults,
-		PassedCount: passedCount,
-		TotalCount:  len(req.TestCases),
+		Status:  aggregateStatus(caseResults),
+		Compile: compileResult,
+		Cases:   caseResults,
 	}
 }
 
@@ -169,7 +166,7 @@ func (s *JudgeEngine) runAllCases(
 	req model.JudgeRequest,
 	program compiledProgram,
 	prepared preparedChecker,
-) ([]model.JudgeCaseResult, int) {
+) []model.JudgeCaseResult {
 	results := make([]model.JudgeCaseResult, len(req.TestCases))
 
 	var wg sync.WaitGroup
@@ -188,14 +185,7 @@ func (s *JudgeEngine) runAllCases(
 	}
 	wg.Wait()
 
-	passed := 0
-	for _, r := range results {
-		if r.Verdict == model.VerdictOK {
-			passed++
-		}
-	}
-
-	return results, passed
+	return results
 }
 
 // loadTestCaseData resolves file paths to actual content strings.
@@ -303,19 +293,17 @@ func (*JudgeEngine) unknownJudgeResult(
 	}
 
 	return model.JudgeResult{
-		Status:     model.JudgeStatusSystemError,
-		Compile:    compileResult,
-		Cases:      caseResults,
-		TotalCount: len(testCases),
+		Status:  model.JudgeStatusSystemError,
+		Compile: compileResult,
+		Cases:   caseResults,
 	}
 }
 
-func failedBeforeRun(testCases []model.JudgeTestCase, log string) model.JudgeResult {
+func failedBeforeRun(log string) model.JudgeResult {
 	return model.JudgeResult{
-		Status:     model.JudgeStatusSystemError,
-		Compile:    model.CompileResult{Succeeded: false, Log: log},
-		Cases:      []model.JudgeCaseResult{},
-		TotalCount: len(testCases),
+		Status:  model.JudgeStatusSystemError,
+		Compile: model.CompileResult{Succeeded: false, Log: log},
+		Cases:   []model.JudgeCaseResult{},
 	}
 }
 

@@ -74,8 +74,6 @@ func TestHandleExecute_Success(t *testing.T) {
 			ExitCode:  0,
 			ExtraInfo: "",
 		}},
-		PassedCount: 1,
-		TotalCount:  1,
 	}}
 	handler := newTestHandler(judge)
 
@@ -92,14 +90,12 @@ func TestHandleExecute_Success(t *testing.T) {
 		Cases  []struct {
 			Verdict string `json:"verdict"`
 		} `json:"cases"`
-		PassedCount int `json:"passedCount"`
 	}
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, "OK", resp.Status)
 	require.Len(t, resp.Cases, 1)
 	assert.Equal(t, "OK", resp.Cases[0].Verdict)
-	assert.Equal(t, 1, resp.PassedCount)
 	assert.Equal(t, "Python", judge.lastRequest.Language.String())
 	assert.Equal(t, "default", judge.lastRequest.Checker)
 	assert.Equal(t, "42\n", judge.lastRequest.TestCases[0].ExpectedOutput)

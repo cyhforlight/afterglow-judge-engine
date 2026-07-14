@@ -140,10 +140,9 @@ func (s JudgeStatus) MarshalJSON() ([]byte, error) {
 }
 
 // JudgeResult contains the final judge outcome.
+// Cases preserves the order of JudgeRequest.TestCases.
 type JudgeResult struct {
-	Status      JudgeStatus       `json:"status"`
-	Compile     CompileResult     `json:"compile"`
-	Cases       []JudgeCaseResult `json:"cases"`
-	PassedCount int               `json:"passedCount"`
-	TotalCount  int               `json:"totalCount"`
+	Status  JudgeStatus       `json:"status"`
+	Compile CompileResult     `json:"compile"`
+	Cases   []JudgeCaseResult `json:"cases"`
 }

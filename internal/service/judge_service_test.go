@@ -251,7 +251,6 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.Empty(t, result.Cases)
 	assert.Len(t, languageModule.toolchain.sources, 1)
 	assert.Zero(t, checkerModule.resolved.prepareCalls)
-	assert.Equal(t, 1, result.TotalCount)
 }
 
 func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
@@ -271,7 +270,6 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	assert.Equal(t, model.VerdictWA, result.Cases[0].Verdict)
 	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Zero(t, result.PassedCount)
 	assert.Len(t, program.inputs, 1)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 1)
 }
@@ -302,7 +300,6 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 	assert.Contains(t, result.Cases[1].ExtraInfo, "checker timed out")
 	assert.Equal(t, model.VerdictOK, result.Cases[2].Verdict)
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
-	assert.Equal(t, 2, result.PassedCount)
 }
 
 func TestJudgeEngine_CompilerInfraError(t *testing.T) {
@@ -342,7 +339,6 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, "2nd lines differ", result.Cases[1].ExtraInfo)
 	assert.Equal(t, model.VerdictTLE, result.Cases[2].Verdict)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, 1, result.PassedCount)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 2)
 }
 
@@ -362,8 +358,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	))
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, 3, result.PassedCount)
-	assert.Equal(t, 3, result.TotalCount)
+	assert.Len(t, result.Cases, 3)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 3)
 }
 

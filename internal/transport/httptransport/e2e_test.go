@@ -38,7 +38,6 @@ type e2eCodeExpectation struct {
 	language      model.Language
 	overallStatus string
 	caseVerdicts  []e2eVerdictExpectation
-	passedCount   int
 }
 
 type e2eVerdictExpectation struct {
@@ -47,10 +46,8 @@ type e2eVerdictExpectation struct {
 }
 
 type judgeHTTPResponse struct {
-	Status      string                  `json:"status"`
-	Cases       []judgeCaseHTTPResponse `json:"cases"`
-	PassedCount int                     `json:"passedCount"`
-	TotalCount  int                     `json:"totalCount"`
+	Status string                  `json:"status"`
+	Cases  []judgeCaseHTTPResponse `json:"cases"`
 }
 
 type judgeCaseHTTPResponse struct {
@@ -76,7 +73,6 @@ var e2eProblemSuites = []e2eProblemSuite{
 					{name: "sum4", allowed: []string{"OK"}},
 					{name: "sum5", allowed: []string{"OK"}},
 				},
-				passedCount: 5,
 			},
 			{
 				filename:      "code_2_tle.cpp",
@@ -89,7 +85,6 @@ var e2eProblemSuites = []e2eProblemSuite{
 					{name: "sum4", allowed: []string{"OK"}},
 					{name: "sum5", allowed: []string{"TimeLimitExceeded"}},
 				},
-				passedCount: 4,
 			},
 			{
 				filename:      "code_3_wa_and_tle.cpp",
@@ -102,7 +97,6 @@ var e2eProblemSuites = []e2eProblemSuite{
 					{name: "sum4", allowed: []string{"WrongAnswer"}},
 					{name: "sum5", allowed: []string{"TimeLimitExceeded"}},
 				},
-				passedCount: 3,
 			},
 			{
 				filename:      "code_4_wa_and_tle.py",
@@ -115,7 +109,6 @@ var e2eProblemSuites = []e2eProblemSuite{
 					{name: "sum4", allowed: []string{"WrongAnswer"}},
 					{name: "sum5", allowed: []string{"TimeLimitExceeded"}},
 				},
-				passedCount: 2,
 			},
 			{
 				filename:      "code_5_wa_and_tle.c",
@@ -128,7 +121,6 @@ var e2eProblemSuites = []e2eProblemSuite{
 					{name: "sum4", allowed: []string{"TimeLimitExceeded"}},
 					{name: "sum5", allowed: []string{"TimeLimitExceeded"}},
 				},
-				passedCount: 1,
 			},
 		},
 	},
@@ -231,8 +223,6 @@ func TestE2E_HTTP_ExternalCases(t *testing.T) {
 					resp := executeJudgeRequest(t, handler, reqBody)
 
 					assert.Equal(t, codeExpectation.overallStatus, resp.Status)
-					assert.Equal(t, codeExpectation.passedCount, resp.PassedCount)
-					assert.Equal(t, len(testCases), resp.TotalCount)
 					require.Len(t, resp.Cases, len(codeExpectation.caseVerdicts))
 					assertCaseVerdicts(t, codeExpectation.caseVerdicts, resp.Cases)
 				})
