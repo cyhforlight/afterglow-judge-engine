@@ -11,17 +11,7 @@ import (
 	"afterglow-judge-engine/internal/model"
 )
 
-const (
-	gccImage            = "docker.io/library/gcc:12-bookworm"
-	staticRuntimeImage  = "docker.io/library/debian:12-slim"
-	pythonImage         = "docker.io/library/python:3.11-slim-bookworm"
-	defaultArtifactName = "program"
-	javaNativeReserveMB = 64
-	optimizationFlag    = "-O2"
-	pipeFlag            = "-pipe"
-	staticLinkFlag      = "-static"
-	mathLibraryFlag     = "-lm"
-)
+const javaNativeReserveMB = 64
 
 type language interface {
 	Resolve(model.Language) (languageToolchain, error)
@@ -182,20 +172,20 @@ func profileForLanguage(lang model.Language) (languageProfile, error) {
 func cProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     gccImage,
+			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFile:   "main.c",
-			ArtifactName: defaultArtifactName,
+			ArtifactName: "program",
 			BuildCommand: []string{
-				"gcc", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
-				"-o", compileMountDir + "/" + defaultArtifactName,
-				compileMountDir + "/main.c", mathLibraryFlag,
+				"gcc", "-O2", "-pipe", "-static", "-s",
+				"-o", compileMountDir + "/program",
+				compileMountDir + "/main.c", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:       staticRuntimeImage,
-			ArtifactName:   defaultArtifactName,
+			ImageRef:       "docker.io/library/debian:12-slim",
+			ArtifactName:   "program",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -204,20 +194,20 @@ func cProfile() languageProfile {
 func cppProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     gccImage,
+			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFile:   "main.cpp",
-			ArtifactName: defaultArtifactName,
+			ArtifactName: "program",
 			BuildCommand: []string{
-				"g++", "-std=c++20", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
-				"-o", compileMountDir + "/" + defaultArtifactName,
-				compileMountDir + "/main.cpp", mathLibraryFlag,
+				"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
+				"-o", compileMountDir + "/program",
+				compileMountDir + "/main.cpp", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:       staticRuntimeImage,
-			ArtifactName:   defaultArtifactName,
+			ImageRef:       "docker.io/library/debian:12-slim",
+			ArtifactName:   "program",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -258,7 +248,7 @@ func javaProfile() languageProfile {
 func pythonProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     pythonImage,
+			ImageRef:     "docker.io/library/python:3.11-slim-bookworm",
 			SourceFile:   "solution.py",
 			ArtifactName: "solution.pyc",
 			BuildCommand: []string{
@@ -269,7 +259,7 @@ func pythonProfile() languageProfile {
 			MemoryMB:  256,
 		},
 		Run: runConfig{
-			ImageRef:       pythonImage,
+			ImageRef:       "docker.io/library/python:3.11-slim-bookworm",
 			ArtifactName:   "solution.pyc",
 			RuntimeCommand: func(p string, _ int) []string { return []string{"python3", p} },
 		},

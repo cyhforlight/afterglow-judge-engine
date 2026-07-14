@@ -161,6 +161,13 @@ linters:
           - goconst
           - revive
 
+      # Language and checker profiles are declarative configurations; repeated
+      # values stay local so each profile can be read and changed independently.
+      - path: internal/service/(language|checker)\.go
+        source: '"(docker\.io/library/|program|-O2|-lm)'
+        linters:
+          - goconst
+
       # 排除特定消息。
       - linters: [revive]
         text: "exported:|package-comments:"

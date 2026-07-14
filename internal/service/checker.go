@@ -299,19 +299,19 @@ func validateExternalCheckerPath(checkerPath string) (string, error) {
 func checkerProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     gccImage,
+			ImageRef:     "docker.io/library/gcc:12-bookworm",
 			SourceFile:   "checker.cpp",
 			ArtifactName: "checker",
 			BuildCommand: []string{
-				"g++", "-std=c++20", optimizationFlag, pipeFlag, staticLinkFlag, "-s",
+				"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
 				"-o", compileMountDir + "/checker",
-				compileMountDir + "/checker.cpp", mathLibraryFlag,
+				compileMountDir + "/checker.cpp", "-lm",
 			},
 			TimeoutMs: 30000,
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:       staticRuntimeImage,
+			ImageRef:       "docker.io/library/debian:12-slim",
 			ArtifactName:   "checker",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},

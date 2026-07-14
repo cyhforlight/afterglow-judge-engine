@@ -197,7 +197,7 @@ func TestCheckerReference_Prepare(t *testing.T) {
 
 	req := compiler.requests[0]
 	assert.Equal(t, "checker", req.ArtifactName)
-	assert.Equal(t, gccImage, req.ImageRef)
+	assert.Equal(t, "docker.io/library/gcc:12-bookworm", req.ImageRef)
 	assert.Equal(t, checkerProfile().Compile.BuildCommand, req.Command)
 	assert.Equal(t, checkerProfile().Compile.TimeoutMs, req.Limits.CPUTimeMs)
 	assert.Equal(t, checkerProfile().Compile.MemoryMB, req.Limits.MemoryMB)
@@ -333,7 +333,7 @@ func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
 	require.Len(t, runner.requests, 1)
 
 	req := runner.requests[0]
-	assert.Equal(t, staticRuntimeImage, req.ImageRef)
+	assert.Equal(t, "docker.io/library/debian:12-slim", req.ImageRef)
 	assert.Equal(t, checkerRunLimits(), req.Limits)
 	assert.Equal(t, []string{
 		runMountDir + "/checker",
