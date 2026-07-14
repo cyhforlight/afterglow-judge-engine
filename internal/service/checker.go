@@ -75,6 +75,10 @@ type checkerLocation struct {
 }
 
 func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (checker, error) {
+	if _, err := fs.Stat(bundledFS, testlibHeaderKey); err != nil {
+		return nil, fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
+	}
+
 	cachedCompiler, err := NewCachedCompiler(compiler, checkerCacheEntries)
 	if err != nil {
 		return nil, fmt.Errorf("create checker compile cache: %w", err)
@@ -112,9 +116,6 @@ func (r *checkerReference) Validate() error {
 		}
 	}
 
-	if _, err := fs.Stat(r.engine.bundledFS, testlibHeaderKey); err != nil {
-		return fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
-	}
 	return nil
 }
 

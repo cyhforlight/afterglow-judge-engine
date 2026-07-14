@@ -50,6 +50,13 @@ func checkerTestFS() fstest.MapFS {
 	})
 }
 
+func TestNewChecker_RejectsMissingTestlib(t *testing.T) {
+	bundledFS := testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")})
+	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
+
+	require.ErrorContains(t, err, `checker dependency "testlib.h" is not available`)
+}
+
 func TestResolveChecker_Default(t *testing.T) {
 	location, err := resolveChecker("")
 	require.NoError(t, err)
@@ -135,9 +142,8 @@ func TestCheckerReference_Validate(t *testing.T) {
 			wantErr:   `builtin checker "default" is not available`,
 		},
 		{
-			name:      "dependency missing",
+			name:      "engine dependency is not request validation",
 			bundledFS: testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")}),
-			wantErr:   `checker dependency "testlib.h" is not available`,
 		},
 		{
 			name:      "external resources not configured",
