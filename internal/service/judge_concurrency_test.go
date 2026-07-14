@@ -13,24 +13,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type gatedRunner struct {
+type gatedProgram struct {
 	result  RunResult
 	release <-chan struct{}
 	active  atomic.Int32
+	calls   atomic.Int32
 }
 
-func (r *gatedRunner) PreflightCheck(context.Context) error {
-	return nil
-}
+func (p *gatedProgram) Run(context.Context, string, int, int) (RunResult, error) {
+	p.calls.Add(1)
+	p.active.Add(1)
+	defer p.active.Add(-1)
 
-func (r *gatedRunner) Run(context.Context, RunRequest) (RunResult, error) {
-	r.active.Add(1)
-	defer r.active.Add(-1)
-
-	if r.release != nil {
-		<-r.release
+	if p.release != nil {
+		<-p.release
 	}
-	return r.result, nil
+	return p.result, nil
 }
 
 // TestJudgeEngine_ConcurrencyLimit verifies that maxConcurrent limits parallel Judge() calls.
@@ -40,7 +38,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		const numRequests = 5
 
 		release := make(chan struct{})
-		runner := &gatedRunner{
+		program := &gatedProgram{
 			release: release,
 			result: RunResult{
 				Verdict:   execution.VerdictOK,
@@ -50,10 +48,9 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 			},
 		}
 
-		compiler := successfulFakeCompiler()
 		engine := newJudgeEngine(
-			compiler,
-			runner,
+			&fakeRunner{},
+			newFakeLanguageWithProgram(program),
 			newFakeChecker(),
 			nil,
 			maxConcurrent,
@@ -69,7 +66,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		}
 
 		synctest.Wait()
-		assert.Equal(t, int32(maxConcurrent), runner.active.Load())
+		assert.Equal(t, int32(maxConcurrent), program.active.Load())
 
 		close(release)
 		synctest.Wait()
@@ -83,7 +80,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
-		runner := &gatedRunner{
+		program := &gatedProgram{
 			release: release,
 			result: RunResult{
 				Verdict:   execution.VerdictOK,
@@ -93,10 +90,9 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 			},
 		}
 
-		compiler := successfulFakeCompiler()
 		engine := newJudgeEngine(
-			compiler,
-			runner,
+			&fakeRunner{},
+			newFakeLanguageWithProgram(program),
 			newFakeChecker(),
 			nil,
 			1,
@@ -106,7 +102,7 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 
 		go engine.Judge(t.Context(), req)
 		synctest.Wait()
-		assert.Equal(t, int32(1), runner.active.Load())
+		assert.Equal(t, int32(1), program.active.Load())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
@@ -121,8 +117,8 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 
 // TestJudgeEngine_CanceledContextDoesNotAcquireCapacity verifies that canceled requests don't occupy slots.
 func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
-	runner := &fakeRunner{
-		runResult: RunResult{
+	program := &gatedProgram{
+		result: RunResult{
 			Verdict:   execution.VerdictOK,
 			Stdout:    "output",
 			CPUTimeMs: 10,
@@ -130,10 +126,9 @@ func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
 		},
 	}
 
-	compiler := successfulFakeCompiler()
 	engine := newJudgeEngine(
-		compiler,
-		runner,
+		&fakeRunner{},
+		newFakeLanguageWithProgram(program),
 		newFakeChecker(),
 		nil,
 		1,
@@ -150,5 +145,5 @@ func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
 		assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	}
 
-	assert.Zero(t, runner.calls)
+	assert.Zero(t, program.calls.Load())
 }

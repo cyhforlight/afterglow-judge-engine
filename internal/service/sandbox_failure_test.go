@@ -1,43 +1,28 @@
 package service
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func runUserProgram(t *testing.T, env serviceIntegrationEnv, artifact *model.CompiledArtifact, lang model.Language, input string, timeLimit, memoryLimit int) RunResult {
+func runUserProgram(
+	t *testing.T,
+	env serviceIntegrationEnv,
+	program compiledProgram,
+	input string,
+	timeLimit, memoryLimit int,
+) RunResult {
 	t.Helper()
 
-	profile, err := ProfileForLanguage(lang)
+	runOut, err := program.Run(env.ctx, input, timeLimit, memoryLimit)
 	require.NoError(t, err)
-
-	containerPath := runMountDir + "/" + profile.Run.ArtifactName
-	runOut, err := env.runner.Run(env.ctx, RunRequest{
-		Files: []workspace.File{{
-			Name:    profile.Run.ArtifactName,
-			Content: artifact.Data,
-			Mode:    artifact.Mode,
-		}},
-		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
-		Stdin:    strings.NewReader(input),
-		Limits: execution.Limits{
-			CPUTimeMs:   timeLimit,
-			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
-			MemoryMB:    sandboxMemoryLimitMB(lang, memoryLimit),
-			OutputBytes: execution.DefaultRunOutputLimitBytes,
-		},
-	})
-	require.NoError(t, err)
-	return normalizeUserRunResult(lang, runOut)
+	return runOut
 }
 
 type sandboxFailureCase struct {
@@ -60,10 +45,10 @@ func testProgramVerdicts(
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			program, result := compileProgram(t, env, tt.language, sourceCode)
 			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runOut := runUserProgram(t, env, artifact, tt.language, "", timeLimit, memoryLimit)
+			runOut := runUserProgram(t, env, program, "", timeLimit, memoryLimit)
 			assert.Equal(t, want, runOut.Verdict)
 		})
 	}
@@ -132,10 +117,10 @@ public class Main {
     }
 }
 `
-	artifact, result := compileProgram(t, env, model.LanguageJava, sourceCode)
+	program, result := compileProgram(t, env, model.LanguageJava, sourceCode)
 	require.True(t, result.Succeeded, "compilation should succeed")
 
-	runOut := runUserProgram(t, env, artifact, model.LanguageJava, "", 2000, 128)
+	runOut := runUserProgram(t, env, program, "", 2000, 128)
 	require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %s", runOut.ExtraInfo)
 	assert.Equal(t, "67108864\n", runOut.Stdout)
 }
@@ -179,10 +164,10 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 			env := newServiceIntegrationEnv(t, 120*time.Second)
 			sourceCode := readTestdata(t, "sandbox-failure-cases", tt.filePath)
 
-			artifact, result := compileProgram(t, env, tt.language, sourceCode)
+			program, result := compileProgram(t, env, tt.language, sourceCode)
 			require.True(t, result.Succeeded, "compilation should succeed")
 
-			runOut := runUserProgram(t, env, artifact, tt.language, "", 2000, 256)
+			runOut := runUserProgram(t, env, program, "", 2000, 256)
 			assert.Equal(t, execution.VerdictOK, runOut.Verdict)
 			assert.Contains(t, runOut.Stdout, "blocked")
 		})

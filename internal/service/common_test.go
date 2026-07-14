@@ -10,7 +10,6 @@ import (
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
-	"afterglow-judge-engine/internal/workspace"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
@@ -20,6 +19,7 @@ type serviceIntegrationEnv struct {
 	ctx      context.Context
 	compiler Compiler
 	runner   Runner
+	language language
 }
 
 // testContainerSem limits concurrent container operations across all tests in this package.
@@ -58,39 +58,29 @@ func newExecutorForTest(t *testing.T) execution.Executor {
 func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegrationEnv {
 	t.Helper()
 
+	compiler := NewCompiler(newExecutorForTest(t))
+	runner := NewRunner(newExecutorForTest(t))
 	return serviceIntegrationEnv{
 		ctx:      newIntegrationContext(t, timeout),
-		compiler: NewCompiler(newExecutorForTest(t)),
-		runner:   NewRunner(newExecutorForTest(t)),
+		compiler: compiler,
+		runner:   runner,
+		language: newLanguage(compiler, runner),
 	}
 }
 
-func compileProgram(t *testing.T, env serviceIntegrationEnv, lang model.Language, sourceCode string) (*model.CompiledArtifact, model.CompileResult) {
+func compileProgram(
+	t *testing.T,
+	env serviceIntegrationEnv,
+	lang model.Language,
+	sourceCode string,
+) (compiledProgram, model.CompileResult) {
 	t.Helper()
 
-	profile, err := ProfileForLanguage(lang)
+	toolchain, err := env.language.Resolve(lang)
 	require.NoError(t, err)
-
-	req := CompileRequest{
-		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFile,
-			Content: []byte(sourceCode),
-			Mode:    0o644,
-		}},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand,
-		ArtifactName: profile.Compile.ArtifactName,
-		Limits: execution.Limits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: execution.DefaultCompileOutputLimitBytes,
-		},
-	}
-
-	out, err := env.compiler.Compile(env.ctx, req)
+	program, result, err := toolchain.Compile(env.ctx, sourceCode)
 	require.NoError(t, err)
-	return out.Artifact, out.Result
+	return program, result
 }
 
 func testdataPath(elems ...string) string {

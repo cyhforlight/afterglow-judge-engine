@@ -2,16 +2,13 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/workspace"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -25,7 +22,7 @@ type JudgeService interface {
 
 // JudgeEngine implements JudgeService.
 type JudgeEngine struct {
-	compiler       Compiler
+	language       language
 	runner         Runner
 	checker        checker
 	externalFS     fs.FS
@@ -47,12 +44,12 @@ func NewJudgeEngine(
 		return nil, fmt.Errorf("initialize checker: %w", err)
 	}
 
-	return newJudgeEngine(compiler, runner, checkerModule, externalFS, maxConcurrent, limits), nil
+	return newJudgeEngine(runner, newLanguage(compiler, runner), checkerModule, externalFS, maxConcurrent, limits), nil
 }
 
 func newJudgeEngine(
-	compiler Compiler,
 	runner Runner,
+	languageModule language,
 	checkerModule checker,
 	externalFS fs.FS,
 	maxConcurrent int,
@@ -63,7 +60,7 @@ func newJudgeEngine(
 	}
 
 	return &JudgeEngine{
-		compiler:       compiler,
+		language:       languageModule,
 		runner:         runner,
 		checker:        checkerModule,
 		externalFS:     externalFS,
@@ -135,7 +132,14 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		return failedBeforeRun(req.TestCases, err.Error())
 	}
 
-	compileOut, compileResult, err := s.compileUserCode(ctx, req.Language, req.SourceCode)
+	toolchain, err := s.language.Resolve(req.Language)
+	if err != nil {
+		err = fmt.Errorf("get language profile: %w", err)
+		slog.ErrorContext(ctx, "compile step failed", "error", err)
+		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
+	}
+
+	program, compileResult, err := toolchain.Compile(ctx, req.SourceCode)
 	if err != nil {
 		slog.ErrorContext(ctx, "compile step failed", "error", err)
 		return failedBeforeRun(req.TestCases, fmt.Sprintf("compile infrastructure error: %v", err))
@@ -156,7 +160,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		return s.unknownJudgeResult(req.TestCases, compileResult, err.Error())
 	}
 
-	caseResults, passedCount := s.runAllCases(ctx, req, compileOut, prepared)
+	caseResults, passedCount := s.runAllCases(ctx, req, program, prepared)
 
 	return model.JudgeResult{
 		Status:      aggregateStatus(caseResults),
@@ -172,7 +176,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 func (s *JudgeEngine) runAllCases(
 	ctx context.Context,
 	req model.JudgeRequest,
-	userArtifact *model.CompiledArtifact,
+	program compiledProgram,
 	prepared preparedChecker,
 ) ([]model.JudgeCaseResult, int) {
 	results := make([]model.JudgeCaseResult, len(req.TestCases))
@@ -188,7 +192,7 @@ func (s *JudgeEngine) runAllCases(
 				}
 				return
 			}
-			results[i] = s.runSingleCase(ctx, req, userArtifact, prepared, tc, i)
+			results[i] = runSingleCase(ctx, req, program, prepared, tc, i)
 		})
 	}
 	wg.Wait()
@@ -233,93 +237,6 @@ func (s *JudgeEngine) loadTestCaseData(testCase *model.JudgeTestCase) error {
 	return nil
 }
 
-// compileUserCode compiles user source code to a runnable artifact.
-func (s *JudgeEngine) compileUserCode(
-	ctx context.Context,
-	lang model.Language,
-	sourceCode string,
-) (*model.CompiledArtifact, model.CompileResult, error) {
-	profile, err := ProfileForLanguage(lang)
-	if err != nil {
-		return nil, model.CompileResult{}, fmt.Errorf("get language profile: %w", err)
-	}
-
-	compileReq := CompileRequest{
-		Files: []workspace.File{{
-			Name:    profile.Compile.SourceFile,
-			Content: []byte(sourceCode),
-			Mode:    0o644,
-		}},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand,
-		ArtifactName: profile.Compile.ArtifactName,
-		Limits: execution.Limits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
-			OutputBytes: execution.DefaultCompileOutputLimitBytes,
-		},
-	}
-
-	compileOut, err := s.compiler.Compile(ctx, compileReq)
-	if err != nil {
-		return nil, model.CompileResult{}, err
-	}
-
-	return compileOut.Artifact, compileOut.Result, nil
-}
-
-// executeUserCode runs compiled user code with given input and limits.
-func (s *JudgeEngine) executeUserCode(
-	ctx context.Context,
-	artifact *model.CompiledArtifact,
-	lang model.Language,
-	input string,
-	timeLimit int,
-	memoryLimit int,
-) (RunResult, error) {
-	profile, err := ProfileForLanguage(lang)
-	if err != nil {
-		return RunResult{}, fmt.Errorf("get language profile: %w", err)
-	}
-
-	if artifact == nil || len(artifact.Data) == 0 {
-		return RunResult{}, errors.New("program artifact is required")
-	}
-
-	containerPath := runMountDir + "/" + profile.Run.ArtifactName
-	runOut, err := s.runner.Run(ctx, RunRequest{
-		Files: []workspace.File{{
-			Name:    profile.Run.ArtifactName,
-			Content: artifact.Data,
-			Mode:    artifact.Mode,
-		}},
-		ImageRef: profile.Run.ImageRef,
-		Command:  profile.Run.RuntimeCommand(containerPath, memoryLimit),
-		Stdin:    strings.NewReader(input),
-		Limits: execution.Limits{
-			CPUTimeMs:   timeLimit,
-			WallTimeMs:  timeLimit * execution.WallTimeMultiplier,
-			MemoryMB:    sandboxMemoryLimitMB(lang, memoryLimit),
-			OutputBytes: execution.DefaultRunOutputLimitBytes,
-		},
-	})
-	if err != nil {
-		return RunResult{}, err
-	}
-
-	return normalizeUserRunResult(lang, runOut), nil
-}
-
-func normalizeUserRunResult(lang model.Language, runOut RunResult) RunResult {
-	if lang == model.LanguageJava &&
-		runOut.Verdict == execution.VerdictRE &&
-		strings.Contains(runOut.Stderr, "java.lang.OutOfMemoryError") {
-		runOut.Verdict = execution.VerdictMLE
-	}
-	return runOut
-}
-
 func convertVerdict(v execution.Verdict) model.Verdict {
 	switch v {
 	case execution.VerdictOK:
@@ -337,22 +254,15 @@ func convertVerdict(v execution.Verdict) model.Verdict {
 	}
 }
 
-func (s *JudgeEngine) runSingleCase(
+func runSingleCase(
 	ctx context.Context,
 	req model.JudgeRequest,
-	userArtifact *model.CompiledArtifact,
+	program compiledProgram,
 	prepared preparedChecker,
 	testCase model.JudgeTestCase,
 	index int,
 ) model.JudgeCaseResult {
-	if userArtifact == nil {
-		return model.JudgeCaseResult{
-			Verdict:   model.VerdictUKE,
-			ExtraInfo: "compiled artifact is missing",
-		}
-	}
-
-	runResult, err := s.executeUserCode(ctx, userArtifact, req.Language, testCase.InputText, req.TimeLimit, req.MemoryLimit)
+	runResult, err := program.Run(ctx, testCase.InputText, req.TimeLimit, req.MemoryLimit)
 	if err != nil {
 		slog.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
 		return model.JudgeCaseResult{

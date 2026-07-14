@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"sync"
 	"testing"
@@ -17,55 +16,97 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeCompiler struct {
-	mu       sync.Mutex
-	artifact *model.CompiledArtifact
-	result   model.CompileResult
-	err      error
-	calls    int
-}
-
-func (c *fakeCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.calls++
-	if c.err != nil {
-		return CompileOutput{}, c.err
-	}
-	return CompileOutput{Result: c.result, Artifact: c.artifact}, nil
-}
-
 type fakeRunner struct {
-	mu           sync.Mutex
 	preflightErr error
-	runErr       error
-	runResult    RunResult
-	runResults   []RunResult
-	calls        int
 }
 
 func (r *fakeRunner) PreflightCheck(_ context.Context) error {
 	return r.preflightErr
 }
 
-func (r *fakeRunner) Run(_ context.Context, _ RunRequest) (RunResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (*fakeRunner) Run(context.Context, RunRequest) (RunResult, error) {
+	return RunResult{}, errors.New("unexpected direct runner call")
+}
 
-	if r.runErr != nil {
-		return RunResult{}, r.runErr
+type fakeLanguage struct {
+	mu         sync.Mutex
+	resolveErr error
+	toolchain  *fakeLanguageToolchain
+	languages  []model.Language
+}
+
+func newFakeLanguage() *fakeLanguage {
+	return newFakeLanguageWithProgram(&fakeCompiledProgram{
+		runResult: userOKRunResult(""),
+	})
+}
+
+func newFakeLanguageWithProgram(program compiledProgram) *fakeLanguage {
+	return &fakeLanguage{toolchain: &fakeLanguageToolchain{
+		program: program,
+		result:  model.CompileResult{Succeeded: true},
+	}}
+}
+
+func (l *fakeLanguage) Resolve(lang model.Language) (languageToolchain, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.languages = append(l.languages, lang)
+	if l.resolveErr != nil {
+		return nil, l.resolveErr
 	}
-	if len(r.runResults) > 0 {
-		index := r.calls
-		if index >= len(r.runResults) {
-			index = len(r.runResults) - 1
-		}
-		r.calls++
-		return r.runResults[index], nil
+	return l.toolchain, nil
+}
+
+type fakeLanguageToolchain struct {
+	mu      sync.Mutex
+	program compiledProgram
+	result  model.CompileResult
+	err     error
+	sources []string
+}
+
+func (t *fakeLanguageToolchain) Compile(
+	_ context.Context,
+	source string,
+) (compiledProgram, model.CompileResult, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.sources = append(t.sources, source)
+	return t.program, t.result, t.err
+}
+
+type runCallResult struct {
+	result RunResult
+	err    error
+}
+
+type fakeCompiledProgram struct {
+	mu        sync.Mutex
+	runResult RunResult
+	runErr    error
+	results   map[string]runCallResult
+	inputs    []string
+}
+
+func (p *fakeCompiledProgram) Run(
+	_ context.Context,
+	input string,
+	_, _ int,
+) (RunResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.inputs = append(p.inputs, input)
+	if result, ok := p.results[input]; ok {
+		return result.result, result.err
 	}
-	r.calls++
-	return r.runResult, nil
+	if p.results != nil {
+		return RunResult{}, fmt.Errorf("fake program: no result for input %q", input)
+	}
+	return p.runResult, p.runErr
 }
 
 type fakeChecker struct {
@@ -166,43 +207,28 @@ func testFileSystem(files map[string][]byte) fstest.MapFS {
 	return fsys
 }
 
-func testCompiledArtifact() *model.CompiledArtifact {
-	return &model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755}
-}
-
-func successfulFakeCompiler() *fakeCompiler {
-	return &fakeCompiler{
-		result:   model.CompileResult{Succeeded: true},
-		artifact: testCompiledArtifact(),
-	}
-}
-
 func userOKRunResult(stdout string) RunResult {
 	return RunResult{ExitCode: 0, Stdout: stdout, Verdict: execution.VerdictOK}
 }
 
-func newTestJudgeEngine(runner Runner, compiler *fakeCompiler, checkerModule checker) *JudgeEngine {
-	return newTestJudgeEngineWithExternalResources(runner, compiler, checkerModule, nil)
+func newTestJudgeEngine(languageModule language, checkerModule checker) *JudgeEngine {
+	return newTestJudgeEngineWithExternalResources(languageModule, checkerModule, nil)
 }
 
 func newTestJudgeEngineWithExternalResources(
-	runner Runner,
-	compiler *fakeCompiler,
+	languageModule language,
 	checkerModule checker,
 	externalFS fs.FS,
 ) *JudgeEngine {
-	if runner == nil {
-		runner = &fakeRunner{}
-	}
-	if compiler == nil {
-		compiler = successfulFakeCompiler()
+	if languageModule == nil {
+		languageModule = newFakeLanguage()
 	}
 	if checkerModule == nil {
 		checkerModule = newFakeChecker()
 	}
 	return newJudgeEngine(
-		compiler,
-		runner,
+		&fakeRunner{},
+		languageModule,
 		checkerModule,
 		externalFS,
 		10,
@@ -224,9 +250,11 @@ func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
 }
 
 func TestJudgeEngine_CompileError(t *testing.T) {
-	compiler := &fakeCompiler{result: model.CompileResult{Succeeded: false, Log: "compile failed"}}
+	languageModule := newFakeLanguage()
+	languageModule.toolchain.program = nil
+	languageModule.toolchain.result = model.CompileResult{Succeeded: false, Log: "compile failed"}
 	checkerModule := newFakeChecker()
-	engine := newTestJudgeEngine(nil, compiler, checkerModule)
+	engine := newTestJudgeEngine(languageModule, checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest())
 
@@ -234,19 +262,19 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.False(t, result.Compile.Succeeded)
 	assert.Equal(t, "compile failed", result.Compile.Log)
 	assert.Empty(t, result.Cases)
-	assert.Equal(t, 1, compiler.calls)
+	assert.Len(t, languageModule.toolchain.sources, 1)
 	assert.Zero(t, checkerModule.resolved.prepareCalls)
 	assert.Equal(t, 1, result.TotalCount)
 }
 
 func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
-	runner := &fakeRunner{runResult: userOKRunResult("41\n")}
+	program := &fakeCompiledProgram{runResult: userOKRunResult("41\n")}
 	checkerModule := newFakeChecker()
 	checkerModule.resolved.prepared.result = checkerResult{
 		Verdict: model.VerdictWA,
 		Message: "1st lines differ - expected: '42', found: '41'",
 	}
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{ExpectedOutput: "42\n"},
@@ -257,12 +285,12 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Zero(t, result.PassedCount)
-	assert.Equal(t, 1, runner.calls)
+	assert.Len(t, program.inputs, 1)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 1)
 }
 
 func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
-	runner := &inputKeyedRunner{results: map[string]runCallResult{
+	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("2\n")},
 		"2\n": {result: userOKRunResult("4\n")},
 		"3\n": {result: userOKRunResult("6\n")},
@@ -273,7 +301,7 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 		"4\n": {result: checkerResult{Verdict: model.VerdictUKE, Message: "checker timed out"}},
 		"6\n": {result: checkerResult{Verdict: model.VerdictOK}},
 	}
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
@@ -291,7 +319,9 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 }
 
 func TestJudgeEngine_CompilerInfraError(t *testing.T) {
-	engine := newTestJudgeEngine(nil, &fakeCompiler{err: errors.New("boom")}, nil)
+	languageModule := newFakeLanguage()
+	languageModule.toolchain.err = errors.New("boom")
+	engine := newTestJudgeEngine(languageModule, nil)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest())
 
@@ -301,7 +331,7 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 }
 
 func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
-	runner := &inputKeyedRunner{results: map[string]runCallResult{
+	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("2\n")},
 		"2\n": {result: userOKRunResult("4\n")},
 		"3\n": {result: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}},
@@ -311,7 +341,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 		"2\n": {result: checkerResult{Verdict: model.VerdictOK}},
 		"4\n": {result: checkerResult{Verdict: model.VerdictWA, Message: "2nd lines differ"}},
 	}
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
@@ -330,13 +360,13 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 }
 
 func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
-	runner := &inputKeyedRunner{results: map[string]runCallResult{
+	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("2\n")},
 		"2\n": {result: userOKRunResult("4\n")},
 		"3\n": {result: userOKRunResult("6\n")},
 	}}
 	checkerModule := newFakeChecker()
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
@@ -353,7 +383,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 func TestJudgeEngine_CheckerPrepareFailureReturnsUnknownError(t *testing.T) {
 	checkerModule := newFakeChecker()
 	checkerModule.resolved.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
-	engine := newTestJudgeEngine(nil, nil, checkerModule)
+	engine := newTestJudgeEngine(nil, checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{},
@@ -411,7 +441,7 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			checkerModule := newFakeChecker()
 			checkerModule.resolved.validateErr = tt.checkerErr
-			engine := newTestJudgeEngineWithExternalResources(nil, nil, checkerModule, tt.externalFS)
+			engine := newTestJudgeEngineWithExternalResources(nil, checkerModule, tt.externalFS)
 
 			err := engine.ValidateRequest(context.Background(), tt.req)
 			require.Error(t, err)
@@ -422,11 +452,8 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 
 func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	checkerModule := newFakeChecker()
-	engine := newTestJudgeEngine(
-		&fakeRunner{runResult: userOKRunResult("YES\n")},
-		nil,
-		checkerModule,
-	)
+	program := &fakeCompiledProgram{runResult: userOKRunResult("YES\n")}
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 	req := baseJudgeRequest(model.JudgeTestCase{ExpectedOutput: "YES\n"})
 	req.Checker = "yesno"
 
@@ -437,74 +464,52 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
-	runner := &fakeRunner{runResult: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}}
+	program := &fakeCompiledProgram{runResult: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}}
 	checkerModule := newFakeChecker()
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(model.JudgeTestCase{}))
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictTLE, result.Cases[0].Verdict)
-	assert.Equal(t, 1, runner.calls)
+	assert.Len(t, program.inputs, 1)
 	assert.Empty(t, checkerModule.resolved.prepared.calls)
 }
 
-func TestNormalizeUserRunResult_JavaOutOfMemory(t *testing.T) {
-	tests := []struct {
-		name        string
-		language    model.Language
-		verdict     execution.Verdict
-		stderr      string
-		wantVerdict execution.Verdict
-	}{
-		{
-			name:        "Java out of memory becomes MLE",
-			language:    model.LanguageJava,
-			verdict:     execution.VerdictRE,
-			stderr:      "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space",
-			wantVerdict: execution.VerdictMLE,
-		},
-		{
-			name:        "ordinary Java exception stays RE",
-			language:    model.LanguageJava,
-			verdict:     execution.VerdictRE,
-			stderr:      "Exception in thread \"main\" java.lang.NullPointerException",
-			wantVerdict: execution.VerdictRE,
-		},
-		{
-			name:        "other languages are unchanged",
-			language:    model.LanguageCPP,
-			verdict:     execution.VerdictRE,
-			stderr:      "java.lang.OutOfMemoryError",
-			wantVerdict: execution.VerdictRE,
-		},
-		{
-			name:        "existing Java MLE stays MLE",
-			language:    model.LanguageJava,
-			verdict:     execution.VerdictMLE,
-			wantVerdict: execution.VerdictMLE,
-		},
-	}
+func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
+	program := &fakeCompiledProgram{runErr: errors.New("sandbox unavailable")}
+	checkerModule := newFakeChecker()
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeUserRunResult(tt.language, RunResult{
-				Verdict: tt.verdict,
-				Stderr:  tt.stderr,
-			})
-			assert.Equal(t, tt.wantVerdict, got.Verdict)
-		})
-	}
+	result := engine.Judge(context.Background(), baseJudgeRequest(model.JudgeTestCase{}))
+
+	require.Len(t, result.Cases, 1)
+	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
+	assert.Contains(t, result.Cases[0].ExtraInfo, "infrastructure error: sandbox unavailable")
+	assert.Empty(t, checkerModule.resolved.prepared.calls)
+}
+
+func TestJudgeEngine_UsesRequestedLanguage(t *testing.T) {
+	languageModule := newFakeLanguage()
+	engine := newTestJudgeEngine(languageModule, nil)
+	req := baseJudgeRequest()
+	req.Language = model.LanguageJava
+
+	result := engine.Judge(context.Background(), req)
+
+	assert.Equal(t, model.JudgeStatusOK, result.Status)
+	assert.Equal(t, []model.Language{model.LanguageJava}, languageModule.languages)
+	assert.Equal(t, []string{req.SourceCode}, languageModule.toolchain.sources)
 }
 
 func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
-	runner := &inputKeyedRunner{results: map[string]runCallResult{
+	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("42\n")},
 		"2\n": {result: userOKRunResult("42\n")},
 	}}
 	checkerModule := newFakeChecker()
 	checkerModule.resolved.prepared.err = errors.New("sandbox boom")
-	engine := newTestJudgeEngine(runner, nil, checkerModule)
+	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := engine.Judge(context.Background(), baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "42\n"},
@@ -515,39 +520,8 @@ func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "checker infrastructure error")
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
-	assert.Equal(t, 2, runner.calls)
+	assert.Len(t, program.inputs, 2)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 2)
-}
-
-type runCallResult struct {
-	result RunResult
-	err    error
-}
-
-type inputKeyedRunner struct {
-	mu      sync.Mutex
-	results map[string]runCallResult
-	calls   int
-}
-
-func (r *inputKeyedRunner) PreflightCheck(_ context.Context) error { return nil }
-
-func (r *inputKeyedRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
-	data, err := io.ReadAll(req.Stdin)
-	if err != nil {
-		return RunResult{}, fmt.Errorf("read user input: %w", err)
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls++
-
-	input := string(data)
-	result, ok := r.results[input]
-	if !ok {
-		return RunResult{}, fmt.Errorf("inputKeyedRunner: no result for input %q", input)
-	}
-	return result.result, result.err
 }
 
 func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
@@ -556,9 +530,9 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		"test.out": []byte("expected output"),
 	})
 	checkerModule := newFakeChecker()
+	program := &fakeCompiledProgram{runResult: userOKRunResult("expected output")}
 	engine := newTestJudgeEngineWithExternalResources(
-		&fakeRunner{runResult: userOKRunResult("expected output")},
-		nil,
+		newFakeLanguageWithProgram(program),
 		checkerModule,
 		fakeResources,
 	)

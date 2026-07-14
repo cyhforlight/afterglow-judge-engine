@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -14,6 +15,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type cachedCompilerFake struct {
+	mu       sync.Mutex
+	artifact *model.CompiledArtifact
+	result   model.CompileResult
+	err      error
+	calls    int
+}
+
+func (c *cachedCompilerFake) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls++
+	return CompileOutput{Result: c.result, Artifact: c.artifact}, c.err
+}
+
+func testCompiledArtifact() *model.CompiledArtifact {
+	return &model.CompiledArtifact{Data: []byte("binary"), Mode: 0o755}
+}
+
 func testCompileRequest(content string) CompileRequest {
 	return CompileRequest{
 		Files:        []workspace.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
@@ -24,7 +45,7 @@ func testCompileRequest(content string) CompileRequest {
 }
 
 func TestCachedCompiler_CacheHit(t *testing.T) {
-	inner := &fakeCompiler{
+	inner := &cachedCompilerFake{
 		result:   model.CompileResult{Succeeded: true},
 		artifact: testCompiledArtifact(),
 	}
@@ -43,7 +64,7 @@ func TestCachedCompiler_CacheHit(t *testing.T) {
 }
 
 func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
-	inner := &fakeCompiler{
+	inner := &cachedCompilerFake{
 		result: model.CompileResult{Succeeded: false, Log: "error"},
 	}
 	cc, err := NewCachedCompiler(inner, 16)
@@ -92,7 +113,7 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 }
 
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {
-	inner := &fakeCompiler{err: errors.New("infra error")}
+	inner := &cachedCompilerFake{err: errors.New("infra error")}
 	cc, err := NewCachedCompiler(inner, 16)
 	require.NoError(t, err)
 

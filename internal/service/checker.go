@@ -297,9 +297,9 @@ func validateExternalCheckerPath(checkerPath string) (string, error) {
 	return normalizedPath, nil
 }
 
-func checkerProfile() LanguageProfile {
-	return LanguageProfile{
-		Compile: CompileConfig{
+func checkerProfile() languageProfile {
+	return languageProfile{
+		Compile: compileConfig{
 			ImageRef:     gccImage,
 			SourceFile:   "checker.cpp",
 			ArtifactName: "checker",
@@ -311,7 +311,7 @@ func checkerProfile() LanguageProfile {
 			TimeoutMs: 30000,
 			MemoryMB:  512,
 		},
-		Run: RunConfig{
+		Run: runConfig{
 			ImageRef:       staticRuntimeImage,
 			ArtifactName:   "checker",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },

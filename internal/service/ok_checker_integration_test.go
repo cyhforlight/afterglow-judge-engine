@@ -54,13 +54,13 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			sourcePath, lang := findSourceFile(t, testcaseDir)
 			sourceCode := readTestdata(t, "ok-and-checker-cases", testcaseName, filepath.Base(sourcePath))
 
-			artifact, result := compileProgram(t, env, lang, sourceCode)
+			program, result := compileProgram(t, env, lang, sourceCode)
 			require.True(t, result.Succeeded, "compilation failed: %s", result.Log)
 
 			inputData := readTestdata(t, "ok-and-checker-cases", testcaseName, "data.in")
 			expectedOutput := readTestdata(t, "ok-and-checker-cases", testcaseName, "data.out")
 
-			runOut := runUserProgram(t, env, artifact, lang, inputData, 2000, 256)
+			runOut := runUserProgram(t, env, program, inputData, 2000, 256)
 			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
 			externalFS, err := resource.NewExternal(testdataPath("ok-and-checker-cases"))
