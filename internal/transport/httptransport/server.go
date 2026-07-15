@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"afterglow-judge-engine/internal/config"
-	"afterglow-judge-engine/internal/service"
 )
 
 const (
@@ -22,7 +21,7 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(cfg *config.Config, judge service.JudgeService, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, judge JudgeService, logger *slog.Logger) *Server {
 	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB)
 
 	mux := http.NewServeMux()

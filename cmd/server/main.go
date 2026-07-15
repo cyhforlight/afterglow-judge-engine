@@ -58,7 +58,7 @@ func setupLogger(logLevel string) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 }
 
-func initializeComponents(cfg *config.Config) (service.JudgeService, error) {
+func initializeComponents(cfg *config.Config) (*service.JudgeEngine, error) {
 	// 1. Create the shared containerd sandbox.
 	sb, err := sandbox.New(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 	if err != nil {

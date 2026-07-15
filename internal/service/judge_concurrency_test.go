@@ -11,6 +11,7 @@ import (
 	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type gatedProgram struct {
@@ -57,10 +58,11 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		)
 		req := baseJudgeRequest()
 		results := make([]model.JudgeResult, numRequests)
+		judgeErrors := make([]error, numRequests)
 
 		for i := range numRequests {
 			go func() {
-				results[i] = engine.Judge(t.Context(), req)
+				results[i], judgeErrors[i] = engine.Judge(t.Context(), req)
 			}()
 		}
 
@@ -69,7 +71,8 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 
 		close(release)
 		synctest.Wait()
-		for _, result := range results {
+		for i, result := range results {
+			require.NoError(t, judgeErrors[i])
 			assert.Equal(t, model.JudgeStatusOK, result.Status)
 		}
 	})
@@ -105,7 +108,8 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
 
-		result := engine.Judge(ctx, req)
+		result, err := engine.Judge(ctx, req)
+		require.NoError(t, err)
 		assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 		assert.Contains(t, result.Compile.Log, "timed out while waiting for capacity")
 
@@ -138,7 +142,8 @@ func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		result := engine.Judge(ctx, req)
+		result, err := engine.Judge(ctx, req)
+		require.NoError(t, err)
 		assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	}
 

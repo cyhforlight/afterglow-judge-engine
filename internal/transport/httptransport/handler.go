@@ -1,6 +1,7 @@
 package httptransport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,18 +9,22 @@ import (
 	"net/http"
 
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/service"
 )
+
+// JudgeService is the judging capability required by the HTTP transport.
+type JudgeService interface {
+	Judge(context.Context, model.JudgeRequest) (model.JudgeResult, error)
+}
 
 // Handler handles HTTP requests for judging.
 type Handler struct {
-	judge   service.JudgeService
+	judge   JudgeService
 	logger  *slog.Logger
 	maxSize int64 // max request body size in bytes
 }
 
 // NewHandler creates a new HTTP handler.
-func NewHandler(judge service.JudgeService, logger *slog.Logger, maxSizeMB int) *Handler {
+func NewHandler(judge JudgeService, logger *slog.Logger, maxSizeMB int) *Handler {
 	return &Handler{
 		judge:   judge,
 		logger:  logger,
@@ -45,12 +50,12 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.judge.ValidateRequest(ctx, req); err != nil {
+	result, err := h.judge.Judge(ctx, req)
+	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 
-	result := h.judge.Judge(ctx, req)
 	h.writeJSON(w, http.StatusOK, result)
 }
 

@@ -236,6 +236,14 @@ func baseJudgeRequest(testCases ...model.JudgeTestCase) model.JudgeRequest {
 	}
 }
 
+func judgeSuccessfully(t *testing.T, engine *JudgeEngine, req model.JudgeRequest) model.JudgeResult {
+	t.Helper()
+
+	result, err := engine.Judge(t.Context(), req)
+	require.NoError(t, err)
+	return result
+}
+
 func TestJudgeEngine_CompileError(t *testing.T) {
 	languageModule := newFakeLanguage()
 	languageModule.toolchain.program = nil
@@ -243,7 +251,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(languageModule, checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest())
+	result := judgeSuccessfully(t, engine, baseJudgeRequest())
 
 	assert.Equal(t, model.JudgeStatusCompileError, result.Status)
 	assert.False(t, result.Compile.Succeeded)
@@ -262,7 +270,7 @@ func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
 	}
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{ExpectedOutput: "42\n"},
 	))
 
@@ -288,7 +296,7 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 	}
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
 		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "4\n"},
 		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
@@ -307,7 +315,7 @@ func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 	languageModule.toolchain.err = errors.New("boom")
 	engine := newTestJudgeEngine(languageModule, nil)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest())
+	result := judgeSuccessfully(t, engine, baseJudgeRequest())
 
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.False(t, result.Compile.Succeeded)
@@ -327,7 +335,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	}
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
 		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "8\n"},
 		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
@@ -351,7 +359,7 @@ func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
 		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "4\n"},
 		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
@@ -367,7 +375,7 @@ func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	checkerModule.resolved.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
 	engine := newTestJudgeEngine(nil, checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{},
 		model.JudgeTestCase{},
 	))
@@ -377,7 +385,7 @@ func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	assert.Empty(t, result.Cases)
 }
 
-func TestJudgeEngine_ValidateRequest(t *testing.T) {
+func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {
 	tests := []struct {
 		name       string
 		req        model.JudgeRequest
@@ -421,13 +429,17 @@ func TestJudgeEngine_ValidateRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			languageModule := newFakeLanguage()
 			checkerModule := newFakeChecker()
 			checkerModule.resolved.validateErr = tt.checkerErr
-			engine := newTestJudgeEngineWithExternalResources(nil, checkerModule, tt.externalFS)
+			engine := newTestJudgeEngineWithExternalResources(languageModule, checkerModule, tt.externalFS)
 
-			err := engine.ValidateRequest(context.Background(), tt.req)
+			result, err := engine.Judge(t.Context(), tt.req)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Zero(t, result)
+			assert.Empty(t, languageModule.toolchain.sources)
+			assert.Zero(t, checkerModule.resolved.prepareCalls)
 		})
 	}
 }
@@ -439,7 +451,7 @@ func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
 	req := baseJudgeRequest(model.JudgeTestCase{ExpectedOutput: "YES\n"})
 	req.Checker = "yesno"
 
-	result := engine.Judge(context.Background(), req)
+	result := judgeSuccessfully(t, engine, req)
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, []string{"yesno"}, checkerModule.references)
@@ -450,7 +462,7 @@ func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(model.JudgeTestCase{}))
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(model.JudgeTestCase{}))
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictTLE, result.Cases[0].Verdict)
@@ -463,7 +475,7 @@ func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(model.JudgeTestCase{}))
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(model.JudgeTestCase{}))
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
@@ -477,7 +489,7 @@ func TestJudgeEngine_UsesRequestedLanguage(t *testing.T) {
 	req := baseJudgeRequest()
 	req.Language = model.LanguageJava
 
-	result := engine.Judge(context.Background(), req)
+	result := judgeSuccessfully(t, engine, req)
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, []model.Language{model.LanguageJava}, languageModule.languages)
@@ -493,7 +505,7 @@ func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
 	checkerModule.resolved.prepared.err = errors.New("sandbox boom")
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
-	result := engine.Judge(context.Background(), baseJudgeRequest(
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "42\n"},
 		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "42\n"},
 	))
@@ -529,7 +541,7 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		}},
 	}
 
-	result := engine.Judge(context.Background(), originalReq)
+	result := judgeSuccessfully(t, engine, originalReq)
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, "test.in", originalReq.TestCases[0].InputFile)

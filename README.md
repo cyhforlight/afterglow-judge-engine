@@ -123,7 +123,7 @@ curl -X POST http://localhost:8080/v1/execute \
 当前实现采用一条比较克制的分层链路：
 
 - `transport/httptransport`
-  - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、调用 service 校验请求和响应编码
+  - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、调用 service 和响应编码
 - `service`
   - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`
@@ -148,13 +148,13 @@ transport -> service -> model
 一次 `POST /v1/execute` 的处理流程如下：
 
 1. HTTP 层限制请求体大小并做严格 JSON 解码
-2. transport 调用 service 校验请求限制、checker 引用和外部资源是否可用
-3. service 在判题入口再次做防御性请求校验，并限制并发判题请求数
-4. service 解析 checker 和语言，随后编译用户代码并准备 checker
+2. transport 单次调用 service；service 校验请求限制、checker 引用和外部资源是否可用
+3. 请求通过校验后，service 限制并发判题请求数
+4. service 解析语言、编译用户代码并准备已解析的 checker
 5. 编译成功后，各 testcase 按需加载 `inputFile` / `expectedOutputFile`
 6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
 7. service 汇总逐点结果和判题流程状态
-8. transport 返回 JSON 响应
+8. transport 将未受理错误映射为 HTTP 400，或以 HTTP 200 返回判题结果
 
 ### 目录结构
 

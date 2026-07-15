@@ -14,19 +14,18 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// JudgeService handles full judge orchestration.
-type JudgeService interface {
-	ValidateRequest(ctx context.Context, req model.JudgeRequest) error
-	Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult
-}
-
-// JudgeEngine implements JudgeService.
+// JudgeEngine handles full judge orchestration.
 type JudgeEngine struct {
 	language       language
 	checker        checker
 	externalFS     fs.FS
 	concurrencySem *semaphore.Weighted
 	limits         model.JudgeLimits
+}
+
+type admittedJudge struct {
+	request model.JudgeRequest
+	checker resolvedChecker
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -66,19 +65,18 @@ func newJudgeEngine(
 	}
 }
 
-// ValidateRequest verifies whether the request can be handled by the judge.
-func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest) error {
+func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
 	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
-		return err
+		return admittedJudge{}, err
 	}
 
 	resolved, err := s.checker.Resolve(req.Checker)
 	if err != nil {
-		return err
+		return admittedJudge{}, err
 	}
 
 	if err := resolved.Validate(); err != nil {
-		return err
+		return admittedJudge{}, err
 	}
 
 	for index, testCase := range req.TestCases {
@@ -86,14 +84,14 @@ func (s *JudgeEngine) ValidateRequest(_ context.Context, req model.JudgeRequest)
 			continue
 		}
 		if err := s.validateExternalDependency(testCase.InputFile, "inputFile"); err != nil {
-			return fmt.Errorf("testcases[%d]: %w", index, err)
+			return admittedJudge{}, fmt.Errorf("testcases[%d]: %w", index, err)
 		}
 		if err := s.validateExternalDependency(testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
-			return fmt.Errorf("testcases[%d]: %w", index, err)
+			return admittedJudge{}, fmt.Errorf("testcases[%d]: %w", index, err)
 		}
 	}
 
-	return nil
+	return admittedJudge{request: req, checker: resolved}, nil
 }
 
 func (s *JudgeEngine) validateExternalDependency(path, label string) error {
@@ -106,22 +104,24 @@ func (s *JudgeEngine) validateExternalDependency(path, label string) error {
 	return nil
 }
 
-// Judge compiles source code and evaluates all test cases.
-func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.JudgeResult {
-	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
-		return failedBeforeRun(err.Error())
+// Judge admits a request, then compiles its source code and evaluates all test cases.
+// An error means the request was rejected before judging started. Once admitted,
+// all failures are represented by the returned JudgeResult.
+func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
+	admitted, err := s.admit(req)
+	if err != nil {
+		return model.JudgeResult{}, err
 	}
+	return s.run(ctx, admitted), nil
+}
+
+func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.JudgeResult {
+	req := admitted.request
 
 	if err := s.concurrencySem.Acquire(ctx, 1); err != nil {
 		return failedBeforeRun("judge request cancelled or timed out while waiting for capacity")
 	}
 	defer s.concurrencySem.Release(1)
-
-	// Resolve checker before compilation so direct callers get early validation.
-	resolved, err := s.checker.Resolve(req.Checker)
-	if err != nil {
-		return failedBeforeRun(err.Error())
-	}
 
 	toolchain, err := s.language.Resolve(req.Language)
 	if err != nil {
@@ -144,7 +144,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) model.J
 		}
 	}
 
-	prepared, err := resolved.Prepare(ctx)
+	prepared, err := admitted.checker.Prepare(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
 		return model.JudgeResult{

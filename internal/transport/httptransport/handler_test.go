@@ -12,28 +12,22 @@ import (
 	"testing"
 
 	"afterglow-judge-engine/internal/model"
-	"afterglow-judge-engine/internal/service"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type mockJudgeService struct {
-	validateErr error
+	err         error
 	result      model.JudgeResult
 	lastRequest model.JudgeRequest
 	judgeCalls  int
 }
 
-func (m *mockJudgeService) ValidateRequest(_ context.Context, req model.JudgeRequest) error {
-	m.lastRequest = req
-	return m.validateErr
-}
-
-func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) model.JudgeResult {
+func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
 	m.judgeCalls++
 	m.lastRequest = req
-	return m.result
+	return m.result, m.err
 }
 
 func makeJudgeBody(t *testing.T, req model.JudgeRequest) io.Reader {
@@ -56,11 +50,11 @@ func validJudgeRequest() model.JudgeRequest {
 	}
 }
 
-func newTestHandler(judge service.JudgeService) *Handler {
+func newTestHandler(judge JudgeService) *Handler {
 	return newTestHandlerWithSize(judge, 256)
 }
 
-func newTestHandlerWithSize(judge service.JudgeService, maxSizeMB int) *Handler {
+func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *Handler {
 	return NewHandler(judge, slog.Default(), maxSizeMB)
 }
 
@@ -124,7 +118,7 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 }
 
 func TestHandleExecute_InvalidChecker(t *testing.T) {
-	judge := &mockJudgeService{validateErr: errors.New(`checker "ncmp" is not allowed`)}
+	judge := &mockJudgeService{err: errors.New(`checker "ncmp" is not allowed`)}
 	handler := newTestHandler(judge)
 
 	dto := validJudgeRequest()
@@ -135,7 +129,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	handler.HandleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Equal(t, 0, judge.judgeCalls)
+	assert.Equal(t, 1, judge.judgeCalls)
 
 	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
