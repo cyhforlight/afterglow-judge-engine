@@ -123,7 +123,7 @@ curl -X POST http://localhost:8080/v1/execute \
 当前实现采用一条比较克制的分层链路：
 
 - `transport/httptransport`
-  - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
+  - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、调用 service 校验请求和响应编码
 - `service`
   - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`
@@ -133,7 +133,7 @@ curl -X POST http://localhost:8080/v1/execute \
 - `resource`
   - 负责内部资源（预置 checker）和外部资源（测试数据、题目自定义 Checker 等）的只读访问
 - `model`
-  - 负责领域对象和枚举类型
+  - 负责判题请求、结果和枚举类型，并承载当前 HTTP API 的 JSON 字段约定
 
 依赖方向保持单向：
 
@@ -163,15 +163,13 @@ cmd/
 └── server/                     HTTP 服务入口
 
 internal/
-├── cache/                      简单缓存，用于 checker 编译结果
 ├── config/                     环境变量配置加载
-├── execution/                  通用容器执行任务、资源限制、workspace 准备和产物收集
+├── execution/                  通用容器执行任务、资源限制、内部 workspace 和产物收集
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
 ├── resource/                   内置资源和外部文件的只读访问
 ├── sandbox/                    containerd 沙箱适配层
-├── service/                    编译、运行、checker、判题编排
-├── transport/httptransport/    HTTP server / handler / dto / middleware
-└── workspace/                  临时工作目录管理
+├── service/                    编译、运行、checker、判题编排和 checker 编译缓存
+└── transport/httptransport/    HTTP server / handler / middleware
 
 support/
 ├── testlib.h                   编译进二进制的内置 checker 依赖

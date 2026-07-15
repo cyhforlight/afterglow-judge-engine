@@ -81,12 +81,12 @@
 
 当前实现采用一条比较克制的分层链路：
 
-- `transport/httptransport`：负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、DTO 校验和响应编码
+- `transport/httptransport`：负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、调用 service 校验请求和响应编码
 - `service`：负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`：负责通用容器执行任务：准备 workspace、写入文件、表达资源限制、调用 sandbox、收集产物和限制容器并发
 - `sandbox`：负责通过 containerd 在受限环境中执行编译和运行动作
 - `resource`：负责内部资源和外部文件的只读访问
-- `model`：负责领域对象和枚举类型
+- `model`：负责判题请求、结果和枚举类型，并承载当前 HTTP API 的 JSON 字段约定
 
 ### 依赖方向
 
