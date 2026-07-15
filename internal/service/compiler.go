@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
@@ -35,9 +34,7 @@ type compiler struct {
 	executor execution.Executor
 }
 
-// NewCompiler creates a generic compiler primitive without caching.
-// Use NewCachedCompiler to add caching capability.
-func NewCompiler(executor execution.Executor) Compiler {
+func newCompiler(executor execution.Executor) Compiler {
 	return &compiler{
 		executor: executor,
 	}
@@ -46,10 +43,6 @@ func NewCompiler(executor execution.Executor) Compiler {
 // Compile compiles files in an isolated container.
 func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutput, error) {
 	var out CompileOutput
-
-	if err := validateCompileRequest(req); err != nil {
-		return out, err
-	}
 
 	out, err := c.compileInContainer(ctx, req)
 	if err != nil {
@@ -63,22 +56,6 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 	}
 
 	return out, nil
-}
-
-func validateCompileRequest(req CompileRequest) error {
-	if strings.TrimSpace(req.ImageRef) == "" {
-		return errors.New("compile image is required")
-	}
-	if len(req.Command) == 0 {
-		return errors.New("compile command is required")
-	}
-	if len(req.Files) == 0 {
-		return errors.New("at least one compile file is required")
-	}
-	if strings.TrimSpace(req.ArtifactName) == "" {
-		return errors.New("artifact name is required")
-	}
-	return nil
 }
 
 func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (CompileOutput, error) {

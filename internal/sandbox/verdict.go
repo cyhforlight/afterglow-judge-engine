@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const memoryHitThresholdPermille = 995
+const memoryHitThresholdDivisor = 200 // within 0.5% of the limit
 
 func buildVerdict(
 	exitCode uint32,
@@ -95,15 +95,12 @@ func memoryLimitReached(metrics cgroupMetrics, memoryLimitMB int) bool {
 	if metrics.memoryLimitHit {
 		return true
 	}
-	if memoryLimitMB <= 0 {
-		return false
-	}
 
-	limitBytes := uint64(memoryLimitMB) * uint64(bytesPerMiB)
+	limitBytes := uint64(memoryLimitMB) * uint64(bytesPerMiB) //nolint:gosec // Limits come from admitted requests or fixed profiles.
 	if metrics.peakMemBytes >= limitBytes {
 		return true
 	}
-	return metrics.peakMemBytes*1000 >= limitBytes*memoryHitThresholdPermille
+	return metrics.peakMemBytes >= limitBytes-limitBytes/memoryHitThresholdDivisor
 }
 
 func outputOverflowed(stdoutLW, stderrLW *limitedWriter) bool {

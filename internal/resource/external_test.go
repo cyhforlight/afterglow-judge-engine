@@ -21,6 +21,7 @@ func TestNewExternal_RejectsInvalidMountPoint(t *testing.T) {
 		mountPoint  string
 		wantMessage string
 	}{
+		{name: "relative", mountPoint: "testdata", wantMessage: "must be absolute"},
 		{name: "missing", mountPoint: filepath.Join(tmpDir, "missing"), wantMessage: "not accessible"},
 		{name: "file", mountPoint: filePath, wantMessage: "not a directory"},
 	}

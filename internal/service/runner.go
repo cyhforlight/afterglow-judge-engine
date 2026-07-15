@@ -3,9 +3,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"io"
-	"strings"
 
 	"afterglow-judge-engine/internal/execution"
 )
@@ -32,23 +30,12 @@ type runner struct {
 	executor execution.Executor
 }
 
-// NewRunner creates a generic runner primitive.
-func NewRunner(executor execution.Executor) Runner {
+func newRunner(executor execution.Executor) Runner {
 	return &runner{executor: executor}
 }
 
 // Run executes the given request and returns the raw execution result.
 func (r *runner) Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	if strings.TrimSpace(req.ImageRef) == "" {
-		return RunResult{}, errors.New("run image is required")
-	}
-	if len(req.Command) == 0 {
-		return RunResult{}, errors.New("run command is required")
-	}
-	if len(req.Files) == 0 {
-		return RunResult{}, errors.New("at least one run file is required")
-	}
-
 	result, err := r.executor.Execute(ctx, execution.Job{
 		Files:         req.Files,
 		ImageRef:      req.ImageRef,

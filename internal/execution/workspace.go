@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 )
 
 type workspace struct {
@@ -30,9 +29,6 @@ func (w *workspace) dir() string {
 
 func (w *workspace) writeFiles(files []File) error {
 	for _, file := range files {
-		if strings.TrimSpace(file.Name) == "" {
-			return errors.New("workspace path is required")
-		}
 		fileMode := file.Mode
 		if fileMode == 0 {
 			fileMode = 0o644

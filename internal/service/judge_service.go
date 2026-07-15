@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
+	"strings"
 	"sync"
+	"time"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
@@ -30,19 +33,59 @@ type admittedJudge struct {
 
 // NewJudgeEngine creates a judge engine.
 func NewJudgeEngine(
-	compiler Compiler,
-	runner Runner,
+	executor execution.Executor,
 	bundledFS fs.FS,
 	externalFS fs.FS,
 	maxConcurrent int,
 	limits model.JudgeLimits,
 ) (*JudgeEngine, error) {
+	if executor == nil {
+		return nil, errors.New("executor is required")
+	}
+	if bundledFS == nil {
+		return nil, errors.New("bundled resources are required")
+	}
+	if maxConcurrent <= 0 {
+		return nil, fmt.Errorf("max concurrent judges must be positive, got %d", maxConcurrent)
+	}
+	if err := validateJudgeLimits(limits); err != nil {
+		return nil, fmt.Errorf("invalid judge limits: %w", err)
+	}
+
+	compiler := newCompiler(executor)
+	runner := newRunner(executor)
 	checkerModule, err := newChecker(compiler, runner, bundledFS, externalFS)
 	if err != nil {
 		return nil, fmt.Errorf("initialize checker: %w", err)
 	}
 
 	return newJudgeEngine(newLanguage(compiler, runner), checkerModule, externalFS, maxConcurrent, limits), nil
+}
+
+func validateJudgeLimits(limits model.JudgeLimits) error {
+	const bytesPerMiB = int64(1024 * 1024)
+
+	switch {
+	case limits.MaxTimeLimitMs <= 0:
+		return errors.New("maximum time limit must be positive")
+	case limits.MaxMemoryMB <= 0:
+		return errors.New("maximum memory limit must be positive")
+	case limits.MaxTestCases <= 0:
+		return errors.New("maximum testcase count must be positive")
+	case limits.MaxSourceBytes <= 0:
+		return errors.New("maximum source size must be positive")
+	case limits.MaxTimeLimitMs > math.MaxInt/execution.WallTimeMultiplier ||
+		int64(limits.MaxTimeLimitMs) > math.MaxInt64/(int64(execution.WallTimeMultiplier)*int64(time.Millisecond)):
+		return fmt.Errorf("maximum time limit is too large: %dms", limits.MaxTimeLimitMs)
+	}
+
+	javaReserveMB := max(javaNativeReserveMB, limits.MaxMemoryMB/4)
+	if limits.MaxMemoryMB > math.MaxInt-javaReserveMB ||
+		int64(limits.MaxMemoryMB+javaReserveMB) > math.MaxInt64/bytesPerMiB {
+		return fmt.Errorf("maximum memory limit is too large: %dMB", limits.MaxMemoryMB)
+	}
+
+	return nil
 }
 
 func newJudgeEngine(
@@ -52,10 +95,6 @@ func newJudgeEngine(
 	maxConcurrent int,
 	limits model.JudgeLimits,
 ) *JudgeEngine {
-	if limits == (model.JudgeLimits{}) {
-		limits = model.DefaultJudgeLimits()
-	}
-
 	return &JudgeEngine{
 		language:       languageModule,
 		checker:        checkerModule,
@@ -66,7 +105,7 @@ func newJudgeEngine(
 }
 
 func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
-	if err := model.ValidateJudgeRequest(req, s.limits); err != nil {
+	if err := validateJudgeRequest(req, s.limits); err != nil {
 		return admittedJudge{}, err
 	}
 
@@ -94,11 +133,64 @@ func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
 	return admittedJudge{request: req, checker: resolved}, nil
 }
 
+func validateJudgeRequest(req model.JudgeRequest, limits model.JudgeLimits) error {
+	if strings.TrimSpace(req.SourceCode) == "" {
+		return errors.New("sourceCode is required")
+	}
+	if req.Language == model.LanguageUnknown {
+		return errors.New("language is required")
+	}
+	if !req.Language.IsSupported() {
+		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", req.Language)
+	}
+	if len(req.SourceCode) > limits.MaxSourceBytes {
+		return fmt.Errorf("sourceCode must be at most %d bytes", limits.MaxSourceBytes)
+	}
+	if req.TimeLimit <= 0 {
+		return errors.New("timeLimit must be positive")
+	}
+	if req.TimeLimit > limits.MaxTimeLimitMs {
+		return fmt.Errorf("timeLimit must be at most %d ms", limits.MaxTimeLimitMs)
+	}
+	if req.MemoryLimit <= 0 {
+		return errors.New("memoryLimit must be positive")
+	}
+	if req.MemoryLimit > limits.MaxMemoryMB {
+		return fmt.Errorf("memoryLimit must be at most %d MB", limits.MaxMemoryMB)
+	}
+	if len(req.TestCases) == 0 {
+		return errors.New("testcases must not be empty")
+	}
+	if len(req.TestCases) > limits.MaxTestCases {
+		return fmt.Errorf("testcases must contain at most %d cases", limits.MaxTestCases)
+	}
+	for index, testCase := range req.TestCases {
+		if err := validateJudgeTestCase(index, testCase); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateJudgeTestCase(index int, testCase model.JudgeTestCase) error {
+	hasInputFile := testCase.InputFile != ""
+	hasExpectedOutputFile := testCase.ExpectedOutputFile != ""
+	hasText := testCase.InputText != "" || testCase.ExpectedOutput != ""
+
+	if hasText && (hasInputFile || hasExpectedOutputFile) {
+		return fmt.Errorf("testcases[%d]: cannot mix text and file data", index)
+	}
+	if hasInputFile != hasExpectedOutputFile {
+		return fmt.Errorf("testcases[%d]: inputFile and expectedOutputFile must be provided together", index)
+	}
+	return nil
+}
+
 func (s *JudgeEngine) validateExternalDependency(path, label string) error {
 	if s.externalFS == nil {
 		return fmt.Errorf("%s %q requires external resources", label, path)
 	}
-	if _, err := fs.Stat(s.externalFS, path); err != nil {
+	if err := validateResourceFile(s.externalFS, path); err != nil {
 		return fmt.Errorf("%s %q is not available: %w", label, path, err)
 	}
 	return nil

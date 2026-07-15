@@ -18,7 +18,7 @@ import (
 func TestSandbox_Cancellation(t *testing.T) {
 	requireSandboxIntegrationTest(t)
 
-	sb, err := New("", "")
+	sb, err := New(testSocketPath, testNamespace)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

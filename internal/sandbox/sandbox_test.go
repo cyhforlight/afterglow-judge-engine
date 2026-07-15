@@ -56,52 +56,14 @@ func metricWithCPUTime(t *testing.T, cpuMs int) *types.Metric {
 	}}
 }
 
-func TestValidateExecuteLimits(t *testing.T) {
-	tests := []struct {
-		name    string
-		mutate  func(*ResourceLimits)
-		wantErr string
-	}{
-		{name: "valid limits"},
-		{
-			name:    "cpu time must be positive",
-			mutate:  func(limits *ResourceLimits) { limits.CPUTimeMs = 0 },
-			wantErr: "CPU time limit must be positive",
-		},
-		{
-			name:    "wall time must be positive",
-			mutate:  func(limits *ResourceLimits) { limits.WallTimeMs = 0 },
-			wantErr: "wall time limit must be positive",
-		},
-		{
-			name:    "memory must be positive",
-			mutate:  func(limits *ResourceLimits) { limits.MemoryMB = 0 },
-			wantErr: "memory limit must be positive",
-		},
-		{
-			name:    "output must be positive",
-			mutate:  func(limits *ResourceLimits) { limits.OutputBytes = 0 },
-			wantErr: "output limit must be positive",
-		},
-	}
+func TestNew_RequiresConfiguration(t *testing.T) {
+	sb, err := New("", testNamespace)
+	assert.Nil(t, sb)
+	require.EqualError(t, err, "containerd socket path is required")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			limits := standardLimits()
-			if tt.mutate != nil {
-				tt.mutate(&limits)
-			}
-
-			err := validateExecuteLimits(limits)
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-
-			require.Error(t, err)
-			assert.Equal(t, tt.wantErr, err.Error())
-		})
-	}
+	sb, err = New(testSocketPath, "")
+	assert.Nil(t, sb)
+	require.EqualError(t, err, "containerd namespace is required")
 }
 
 func TestWatchExecution_CancellationStopsTask(t *testing.T) {

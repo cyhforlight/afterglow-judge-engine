@@ -2,11 +2,10 @@
 package config
 
 import (
-	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,17 +16,17 @@ import (
 // Config holds all server configuration.
 type Config struct {
 	// HTTP Server
-	HTTPAddr           string
-	HTTPPort           int
-	HTTPReadTimeoutMs  int
-	HTTPWriteTimeoutMs int
+	HTTPAddr         string
+	HTTPPort         int
+	HTTPReadTimeout  time.Duration
+	HTTPWriteTimeout time.Duration
 
 	// Containerd
 	ContainerdSocket    string
 	ContainerdNamespace string
 
 	// Execution Limits
-	MaxInputSizeMB          int
+	MaxInputBytes           int64
 	MaxConcurrentContainers int
 	MaxConcurrentJudges     int
 	JudgeLimits             model.JudgeLimits
@@ -37,10 +36,10 @@ type Config struct {
 	APIKey string
 
 	// Observability
-	LogLevel string
+	LogLevel slog.Level
 }
 
-// Load creates a Config from environment variables and validates it.
+// Load reads environment variables, applies defaults, and converts their representation.
 func Load() (*Config, error) {
 	cfg := &Config{
 		// HTTP Server
@@ -55,9 +54,6 @@ func Load() (*Config, error) {
 
 		// Security
 		APIKey: getEnv("API_KEY", ""),
-
-		// Observability
-		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 
 	httpPort, err := getEnvInt("HTTP_PORT", 8080)
@@ -66,23 +62,23 @@ func Load() (*Config, error) {
 	}
 	cfg.HTTPPort = httpPort
 
-	httpReadTimeoutMs, err := getEnvInt("HTTP_READ_TIMEOUT_MS", int((30 * time.Second).Milliseconds()))
+	httpReadTimeout, err := getEnvDuration("HTTP_READ_TIMEOUT_MS", 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	cfg.HTTPReadTimeoutMs = httpReadTimeoutMs
+	cfg.HTTPReadTimeout = httpReadTimeout
 
-	httpWriteTimeoutMs, err := getEnvInt("HTTP_WRITE_TIMEOUT_MS", int((10 * time.Minute).Milliseconds()))
+	httpWriteTimeout, err := getEnvDuration("HTTP_WRITE_TIMEOUT_MS", 10*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	cfg.HTTPWriteTimeoutMs = httpWriteTimeoutMs
+	cfg.HTTPWriteTimeout = httpWriteTimeout
 
-	maxInputSizeMB, err := getEnvInt("MAX_INPUT_SIZE_MB", 256)
+	maxInputBytes, err := getEnvBytes("MAX_INPUT_SIZE_MB", 256)
 	if err != nil {
 		return nil, err
 	}
-	cfg.MaxInputSizeMB = maxInputSizeMB
+	cfg.MaxInputBytes = maxInputBytes
 
 	maxContainers, err := getEnvInt("MAX_CONCURRENT_CONTAINERS", 8)
 	if err != nil {
@@ -113,59 +109,18 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if maxSourceSizeKB > math.MaxInt/1024 {
-		return nil, fmt.Errorf("MAX_SOURCE_SIZE_KB is too large, got %d", maxSourceSizeKB)
+	if maxSourceSizeKB > math.MaxInt/1024 || maxSourceSizeKB < math.MinInt/1024 {
+		return nil, fmt.Errorf("MAX_SOURCE_SIZE_KB cannot be represented in bytes, got %d", maxSourceSizeKB)
 	}
 	judgeLimits.MaxSourceBytes = maxSourceSizeKB * 1024
 	cfg.JudgeLimits = judgeLimits
 
-	if err := cfg.Validate(); err != nil {
-		return nil, err
+	logLevel := getEnv("LOG_LEVEL", "info")
+	if err := cfg.LogLevel.UnmarshalText([]byte(logLevel)); err != nil {
+		return nil, fmt.Errorf("LOG_LEVEL must be a valid slog level, got %q: %w", logLevel, err)
 	}
 
 	return cfg, nil
-}
-
-// Validate checks that a loaded Config is internally consistent.
-func (cfg *Config) Validate() error {
-	if cfg == nil {
-		return errors.New("config is required")
-	}
-
-	if cfg.HTTPAddr == "" {
-		return errors.New("HTTP_ADDR must not be empty")
-	}
-	if cfg.HTTPPort <= 0 || cfg.HTTPPort > 65535 {
-		return fmt.Errorf("HTTP_PORT must be between 1 and 65535, got %d", cfg.HTTPPort)
-	}
-	if cfg.HTTPReadTimeoutMs <= 0 {
-		return fmt.Errorf("HTTP_READ_TIMEOUT_MS must be positive, got %d", cfg.HTTPReadTimeoutMs)
-	}
-	if cfg.HTTPWriteTimeoutMs <= 0 {
-		return fmt.Errorf("HTTP_WRITE_TIMEOUT_MS must be positive, got %d", cfg.HTTPWriteTimeoutMs)
-	}
-	if cfg.ContainerdSocket == "" {
-		return errors.New("CONTAINERD_SOCKET must not be empty")
-	}
-	if cfg.ContainerdNamespace == "" {
-		return errors.New("CONTAINERD_NAMESPACE must not be empty")
-	}
-	if cfg.MaxInputSizeMB <= 0 {
-		return fmt.Errorf("MAX_INPUT_SIZE_MB must be positive, got %d", cfg.MaxInputSizeMB)
-	}
-	if cfg.MaxConcurrentContainers <= 0 {
-		return fmt.Errorf("MAX_CONCURRENT_CONTAINERS must be positive, got %d", cfg.MaxConcurrentContainers)
-	}
-	if cfg.MaxConcurrentJudges <= 0 {
-		return fmt.Errorf("MAX_CONCURRENT_JUDGES must be positive, got %d", cfg.MaxConcurrentJudges)
-	}
-	if err := cfg.JudgeLimits.ValidateConfig(); err != nil {
-		return err
-	}
-	if cfg.ExternalDataDir != "" && !filepath.IsAbs(cfg.ExternalDataDir) {
-		return fmt.Errorf("EXTERNAL_DATA_DIR must be an absolute path, got %q", cfg.ExternalDataDir)
-	}
-	return validateLogLevel(cfg.LogLevel)
 }
 
 // getEnv retrieves a string environment variable or returns a default value.
@@ -195,11 +150,27 @@ func getEnvInt(key string, defaultValue int) (int, error) {
 	return intVal, nil
 }
 
-func validateLogLevel(level string) error {
-	switch level {
-	case "info", "debug":
-		return nil
-	default:
-		return fmt.Errorf("LOG_LEVEL must be one of [info debug], got %q", level)
+func getEnvDuration(key string, defaultValue time.Duration) (time.Duration, error) {
+	milliseconds, err := getEnvInt(key, int(defaultValue/time.Millisecond))
+	if err != nil {
+		return 0, err
 	}
+	if int64(milliseconds) > math.MaxInt64/int64(time.Millisecond) ||
+		int64(milliseconds) < math.MinInt64/int64(time.Millisecond) {
+		return 0, fmt.Errorf("%s cannot be represented as a duration, got %dms", key, milliseconds)
+	}
+	return time.Duration(milliseconds) * time.Millisecond, nil
+}
+
+func getEnvBytes(key string, defaultMiB int) (int64, error) {
+	const bytesPerMiB = int64(1024 * 1024)
+
+	mebibytes, err := getEnvInt(key, defaultMiB)
+	if err != nil {
+		return 0, err
+	}
+	if int64(mebibytes) > math.MaxInt64/bytesPerMiB || int64(mebibytes) < math.MinInt64/bytesPerMiB {
+		return 0, fmt.Errorf("%s cannot be represented in bytes, got %dMB", key, mebibytes)
+	}
+	return int64(mebibytes) * bytesPerMiB, nil
 }

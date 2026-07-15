@@ -49,7 +49,7 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 		},
 	}
 
-	compiler := NewCompiler(exec)
+	compiler := newCompiler(exec)
 	out, err := compiler.Compile(context.Background(), CompileRequest{
 		Files: []execution.File{{
 			Name:    "main.c",
@@ -100,7 +100,7 @@ func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
 		},
 	}
 
-	runner := NewRunner(exec)
+	runner := newRunner(exec)
 	out, err := runner.Run(context.Background(), RunRequest{
 		Files: []execution.File{{
 			Name:    "program",

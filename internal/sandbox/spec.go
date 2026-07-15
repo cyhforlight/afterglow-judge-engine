@@ -2,10 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math"
-	"path/filepath"
 	"strconv"
 
 	"github.com/containerd/containerd/v2/core/containers"
@@ -13,39 +9,24 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-const bytesPerMiB = int64(1024 * 1024)
-
 const pidsLimit = 128
 
-func sandboxSpecOpts(req ExecuteRequest, cpuID int) ([]oci.SpecOpts, error) {
-	opts, err := mountSpecOpts(req.MountDir)
-	if err != nil {
-		return nil, err
-	}
-
-	memoryLimitBytes, err := memoryBytesFromMB(req.Limits.MemoryMB)
-	if err != nil {
-		return nil, err
-	}
+func sandboxSpecOpts(req ExecuteRequest, cpuID int) []oci.SpecOpts {
+	opts := mountSpecOpts(req.MountDir)
+	memoryLimitBytes := memoryBytes(req.Limits.MemoryMB)
 
 	opts = append(opts,
-		oci.WithMemoryLimit(uint64(memoryLimitBytes)), //nolint:gosec // memoryBytesFromMB guarantees a positive int64 value.
+		oci.WithMemoryLimit(uint64(memoryLimitBytes)), //nolint:gosec // Limits come from admitted requests or fixed profiles.
 		oci.WithMemorySwap(memoryLimitBytes),
 		sandboxSecurityOpts(req.EnableSeccomp, cpuID),
 	)
 
-	return opts, nil
+	return opts
 }
 
-func mountSpecOpts(mount *Mount) ([]oci.SpecOpts, error) {
+func mountSpecOpts(mount *Mount) []oci.SpecOpts {
 	if mount == nil {
-		return nil, nil
-	}
-	if mount.ContainerPath == "" {
-		return nil, errors.New("mount dir container path is required")
-	}
-	if !filepath.IsAbs(mount.ContainerPath) {
-		return nil, fmt.Errorf("mount dir container path must be absolute: %q", mount.ContainerPath)
+		return nil
 	}
 
 	opts := []string{"rbind"}
@@ -61,17 +42,7 @@ func mountSpecOpts(mount *Mount) ([]oci.SpecOpts, error) {
 			Options:     opts,
 		}}),
 		oci.WithProcessCwd(mount.ContainerPath),
-	}, nil
-}
-
-func memoryBytesFromMB(memoryMB int) (int64, error) {
-	if memoryMB <= 0 {
-		return 0, errors.New("memory limit must be positive")
 	}
-	if memoryMB > math.MaxInt64/int(bytesPerMiB) {
-		return 0, fmt.Errorf("memory limit too large: %dMB", memoryMB)
-	}
-	return int64(memoryMB) * bytesPerMiB, nil
 }
 
 func sandboxSecurityOpts(enableSeccomp bool, cpuID int) oci.SpecOpts {

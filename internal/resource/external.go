@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 )
 
 // External provides read-only access to external files.
@@ -14,6 +15,10 @@ type External struct {
 
 // NewExternal creates a read-only file system rooted at the specified directory.
 func NewExternal(mountPoint string) (*External, error) {
+	if !filepath.IsAbs(mountPoint) {
+		return nil, fmt.Errorf("mount point must be absolute: %q", mountPoint)
+	}
+
 	info, err := os.Stat(mountPoint)
 	if err != nil {
 		return nil, fmt.Errorf("mount point not accessible: %w", err)

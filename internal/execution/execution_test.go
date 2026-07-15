@@ -39,6 +39,13 @@ func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sa
 	return s.executeFunc(req)
 }
 
+func newTestExecutor(t testing.TB, sb sandboxExecutor, maxConcurrent int) Executor {
+	t.Helper()
+	exec, err := NewExecutor(sb, maxConcurrent)
+	require.NoError(t, err)
+	return exec
+}
+
 func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 	sb := &fakeSandbox{
 		executeFunc: func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
@@ -58,7 +65,7 @@ func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 		},
 	}
 
-	exec := NewExecutor(sb, 1)
+	exec := newTestExecutor(t, sb, 1)
 	result, err := exec.Execute(context.Background(), compileJobWithArtifact())
 	require.NoError(t, err)
 
@@ -93,7 +100,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 		},
 	}
 
-	exec := NewExecutor(sb, 1)
+	exec := newTestExecutor(t, sb, 1)
 	_, err := exec.Execute(context.Background(), Job{
 		Files: []File{{
 			Name:    testProgramName,
@@ -117,7 +124,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 }
 
 func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
-	exec := NewExecutor(&fakeSandbox{
+	exec := newTestExecutor(t, &fakeSandbox{
 		executeFunc: func(_ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 			return sandbox.ExecuteResult{ExitCode: 0, Verdict: sandbox.VerdictOK}, nil
@@ -130,7 +137,7 @@ func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
 }
 
 func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
-	exec := NewExecutor(&fakeSandbox{
+	exec := newTestExecutor(t, &fakeSandbox{
 		executeFunc: func(_ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
 			return sandbox.ExecuteResult{}, errors.New("boom")
@@ -140,28 +147,6 @@ func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
 	_, err := exec.Execute(context.Background(), validJobWithArtifact(testProgramName))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sandbox execute: boom")
-}
-
-func TestExecutor_ValidateJob(t *testing.T) {
-	tests := []struct {
-		name    string
-		job     Job
-		wantErr string
-	}{
-		{name: "missing image", job: Job{Command: []string{testCommand}, Files: oneFile(), MountPath: testWorkMount}, wantErr: "execution image is required"},
-		{name: "missing command", job: Job{ImageRef: testImageRef, Files: oneFile(), MountPath: testWorkMount}, wantErr: "execution command is required"},
-		{name: "missing files", job: Job{ImageRef: testImageRef, Command: []string{testCommand}, MountPath: testWorkMount}, wantErr: "at least one execution file is required"},
-		{name: "missing mount path", job: Job{ImageRef: testImageRef, Command: []string{testCommand}, Files: oneFile()}, wantErr: "execution mount path is required"},
-	}
-
-	exec := NewExecutor(&fakeSandbox{}, 1)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := exec.Execute(context.Background(), tt.job)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
 }
 
 type blockingSandbox struct {
@@ -181,7 +166,7 @@ func TestExecutor_ConcurrencyLimit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const limit = 2
 		sb := &blockingSandbox{unblock: make(chan struct{})}
-		exec := NewExecutor(sb, limit)
+		exec := newTestExecutor(t, sb, limit)
 
 		for range 5 {
 			go exec.Execute(t.Context(), validJob())
@@ -197,7 +182,7 @@ func TestExecutor_ConcurrencyLimit(t *testing.T) {
 func TestExecutor_ContextCancelWhileWaitingForCapacity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sb := &blockingSandbox{unblock: make(chan struct{})}
-		exec := NewExecutor(sb, 1)
+		exec := newTestExecutor(t, sb, 1)
 		go exec.Execute(t.Context(), validJob())
 		synctest.Wait()
 
@@ -212,9 +197,13 @@ func TestExecutor_ContextCancelWhileWaitingForCapacity(t *testing.T) {
 }
 
 func TestNewExecutor_RequiresPositiveConcurrency(t *testing.T) {
-	assert.PanicsWithValue(t, "max concurrent executions must be positive", func() {
-		NewExecutor(&fakeSandbox{}, 0)
-	})
+	exec, err := NewExecutor(&fakeSandbox{}, 0)
+	assert.Nil(t, exec)
+	require.ErrorContains(t, err, "max concurrent executions must be positive")
+
+	exec, err = NewExecutor(nil, 1)
+	assert.Nil(t, exec)
+	require.EqualError(t, err, "sandbox is required")
 }
 
 func validJobWithArtifact(name string) Job {

@@ -1,8 +1,11 @@
 package config
 
 import (
+	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -21,13 +24,14 @@ func TestLoad_Defaults(t *testing.T) {
 
 	assert.Equal(t, "0.0.0.0", cfg.HTTPAddr)
 	assert.Equal(t, 8080, cfg.HTTPPort)
-	assert.Equal(t, int((30 * time.Second).Milliseconds()), cfg.HTTPReadTimeoutMs)
-	assert.Equal(t, int((10 * time.Minute).Milliseconds()), cfg.HTTPWriteTimeoutMs)
+	assert.Equal(t, 30*time.Second, cfg.HTTPReadTimeout)
+	assert.Equal(t, 10*time.Minute, cfg.HTTPWriteTimeout)
 	assert.Equal(t, "/run/containerd/containerd.sock", cfg.ContainerdSocket)
+	assert.Equal(t, int64(256*1024*1024), cfg.MaxInputBytes)
 	assert.Equal(t, model.DefaultJudgeLimits(), cfg.JudgeLimits)
 	assert.Empty(t, cfg.ExternalDataDir)
 	assert.Empty(t, cfg.APIKey)
-	assert.Equal(t, "info", cfg.LogLevel)
+	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 }
 
 func TestLoad_FromEnv(t *testing.T) {
@@ -39,6 +43,7 @@ func TestLoad_FromEnv(t *testing.T) {
 	t.Setenv("HTTP_PORT", "9000")
 	t.Setenv("HTTP_READ_TIMEOUT_MS", "10000")
 	t.Setenv("HTTP_WRITE_TIMEOUT_MS", "180000")
+	t.Setenv("MAX_INPUT_SIZE_MB", "128")
 	t.Setenv("MAX_TIME_LIMIT_MS", "20000")
 	t.Setenv("MAX_MEMORY_MB", "2048")
 	t.Setenv("MAX_TEST_CASES", "128")
@@ -52,8 +57,9 @@ func TestLoad_FromEnv(t *testing.T) {
 
 	assert.Equal(t, "127.0.0.1", cfg.HTTPAddr)
 	assert.Equal(t, 9000, cfg.HTTPPort)
-	assert.Equal(t, 10000, cfg.HTTPReadTimeoutMs)
-	assert.Equal(t, 180000, cfg.HTTPWriteTimeoutMs)
+	assert.Equal(t, 10*time.Second, cfg.HTTPReadTimeout)
+	assert.Equal(t, 3*time.Minute, cfg.HTTPWriteTimeout)
+	assert.Equal(t, int64(128*1024*1024), cfg.MaxInputBytes)
 	assert.Equal(t, model.JudgeLimits{
 		MaxTimeLimitMs: 20000,
 		MaxMemoryMB:    2048,
@@ -62,7 +68,7 @@ func TestLoad_FromEnv(t *testing.T) {
 	}, cfg.JudgeLimits)
 	assert.Equal(t, tmpDir, cfg.ExternalDataDir)
 	assert.Equal(t, "my-secret-key", cfg.APIKey)
-	assert.Equal(t, "debug", cfg.LogLevel)
+	assert.Equal(t, slog.LevelDebug, cfg.LogLevel)
 }
 
 func TestLoad_ExternalDataDirDisabledWhenBlank(t *testing.T) {
@@ -101,64 +107,28 @@ func TestLoad_InvalidConfig(t *testing.T) {
 			wantMessage: `HTTP_PORT must be an integer`,
 		},
 		{
-			name:        "non-positive input size is rejected",
-			key:         "MAX_INPUT_SIZE_MB",
-			value:       "0",
-			wantMessage: `MAX_INPUT_SIZE_MB must be positive`,
-		},
-		{
-			name:        "non-positive read timeout is rejected",
-			key:         "HTTP_READ_TIMEOUT_MS",
-			value:       "0",
-			wantMessage: `HTTP_READ_TIMEOUT_MS must be positive`,
-		},
-		{
-			name:        "non-positive write timeout is rejected",
-			key:         "HTTP_WRITE_TIMEOUT_MS",
-			value:       "-1",
-			wantMessage: `HTTP_WRITE_TIMEOUT_MS must be positive`,
-		},
-		{
-			name:        "non-positive concurrency is rejected",
-			key:         "MAX_CONCURRENT_CONTAINERS",
-			value:       "-1",
-			wantMessage: `MAX_CONCURRENT_CONTAINERS must be positive`,
-		},
-		{
-			name:        "non-positive time limit ceiling is rejected",
-			key:         "MAX_TIME_LIMIT_MS",
-			value:       "0",
-			wantMessage: `MAX_TIME_LIMIT_MS must be positive`,
-		},
-		{
-			name:        "non-positive memory ceiling is rejected",
-			key:         "MAX_MEMORY_MB",
-			value:       "0",
-			wantMessage: `MAX_MEMORY_MB must be positive`,
-		},
-		{
-			name:        "non-positive testcase ceiling is rejected",
-			key:         "MAX_TEST_CASES",
-			value:       "0",
-			wantMessage: `MAX_TEST_CASES must be positive`,
-		},
-		{
-			name:        "non-positive source size ceiling is rejected",
-			key:         "MAX_SOURCE_SIZE_KB",
-			value:       "0",
-			wantMessage: `MAX_SOURCE_SIZE_KB must be positive`,
-		},
-		{
 			name:        "unknown log level is rejected",
 			key:         "LOG_LEVEL",
 			value:       "trace",
-			wantMessage: `LOG_LEVEL must be one of [info debug]`,
+			wantMessage: `LOG_LEVEL must be a valid slog level`,
 		},
 		{
-			name:        "relative external data dir is rejected",
-			key:         "EXTERNAL_DATA_DIR",
-			value:       filepath.Join("relative", "testdata"),
-			wantMessage: `EXTERNAL_DATA_DIR must be an absolute path`,
+			name:        "timeout conversion overflow is rejected",
+			key:         "HTTP_READ_TIMEOUT_MS",
+			value:       strconv.Itoa(math.MaxInt),
+			wantMessage: `HTTP_READ_TIMEOUT_MS cannot be represented as a duration`,
+		},
+		{
+			name:        "body size conversion overflow is rejected",
+			key:         "MAX_INPUT_SIZE_MB",
+			value:       strconv.Itoa(math.MaxInt),
+			wantMessage: `MAX_INPUT_SIZE_MB cannot be represented in bytes`,
+		},
+		{
+			name:        "source size conversion overflow is rejected",
+			key:         "MAX_SOURCE_SIZE_KB",
+			value:       strconv.Itoa(math.MaxInt),
+			wantMessage: `MAX_SOURCE_SIZE_KB cannot be represented in bytes`,
 		},
 	}
 
@@ -174,6 +144,28 @@ func TestLoad_InvalidConfig(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantMessage)
 		})
 	}
+}
+
+func TestLoad_LeavesModuleSemanticsToConsumers(t *testing.T) {
+	clearEnv()
+	t.Setenv("HTTP_PORT", "0")
+	t.Setenv("HTTP_READ_TIMEOUT_MS", "0")
+	t.Setenv("MAX_INPUT_SIZE_MB", "-1")
+	t.Setenv("MAX_CONCURRENT_CONTAINERS", "-1")
+	t.Setenv("MAX_CONCURRENT_JUDGES", "0")
+	t.Setenv("MAX_TIME_LIMIT_MS", "0")
+	t.Setenv("EXTERNAL_DATA_DIR", filepath.Join("relative", "testdata"))
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.Zero(t, cfg.HTTPPort)
+	assert.Zero(t, cfg.HTTPReadTimeout)
+	assert.Equal(t, int64(-1024*1024), cfg.MaxInputBytes)
+	assert.Equal(t, -1, cfg.MaxConcurrentContainers)
+	assert.Zero(t, cfg.MaxConcurrentJudges)
+	assert.Zero(t, cfg.JudgeLimits.MaxTimeLimitMs)
+	assert.Equal(t, filepath.Join("relative", "testdata"), cfg.ExternalDataDir)
 }
 
 func clearEnv() {

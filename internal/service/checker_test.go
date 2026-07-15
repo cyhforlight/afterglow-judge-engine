@@ -57,6 +57,22 @@ func TestNewChecker_RejectsMissingTestlib(t *testing.T) {
 	require.ErrorContains(t, err, `checker dependency "testlib.h" is not available`)
 }
 
+func TestNewChecker_RejectsMissingDefaultChecker(t *testing.T) {
+	bundledFS := testFileSystem(map[string][]byte{testlibHeaderKey: []byte("header")})
+	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
+
+	require.ErrorContains(t, err, `checker dependency "checkers/default.cpp" is not available`)
+}
+
+func TestNewChecker_RejectsDirectoryDependency(t *testing.T) {
+	bundledFS := checkerTestFS()
+	bundledFS[testlibHeaderKey] = &fstest.MapFile{Mode: fs.ModeDir}
+
+	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
+
+	require.ErrorContains(t, err, `"testlib.h" is not a regular file`)
+}
+
 func TestResolveChecker_Default(t *testing.T) {
 	location, err := resolveChecker("")
 	require.NoError(t, err)
@@ -163,6 +179,13 @@ func TestCheckerReference_Validate(t *testing.T) {
 			reference:  "external:custom.cpp",
 			bundledFS:  checkerTestFS(),
 			externalFS: testFileSystem(map[string][]byte{"custom.cpp": []byte("source")}),
+		},
+		{
+			name:       "external checker is a directory",
+			reference:  "external:custom.cpp",
+			bundledFS:  checkerTestFS(),
+			externalFS: fstest.MapFS{"custom.cpp": &fstest.MapFile{Mode: fs.ModeDir}},
+			wantErr:    `"custom.cpp" is not a regular file`,
 		},
 	}
 

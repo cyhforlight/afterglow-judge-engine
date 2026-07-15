@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,8 +19,6 @@ import (
 )
 
 const (
-	defaultSocketPath         = "/run/containerd/containerd.sock"
-	defaultNamespace          = "afterglow"
 	lifecycleOperationTimeout = 5 * time.Second
 	cpuTimeCheckInterval      = 10 * time.Millisecond
 	cpuTimeLimitReason        = "CPU time limit exceeded"
@@ -51,11 +50,11 @@ type Sandbox struct {
 
 // New creates a containerd-based sandbox.
 func New(socketPath, namespace string) (*Sandbox, error) {
-	if socketPath == "" {
-		socketPath = defaultSocketPath
+	if strings.TrimSpace(socketPath) == "" {
+		return nil, errors.New("containerd socket path is required")
 	}
-	if namespace == "" {
-		namespace = defaultNamespace
+	if strings.TrimSpace(namespace) == "" {
+		return nil, errors.New("containerd namespace is required")
 	}
 
 	cpus, err := newCPUPool()
@@ -84,10 +83,6 @@ func (s *Sandbox) CheckEnvironment(ctx context.Context) error {
 
 // Execute runs a command in an isolated container.
 func (s *Sandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
-	if err := validateExecuteLimits(req.Limits); err != nil {
-		return ExecuteResult{}, err
-	}
-
 	client, err := containerd.New(s.socketPath)
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("connect to containerd: %w", err)
@@ -102,21 +97,6 @@ func (s *Sandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResul
 	}
 
 	return s.executeInContainer(execCtx, client, image, req)
-}
-
-func validateExecuteLimits(limits ResourceLimits) error {
-	switch {
-	case limits.CPUTimeMs <= 0:
-		return errors.New("CPU time limit must be positive")
-	case limits.WallTimeMs <= 0:
-		return errors.New("wall time limit must be positive")
-	case limits.MemoryMB <= 0:
-		return errors.New("memory limit must be positive")
-	case limits.OutputBytes <= 0:
-		return errors.New("output limit must be positive")
-	default:
-		return nil
-	}
 }
 
 func (*Sandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
@@ -149,10 +129,7 @@ func (s *Sandbox) executeInContainer(
 	defer s.cpus.release(cpuID)
 
 	containerID := generateContainerID()
-	requestSpecOpts, err := sandboxSpecOpts(req, cpuID)
-	if err != nil {
-		return ExecuteResult{}, err
-	}
+	requestSpecOpts := sandboxSpecOpts(req, cpuID)
 
 	specOpts := make([]oci.SpecOpts, 0, 2+len(requestSpecOpts))
 	specOpts = append(specOpts,

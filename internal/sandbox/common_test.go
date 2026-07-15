@@ -9,6 +9,8 @@ import (
 const (
 	testPythonImageRef = "docker.io/library/python:3.11-slim-bookworm"
 	testStaticImageRef = "docker.io/library/debian:12-slim"
+	testSocketPath     = "/run/containerd/containerd.sock"
+	testNamespace      = "afterglow-test"
 )
 
 func requireSandboxIntegrationTest(t *testing.T) {
@@ -17,7 +19,7 @@ func requireSandboxIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
-	sb, err := New("", "")
+	sb, err := New(testSocketPath, testNamespace)
 	if err != nil {
 		t.Skipf("sandbox integration environment unavailable: %v", err)
 	}
@@ -43,7 +45,7 @@ func newSandboxTestEnv(t *testing.T) sandboxTestEnv {
 	t.Helper()
 	requireSandboxIntegrationTest(t)
 
-	sb, err := New("", "")
+	sb, err := New(testSocketPath, testNamespace)
 	if err != nil {
 		t.Fatalf("initialize sandbox: %v", err)
 	}

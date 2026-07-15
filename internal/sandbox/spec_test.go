@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"math"
 	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -22,43 +21,10 @@ func TestSandboxSecurityOpts_PinsContainerToCPU(t *testing.T) {
 }
 
 func TestMountSpecOpts_SetsContainerPathAsCwd(t *testing.T) {
-	opts, err := mountSpecOpts(&Mount{ContainerPath: "/sandbox"})
-	require.NoError(t, err)
+	opts := mountSpecOpts(&Mount{HostPath: "/tmp/work", ContainerPath: "/sandbox"})
 	require.Len(t, opts, 2)
 
 	spec := &oci.Spec{Process: &specs.Process{}}
 	require.NoError(t, opts[1](t.Context(), nil, nil, spec))
 	assert.Equal(t, "/sandbox", spec.Process.Cwd)
-}
-
-func TestMountSpecOpts_RejectsRelativeContainerPath(t *testing.T) {
-	_, err := mountSpecOpts(&Mount{ContainerPath: "sandbox"})
-	require.EqualError(t, err, `mount dir container path must be absolute: "sandbox"`)
-}
-
-func TestMemoryBytesFromMB_RejectsInvalidLimits(t *testing.T) {
-	tests := []struct {
-		name    string
-		memory  int
-		wantErr string
-	}{
-		{
-			name:    "non-positive",
-			memory:  0,
-			wantErr: "memory limit must be positive",
-		},
-		{
-			name:    "overflow",
-			memory:  math.MaxInt,
-			wantErr: "memory limit too large",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := memoryBytesFromMB(tt.memory)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
 }

@@ -3,7 +3,6 @@ package model
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 const unknownString = "Unknown"
@@ -27,7 +26,8 @@ const (
 	LanguagePython  Language = "Python"
 )
 
-func (l Language) isSupported() bool {
+// IsSupported reports whether the language can be judged.
+func (l Language) IsSupported() bool {
 	switch l {
 	case LanguageC, LanguageCPP, LanguageJava, LanguagePython:
 		return true
@@ -43,21 +43,6 @@ func (l Language) String() string {
 // MarshalJSON implements json.Marshaler for Language.
 func (l Language) MarshalJSON() ([]byte, error) {
 	return json.Marshal(l.String())
-}
-
-// UnmarshalJSON implements json.Unmarshaler for Language.
-func (l *Language) UnmarshalJSON(data []byte) error {
-	var raw string
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("decode language: %w", err)
-	}
-
-	language := Language(raw)
-	if !language.isSupported() {
-		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", raw)
-	}
-	*l = language
-	return nil
 }
 
 // Verdict represents the execution result status.

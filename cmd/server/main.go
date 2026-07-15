@@ -30,13 +30,11 @@ func main() {
 
 	logger.Info("starting sandbox server", "addr", fmt.Sprintf("%s:%d", cfg.HTTPAddr, cfg.HTTPPort))
 
-	judgeService, err := initializeComponents(cfg)
+	server, err := initializeServer(cfg, logger)
 	if err != nil {
 		logger.Error("initialization failed", "error", err)
 		os.Exit(1)
 	}
-
-	server := httptransport.NewServer(cfg, judgeService, logger)
 
 	serverCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	serverErr := server.Run(serverCtx)
@@ -50,15 +48,11 @@ func main() {
 	logger.Info("server stopped gracefully")
 }
 
-func setupLogger(logLevel string) *slog.Logger {
-	level := slog.LevelInfo
-	if logLevel == "debug" {
-		level = slog.LevelDebug
-	}
+func setupLogger(level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 }
 
-func initializeComponents(cfg *config.Config) (*service.JudgeEngine, error) {
+func initializeServer(cfg *config.Config, logger *slog.Logger) (*httptransport.Server, error) {
 	// 1. Create the shared containerd sandbox.
 	sb, err := sandbox.New(cfg.ContainerdSocket, cfg.ContainerdNamespace)
 	if err != nil {
@@ -82,14 +76,14 @@ func initializeComponents(cfg *config.Config) (*service.JudgeEngine, error) {
 	}
 
 	// 4. Create shared execution primitives.
-	executor := execution.NewExecutor(sb, cfg.MaxConcurrentContainers)
-	compiler := service.NewCompiler(executor)
-	runner := service.NewRunner(executor)
+	executor, err := execution.NewExecutor(sb, cfg.MaxConcurrentContainers)
+	if err != nil {
+		return nil, fmt.Errorf("initialize executor: %w", err)
+	}
 
 	// 5. Create judge engine with internal checker resources.
 	judge, err := service.NewJudgeEngine(
-		compiler,
-		runner,
+		executor,
 		bundledFS,
 		externalFS,
 		cfg.MaxConcurrentJudges,
@@ -99,10 +93,23 @@ func initializeComponents(cfg *config.Config) (*service.JudgeEngine, error) {
 		return nil, fmt.Errorf("initialize judge engine: %w", err)
 	}
 
-	ctx := context.Background()
-	if err := sb.CheckEnvironment(ctx); err != nil {
+	// 6. Assemble the HTTP transport after its dependencies are ready.
+	server, err := httptransport.NewServer(httptransport.ServerOptions{
+		Addr:         cfg.HTTPAddr,
+		Port:         cfg.HTTPPort,
+		ReadTimeout:  cfg.HTTPReadTimeout,
+		WriteTimeout: cfg.HTTPWriteTimeout,
+		MaxBodyBytes: cfg.MaxInputBytes,
+		APIKey:       cfg.APIKey,
+	}, judge, logger)
+	if err != nil {
+		return nil, fmt.Errorf("initialize HTTP server: %w", err)
+	}
+
+	// 7. Verify runtime dependencies only after all configuration is accepted.
+	if err := sb.CheckEnvironment(context.Background()); err != nil {
 		return nil, fmt.Errorf("sandbox environment check failed: %w", err)
 	}
 
-	return judge, nil
+	return server, nil
 }

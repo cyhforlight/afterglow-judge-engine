@@ -1,9 +1,9 @@
 // Package sandbox executes compilation and runtime commands with containerd.
 package sandbox
 
-import (
-	"io"
-)
+import "io"
+
+const bytesPerMiB = int64(1024 * 1024)
 
 // ExecuteRequest contains all parameters needed to run a command in a container.
 type ExecuteRequest struct {
@@ -28,6 +28,10 @@ type ResourceLimits struct {
 	WallTimeMs  int
 	MemoryMB    int
 	OutputBytes int64
+}
+
+func memoryBytes(memoryMB int) int64 {
+	return int64(memoryMB) * bytesPerMiB
 }
 
 // ExecuteResult contains the execution outcome and metrics.

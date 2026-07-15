@@ -23,11 +23,11 @@ type serviceIntegrationEnv struct {
 }
 
 var sharedTestExecutor = sync.OnceValues(func() (execution.Executor, error) {
-	sb, err := sandbox.New("", "")
+	sb, err := sandbox.New("/run/containerd/containerd.sock", "afterglow-test")
 	if err != nil {
 		return nil, err
 	}
-	return execution.NewExecutor(sb, 8), nil
+	return execution.NewExecutor(sb, 8)
 })
 
 func requireServiceIntegrationTest(t *testing.T) {
@@ -36,7 +36,7 @@ func requireServiceIntegrationTest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
-	sb, err := sandbox.New("", "")
+	sb, err := sandbox.New("/run/containerd/containerd.sock", "afterglow-test")
 	if err != nil {
 		t.Skipf("service integration environment unavailable: %v", err)
 	}
@@ -64,8 +64,8 @@ func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegr
 	t.Helper()
 
 	executor := newExecutorForTest(t)
-	compiler := NewCompiler(executor)
-	runner := NewRunner(executor)
+	compiler := newCompiler(executor)
+	runner := newRunner(executor)
 	return serviceIntegrationEnv{
 		ctx:      newIntegrationContext(t, timeout),
 		compiler: compiler,

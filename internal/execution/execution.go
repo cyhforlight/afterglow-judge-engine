@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"afterglow-judge-engine/internal/sandbox"
 
@@ -28,12 +27,7 @@ type File struct {
 }
 
 // Limits defines resource constraints for an execution job.
-type Limits struct {
-	CPUTimeMs   int
-	WallTimeMs  int
-	MemoryMB    int
-	OutputBytes int64
-}
+type Limits = sandbox.ResourceLimits
 
 // Verdict classifies the raw execution outcome.
 type Verdict = sandbox.Verdict
@@ -97,20 +91,20 @@ type executor struct {
 }
 
 // NewExecutor creates a capacity-limited executor backed by a sandbox.
-func NewExecutor(sb sandboxExecutor, maxConcurrent int) Executor {
+func NewExecutor(sb sandboxExecutor, maxConcurrent int) (Executor, error) {
+	if sb == nil {
+		return nil, errors.New("sandbox is required")
+	}
 	if maxConcurrent <= 0 {
-		panic("max concurrent executions must be positive")
+		return nil, fmt.Errorf("max concurrent executions must be positive, got %d", maxConcurrent)
 	}
 	return &executor{
 		sandbox: sb,
 		sem:     semaphore.NewWeighted(int64(maxConcurrent)),
-	}
+	}, nil
 }
 
 func (e *executor) Execute(ctx context.Context, job Job) (result Result, err error) {
-	if err := validateJob(job); err != nil {
-		return Result{}, err
-	}
 	if err := e.sem.Acquire(ctx, 1); err != nil {
 		return Result{}, err
 	}
@@ -137,7 +131,7 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 			ReadOnly:      job.ReadOnlyMount,
 		},
 		Stdin:         job.Stdin,
-		Limits:        sandboxLimits(job.Limits),
+		Limits:        job.Limits,
 		EnableSeccomp: job.EnableSeccomp,
 	}
 
@@ -160,38 +154,9 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 	return result, nil
 }
 
-func sandboxLimits(limits Limits) sandbox.ResourceLimits {
-	return sandbox.ResourceLimits{
-		CPUTimeMs:   limits.CPUTimeMs,
-		WallTimeMs:  limits.WallTimeMs,
-		MemoryMB:    limits.MemoryMB,
-		OutputBytes: limits.OutputBytes,
-	}
-}
-
-func validateJob(job Job) error {
-	if strings.TrimSpace(job.ImageRef) == "" {
-		return errors.New("execution image is required")
-	}
-	if len(job.Command) == 0 {
-		return errors.New("execution command is required")
-	}
-	if len(job.Files) == 0 {
-		return errors.New("at least one execution file is required")
-	}
-	if strings.TrimSpace(job.MountPath) == "" {
-		return errors.New("execution mount path is required")
-	}
-	return nil
-}
-
 func collectArtifacts(ws *workspace, names []string) (map[string]Artifact, error) {
 	artifacts := make(map[string]Artifact, len(names))
 	for _, name := range names {
-		if strings.TrimSpace(name) == "" {
-			return nil, errors.New("artifact name is required")
-		}
-
 		info, err := ws.stat(name)
 		if err != nil {
 			return nil, fmt.Errorf("stat artifact %q: %w", name, err)

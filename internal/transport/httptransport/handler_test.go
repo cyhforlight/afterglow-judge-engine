@@ -24,6 +24,8 @@ type mockJudgeService struct {
 	judgeCalls  int
 }
 
+const testBytesPerMiB = int64(1024 * 1024)
+
 func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
 	m.judgeCalls++
 	m.lastRequest = req
@@ -55,7 +57,7 @@ func newTestHandler(judge JudgeService) *Handler {
 }
 
 func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *Handler {
-	return NewHandler(judge, slog.Default(), maxSizeMB)
+	return newHandler(judge, slog.Default(), int64(maxSizeMB)*testBytesPerMiB)
 }
 
 func TestHandleExecute_Success(t *testing.T) {
@@ -102,7 +104,6 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 	}{
 		{name: "invalid JSON", body: "invalid"},
 		{name: "unknown field", body: `{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`},
-		{name: "invalid language", body: `{"sourceCode":"x","language":"Ruby","timeLimit":1,"memoryLimit":1,"testcases":[{}]}`},
 	}
 
 	handler := newTestHandler(&mockJudgeService{})

@@ -23,12 +23,11 @@ type Handler struct {
 	maxSize int64 // max request body size in bytes
 }
 
-// NewHandler creates a new HTTP handler.
-func NewHandler(judge JudgeService, logger *slog.Logger, maxSizeMB int) *Handler {
+func newHandler(judge JudgeService, logger *slog.Logger, maxSize int64) *Handler {
 	return &Handler{
 		judge:   judge,
 		logger:  logger,
-		maxSize: int64(maxSizeMB) * 1024 * 1024,
+		maxSize: maxSize,
 	}
 }
 

@@ -2,17 +2,27 @@ package httptransport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
-
-	"afterglow-judge-engine/internal/config"
 )
 
-const (
-	httpShutdownTimeout = 10 * time.Second
-)
+const httpShutdownTimeout = 10 * time.Second
+
+// ServerOptions contains the HTTP server's runtime configuration.
+type ServerOptions struct {
+	Addr         string
+	Port         int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	MaxBodyBytes int64
+	APIKey       string
+}
 
 // Server implements the HTTP transport layer.
 type Server struct {
@@ -21,30 +31,57 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(cfg *config.Config, judge JudgeService, logger *slog.Logger) *Server {
-	handler := NewHandler(judge, logger, cfg.MaxInputSizeMB)
+func NewServer(opts ServerOptions, judge JudgeService, logger *slog.Logger) (*Server, error) {
+	if err := validateServerOptions(opts); err != nil {
+		return nil, err
+	}
+	if judge == nil {
+		return nil, errors.New("judge service is required")
+	}
+	if logger == nil {
+		return nil, errors.New("logger is required")
+	}
+
+	handler := newHandler(judge, logger, opts.MaxBodyBytes)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/execute", handler.HandleExecute)
 
 	var finalHandler http.Handler = mux
-	if cfg.APIKey != "" {
-		finalHandler = AuthMiddleware(logger, cfg.APIKey)(finalHandler)
+	if opts.APIKey != "" {
+		finalHandler = AuthMiddleware(logger, opts.APIKey)(finalHandler)
 	}
 	finalHandler = RecoveryMiddleware(logger)(finalHandler)
 	finalHandler = LoggingMiddleware(logger)(finalHandler)
 
-	addr := fmt.Sprintf("%s:%d", cfg.HTTPAddr, cfg.HTTPPort)
+	addr := net.JoinHostPort(strings.TrimSpace(opts.Addr), strconv.Itoa(opts.Port))
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      finalHandler,
-		ReadTimeout:  time.Duration(cfg.HTTPReadTimeoutMs) * time.Millisecond,
-		WriteTimeout: time.Duration(cfg.HTTPWriteTimeoutMs) * time.Millisecond,
+		ReadTimeout:  opts.ReadTimeout,
+		WriteTimeout: opts.WriteTimeout,
 	}
 
 	return &Server{
 		httpServer: httpServer,
 		logger:     logger,
+	}, nil
+}
+
+func validateServerOptions(opts ServerOptions) error {
+	switch {
+	case strings.TrimSpace(opts.Addr) == "":
+		return errors.New("HTTP address is required")
+	case opts.Port <= 0 || opts.Port > 65535:
+		return fmt.Errorf("HTTP port must be between 1 and 65535, got %d", opts.Port)
+	case opts.ReadTimeout <= 0:
+		return fmt.Errorf("HTTP read timeout must be positive, got %s", opts.ReadTimeout)
+	case opts.WriteTimeout <= 0:
+		return fmt.Errorf("HTTP write timeout must be positive, got %s", opts.WriteTimeout)
+	case opts.MaxBodyBytes <= 0:
+		return fmt.Errorf("HTTP request body limit must be positive, got %d bytes", opts.MaxBodyBytes)
+	default:
+		return nil
 	}
 }
 

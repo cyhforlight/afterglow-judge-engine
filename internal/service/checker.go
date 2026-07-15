@@ -76,8 +76,10 @@ type checkerLocation struct {
 }
 
 func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (checker, error) {
-	if _, err := fs.Stat(bundledFS, testlibHeaderKey); err != nil {
-		return nil, fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
+	for _, dependency := range []string{testlibHeaderKey, builtinCheckerPath(defaultCheckerName)} {
+		if err := validateResourceFile(bundledFS, dependency); err != nil {
+			return nil, fmt.Errorf("checker dependency %q is not available: %w", dependency, err)
+		}
 	}
 
 	cachedCompiler, err := NewCachedCompiler(compiler, checkerCacheEntries)
@@ -107,16 +109,27 @@ func (r *checkerReference) Validate() error {
 		if r.engine.externalFS == nil {
 			return fmt.Errorf("external checker %q requires external resources", location.path)
 		}
-		if _, err := fs.Stat(r.engine.externalFS, location.path); err != nil {
+		if err := validateResourceFile(r.engine.externalFS, location.path); err != nil {
 			return fmt.Errorf("external checker %q is not available: %w", location.path, err)
 		}
 	} else {
 		sourceKey := builtinCheckerPath(location.path)
-		if _, err := fs.Stat(r.engine.bundledFS, sourceKey); err != nil {
+		if err := validateResourceFile(r.engine.bundledFS, sourceKey); err != nil {
 			return fmt.Errorf("builtin checker %q is not available: %w", location.path, err)
 		}
 	}
 
+	return nil
+}
+
+func validateResourceFile(fsys fs.FS, name string) error {
+	info, err := fs.Stat(fsys, name)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q is not a regular file", name)
+	}
 	return nil
 }
 

@@ -154,7 +154,7 @@ func projectRoot(t *testing.T) string {
 func newE2EHandler(t *testing.T) *Handler {
 	t.Helper()
 
-	sb, err := sandbox.New("/run/containerd/containerd.sock", "")
+	sb, err := sandbox.New("/run/containerd/containerd.sock", "afterglow-e2e")
 	require.NoError(t, err)
 	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
@@ -163,11 +163,9 @@ func newE2EHandler(t *testing.T) *Handler {
 	externalFS, err := resource.NewExternal(testdataDir)
 	require.NoError(t, err)
 
-	executor := execution.NewExecutor(sb, 8)
-	baseCompiler := service.NewCompiler(executor)
-	baseRunner := service.NewRunner(executor)
-	judge, err := service.NewJudgeEngine(baseCompiler, baseRunner,
-		bundledFS, externalFS, 10, model.DefaultJudgeLimits())
+	executor, err := execution.NewExecutor(sb, 8)
+	require.NoError(t, err)
+	judge, err := service.NewJudgeEngine(executor, bundledFS, externalFS, 10, model.DefaultJudgeLimits())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -175,7 +173,7 @@ func newE2EHandler(t *testing.T) *Handler {
 		t.Skipf("sandbox environment unavailable: %v", err)
 	}
 
-	return NewHandler(judge, slog.Default(), 256)
+	return newHandler(judge, slog.Default(), 256*testBytesPerMiB)
 }
 
 func executeJudgeRequest(t *testing.T, handler *Handler, reqBody model.JudgeRequest) judgeHTTPResponse {
