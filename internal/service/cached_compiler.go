@@ -38,7 +38,7 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 
 	// Fast path: cache hit.
 	if cached, ok := c.cache.Get(key); ok {
-		slog.InfoContext(ctx, "compile cache hit", "key", key[:16])
+		slog.DebugContext(ctx, "compile cache hit", "key", key[:16])
 		return cached, nil
 	}
 
@@ -46,7 +46,7 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 	v, err, _ := c.group.Do(key, func() (any, error) {
 		// Double-check: another goroutine may have populated the cache.
 		if cached, ok := c.cache.Get(key); ok {
-			slog.InfoContext(ctx, "compile cache hit after singleflight wait", "key", key[:16])
+			slog.DebugContext(ctx, "compile cache hit after singleflight wait", "key", key[:16])
 			return cached, nil
 		}
 
@@ -55,8 +55,8 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 			return nil, err
 		}
 
-		// Only cache successful compilations that produced an artifact.
-		if out.Result.Succeeded && out.Artifact != nil {
+		// Only cache successful compilations.
+		if out.Result.Succeeded {
 			c.cache.Add(key, out)
 		}
 

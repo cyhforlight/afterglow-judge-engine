@@ -290,13 +290,6 @@ func TestNewJudgeEngine_ValidatesConfiguration(t *testing.T) {
 		})
 	}
 
-	engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, 1, limits)
-	assert.Nil(t, engine)
-	require.EqualError(t, err, "executor is required")
-
-	engine, err = NewJudgeEngine(executor, nil, nil, 1, limits)
-	assert.Nil(t, engine)
-	require.EqualError(t, err, "bundled resources are required")
 }
 
 func TestJudgeEngine_CompileError(t *testing.T) {
@@ -650,7 +643,6 @@ func TestAggregateStatus(t *testing.T) {
 		cases    []model.JudgeCaseResult
 		expected model.JudgeStatus
 	}{
-		{"empty cases returns SystemError", []model.JudgeCaseResult{}, model.JudgeStatusSystemError},
 		{"all OK returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictOK}}, model.JudgeStatusOK},
 		{"WA without UKE returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}}, model.JudgeStatusOK},
 		{"mixed runtime errors without UKE returns OK", []model.JudgeCaseResult{

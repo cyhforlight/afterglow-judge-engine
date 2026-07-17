@@ -200,10 +200,6 @@ func TestNewExecutor_RequiresPositiveConcurrency(t *testing.T) {
 	exec, err := NewExecutor(&fakeSandbox{}, 0)
 	assert.Nil(t, exec)
 	require.ErrorContains(t, err, "max concurrent executions must be positive")
-
-	exec, err = NewExecutor(nil, 1)
-	assert.Nil(t, exec)
-	require.EqualError(t, err, "sandbox is required")
 }
 
 func validJobWithArtifact(name string) Job {

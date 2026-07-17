@@ -39,12 +39,6 @@ func NewJudgeEngine(
 	maxConcurrent int,
 	limits model.JudgeLimits,
 ) (*JudgeEngine, error) {
-	if executor == nil {
-		return nil, errors.New("executor is required")
-	}
-	if bundledFS == nil {
-		return nil, errors.New("bundled resources are required")
-	}
 	if maxConcurrent <= 0 {
 		return nil, fmt.Errorf("max concurrent judges must be positive, got %d", maxConcurrent)
 	}
@@ -396,12 +390,9 @@ func judgeCaseResultFromExecution(
 
 // aggregateStatus returns the overall system-level status of a judge session.
 // It only reflects whether the judge infrastructure worked correctly:
-//   - SystemError if any case has an infrastructure error (or no cases at all)
+//   - SystemError if any case has an infrastructure error
 //   - OK otherwise (the per-case verdicts carry AC/WA/TLE/etc. details)
 func aggregateStatus(cases []model.JudgeCaseResult) model.JudgeStatus {
-	if len(cases) == 0 {
-		return model.JudgeStatusSystemError
-	}
 	for _, c := range cases {
 		if c.Verdict == model.VerdictUKE {
 			return model.JudgeStatusSystemError

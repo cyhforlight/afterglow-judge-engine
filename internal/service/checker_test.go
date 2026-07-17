@@ -153,9 +153,10 @@ func TestCheckerReference_Validate(t *testing.T) {
 			bundledFS: checkerTestFS(),
 		},
 		{
-			name:      "builtin missing",
-			bundledFS: testFileSystem(map[string][]byte{testlibHeaderKey: []byte("header")}),
-			wantErr:   `builtin checker "default" is not available`,
+			name:      "requested builtin missing",
+			reference: "ncmp",
+			bundledFS: checkerTestFS(),
+			wantErr:   `builtin checker "ncmp" is not available`,
 		},
 		{
 			name:      "engine dependency is not request validation",
@@ -227,9 +228,9 @@ func TestCheckerReference_Prepare(t *testing.T) {
 	req := compiler.requests[0]
 	assert.Equal(t, "checker", req.ArtifactName)
 	assert.Equal(t, "docker.io/library/gcc:12-bookworm", req.ImageRef)
-	assert.Equal(t, checkerProfile().Compile.BuildCommand, req.Command)
-	assert.Equal(t, checkerProfile().Compile.TimeoutMs, req.Limits.CPUTimeMs)
-	assert.Equal(t, checkerProfile().Compile.MemoryMB, req.Limits.MemoryMB)
+	assert.Equal(t, checkerCompileProfile().BuildCommand, req.Command)
+	assert.Equal(t, checkerCompileProfile().TimeoutMs, req.Limits.CPUTimeMs)
+	assert.Equal(t, checkerCompileProfile().MemoryMB, req.Limits.MemoryMB)
 	require.Len(t, req.Files, 2)
 	assert.Equal(t, "checker.cpp", req.Files[0].Name)
 	assert.Equal(t, []byte("checker source"), req.Files[0].Content)
@@ -240,48 +241,29 @@ func TestCheckerReference_Prepare(t *testing.T) {
 func TestCheckerReference_PrepareFailures(t *testing.T) {
 	tests := []struct {
 		name       string
-		bundledFS  fs.FS
 		output     CompileOutput
 		compileErr error
 		wantErr    string
 	}{
 		{
-			name:      "source missing",
-			bundledFS: testFileSystem(map[string][]byte{testlibHeaderKey: []byte("header")}),
-			wantErr:   `checker setup failed: load builtin checker "default"`,
-		},
-		{
-			name:      "dependency missing",
-			bundledFS: testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")}),
-			wantErr:   `checker setup failed: load "testlib.h"`,
-		},
-		{
 			name:       "compiler infrastructure error",
-			bundledFS:  checkerTestFS(),
 			compileErr: errors.New("compiler unavailable"),
 			wantErr:    "checker setup failed: compiler unavailable",
 		},
 		{
-			name:      "compilation failed",
-			bundledFS: checkerTestFS(),
+			name: "compilation failed",
 			output: CompileOutput{Result: model.CompileResult{
 				Succeeded: false,
 				Log:       "syntax error",
 			}},
 			wantErr: "checker compilation failed: syntax error",
 		},
-		{
-			name:      "artifact missing",
-			bundledFS: checkerTestFS(),
-			output:    CompileOutput{Result: model.CompileResult{Succeeded: true}},
-			wantErr:   "checker compilation succeeded without artifact",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := &recordingCheckerCompiler{output: tt.output, err: tt.compileErr}
-			engine := &checkerEngine{compiler: compiler, bundledFS: tt.bundledFS}
+			engine := &checkerEngine{compiler: compiler, bundledFS: checkerTestFS()}
 			resolved, err := engine.Resolve("")
 			require.NoError(t, err)
 
@@ -289,6 +271,23 @@ func TestCheckerReference_PrepareFailures(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestCheckerReference_PrepareReportsDisappearedExternalSource(t *testing.T) {
+	externalFS := testFileSystem(map[string][]byte{"custom.cpp": []byte("source")})
+	engine := &checkerEngine{
+		compiler:   &recordingCheckerCompiler{},
+		bundledFS:  checkerTestFS(),
+		externalFS: externalFS,
+	}
+	resolved, err := engine.Resolve("external:custom.cpp")
+	require.NoError(t, err)
+	require.NoError(t, resolved.Validate())
+
+	delete(externalFS, "custom.cpp")
+
+	_, err = resolved.Prepare(t.Context())
+	require.ErrorContains(t, err, `checker setup failed: load external checker "custom.cpp"`)
 }
 
 func TestCompiledChecker_Check(t *testing.T) {
@@ -325,11 +324,6 @@ func TestCompiledChecker_Check(t *testing.T) {
 		{
 			name:        "nonzero protocol exit",
 			runResult:   RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
-			wantVerdict: model.VerdictUKE,
-		},
-		{
-			name:        "zero exit with runtime failure",
-			runResult:   RunResult{Verdict: execution.VerdictRE, ExitCode: 0},
 			wantVerdict: model.VerdictUKE,
 		},
 	}

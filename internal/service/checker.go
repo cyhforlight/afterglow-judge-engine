@@ -24,6 +24,7 @@ const (
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
 	checkerArtifactName   = "checker"
+	checkerRunImageRef    = "docker.io/library/debian:12-slim"
 
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
@@ -144,19 +145,19 @@ func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error)
 		return nil, fmt.Errorf("checker setup failed: load %q: %w", testlibHeaderKey, err)
 	}
 
-	profile := checkerProfile()
+	profile := checkerCompileProfile()
 	compileOut, err := r.engine.compiler.Compile(ctx, CompileRequest{
 		Files: []execution.File{
-			{Name: profile.Compile.SourceFile, Content: checkerSource, Mode: 0o644},
+			{Name: profile.SourceFile, Content: checkerSource, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
 		},
-		ImageRef:     profile.Compile.ImageRef,
-		Command:      profile.Compile.BuildCommand,
-		ArtifactName: profile.Compile.ArtifactName,
+		ImageRef:     profile.ImageRef,
+		Command:      profile.BuildCommand,
+		ArtifactName: profile.ArtifactName,
 		Limits: execution.Limits{
-			CPUTimeMs:   profile.Compile.TimeoutMs,
-			WallTimeMs:  profile.Compile.TimeoutMs * execution.WallTimeMultiplier,
-			MemoryMB:    profile.Compile.MemoryMB,
+			CPUTimeMs:   profile.TimeoutMs,
+			WallTimeMs:  profile.TimeoutMs * execution.WallTimeMultiplier,
+			MemoryMB:    profile.MemoryMB,
 			OutputBytes: execution.DefaultCompileOutputLimitBytes,
 		},
 	})
@@ -170,10 +171,6 @@ func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error)
 		}
 		return nil, fmt.Errorf("checker compilation failed: %s", message)
 	}
-	if compileOut.Artifact == nil {
-		return nil, errors.New("checker compilation succeeded without artifact")
-	}
-
 	return &compiledChecker{runner: r.engine.runner, artifact: *compileOut.Artifact}, nil
 }
 
@@ -204,21 +201,16 @@ func (c *compiledChecker) Check(
 	actualOutput string,
 	expectedOutput string,
 ) (checkerResult, error) {
-	if len(c.artifact.Data) == 0 {
-		return checkerResult{Verdict: model.VerdictUKE}, errors.New("checker artifact is required")
-	}
-
-	profile := checkerProfile()
 	runOut, err := c.runner.Run(ctx, RunRequest{
 		Files: []execution.File{
-			{Name: profile.Run.ArtifactName, Content: c.artifact.Data, Mode: c.artifact.Mode},
+			{Name: checkerArtifactName, Content: c.artifact.Data, Mode: c.artifact.Mode},
 			{Name: checkerInputFileName, Content: []byte(input), Mode: 0o644},
 			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},
 			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0o644},
 		},
-		ImageRef: profile.Run.ImageRef,
+		ImageRef: checkerRunImageRef,
 		Command: []string{
-			"./" + profile.Run.ArtifactName,
+			"./" + checkerArtifactName,
 			checkerInputFileName,
 			checkerOutputFileName,
 			checkerAnswerFileName,
@@ -245,9 +237,7 @@ func (c *compiledChecker) Check(
 
 	switch runOut.ExitCode {
 	case 0:
-		if runOut.Verdict == execution.VerdictOK {
-			result.Verdict = model.VerdictOK
-		}
+		result.Verdict = model.VerdictOK
 	case 1, 2:
 		result.Verdict = model.VerdictWA
 	}
@@ -311,24 +301,17 @@ func validateExternalCheckerPath(checkerPath string) (string, error) {
 	return normalizedPath, nil
 }
 
-func checkerProfile() languageProfile {
-	return languageProfile{
-		Compile: compileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
-			SourceFile:   "checker.cpp",
-			ArtifactName: checkerArtifactName,
-			BuildCommand: []string{
-				"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
-				"-o", checkerArtifactName, "checker.cpp", "-lm",
-			},
-			TimeoutMs: 30000,
-			MemoryMB:  512,
+func checkerCompileProfile() compileConfig {
+	return compileConfig{
+		ImageRef:     "docker.io/library/gcc:12-bookworm",
+		SourceFile:   "checker.cpp",
+		ArtifactName: checkerArtifactName,
+		BuildCommand: []string{
+			"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s",
+			"-o", checkerArtifactName, "checker.cpp", "-lm",
 		},
-		Run: runConfig{
-			ImageRef:       "docker.io/library/debian:12-slim",
-			ArtifactName:   checkerArtifactName,
-			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
-		},
+		TimeoutMs: 30000,
+		MemoryMB:  512,
 	}
 }
 

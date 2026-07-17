@@ -92,9 +92,6 @@ type executor struct {
 
 // NewExecutor creates a capacity-limited executor backed by a sandbox.
 func NewExecutor(sb sandboxExecutor, maxConcurrent int) (Executor, error) {
-	if sb == nil {
-		return nil, errors.New("sandbox is required")
-	}
 	if maxConcurrent <= 0 {
 		return nil, fmt.Errorf("max concurrent executions must be positive, got %d", maxConcurrent)
 	}

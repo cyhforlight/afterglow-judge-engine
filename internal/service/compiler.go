@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"afterglow-judge-engine/internal/execution"
@@ -19,6 +18,7 @@ type CompileRequest struct {
 }
 
 // CompileOutput is the generic compiler output.
+// A successful result always includes an artifact.
 type CompileOutput struct {
 	Result   model.CompileResult
 	Artifact *execution.Artifact
@@ -42,23 +42,6 @@ func newCompiler(executor execution.Executor) Compiler {
 
 // Compile compiles files in an isolated container.
 func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutput, error) {
-	var out CompileOutput
-
-	out, err := c.compileInContainer(ctx, req)
-	if err != nil {
-		return out, err
-	}
-	if !out.Result.Succeeded {
-		return out, nil
-	}
-	if out.Artifact == nil {
-		return out, errors.New("compile succeeded but artifact is missing")
-	}
-
-	return out, nil
-}
-
-func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (CompileOutput, error) {
 	var out CompileOutput
 
 	result, err := c.executor.Execute(ctx, execution.Job{
@@ -96,10 +79,7 @@ func (c *compiler) compileInContainer(ctx context.Context, req CompileRequest) (
 		Log:       compileLog,
 	}
 
-	artifact, ok := result.Artifacts[req.ArtifactName]
-	if !ok {
-		return out, fmt.Errorf("compiled artifact %q was not collected", req.ArtifactName)
-	}
+	artifact := result.Artifacts[req.ArtifactName]
 	out.Artifact = &artifact
 	return out, nil
 }

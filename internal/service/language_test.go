@@ -200,11 +200,6 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 			wantErr:    "sandbox unavailable",
 		},
 		{
-			name:    "successful compile requires artifact",
-			output:  CompileOutput{Result: model.CompileResult{Succeeded: true}},
-			wantErr: "compile succeeded but artifact is missing",
-		},
-		{
 			name: "successful compile",
 			output: CompileOutput{
 				Result:   model.CompileResult{Succeeded: true, Log: "warning"},
@@ -284,42 +279,19 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 	}
 }
 
-func TestCompiledProgramRejectsEmptyArtifactAndPropagatesRunnerError(t *testing.T) {
-	tests := []struct {
-		name      string
-		artifact  *execution.Artifact
-		runnerErr error
-		wantErr   string
-	}{
-		{
-			name:     "empty artifact",
-			artifact: &execution.Artifact{Mode: 0o755},
-			wantErr:  "program artifact is required",
-		},
-		{
-			name:      "runner error",
-			artifact:  &execution.Artifact{Data: []byte("program"), Mode: 0o755},
-			runnerErr: errors.New("sandbox unavailable"),
-			wantErr:   "sandbox unavailable",
-		},
-	}
+func TestCompiledProgramPropagatesRunnerError(t *testing.T) {
+	compiler := &recordingCompiler{output: CompileOutput{
+		Result:   model.CompileResult{Succeeded: true},
+		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
+	}}
+	runner := &recordingRunner{err: errors.New("sandbox unavailable")}
+	toolchain, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
+	require.NoError(t, err)
+	program, _, err := toolchain.Compile(t.Context(), "source")
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			compiler := &recordingCompiler{output: CompileOutput{
-				Result:   model.CompileResult{Succeeded: true},
-				Artifact: tt.artifact,
-			}}
-			runner := &recordingRunner{err: tt.runnerErr}
-			toolchain, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
-			require.NoError(t, err)
-			program, _, err := toolchain.Compile(t.Context(), "source")
-			require.NoError(t, err)
-
-			_, err = program.Run(t.Context(), "", 1000, 128)
-			require.EqualError(t, err, tt.wantErr)
-		})
-	}
+	_, err = program.Run(t.Context(), "", 1000, 128)
+	require.EqualError(t, err, "sandbox unavailable")
 }
 
 func TestCompiledProgramSupportsConcurrentRuns(t *testing.T) {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -108,9 +107,6 @@ func (l *resolvedLanguage) Compile(
 	if !compileOut.Result.Succeeded {
 		return nil, compileOut.Result, nil
 	}
-	if compileOut.Artifact == nil {
-		return nil, model.CompileResult{}, errors.New("compile succeeded but artifact is missing")
-	}
 
 	return &compiledLanguageProgram{
 		language: l.language,
@@ -126,10 +122,6 @@ func (p *compiledLanguageProgram) Run(
 	timeLimitMs int,
 	memoryLimitMB int,
 ) (RunResult, error) {
-	if len(p.artifact.Data) == 0 {
-		return RunResult{}, errors.New("program artifact is required")
-	}
-
 	runOut, err := p.runner.Run(ctx, RunRequest{
 		Files: []execution.File{{
 			Name:    p.profile.ArtifactName,

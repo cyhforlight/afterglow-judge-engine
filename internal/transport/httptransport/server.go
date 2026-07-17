@@ -35,12 +35,6 @@ func NewServer(opts ServerOptions, judge JudgeService, logger *slog.Logger) (*Se
 	if err := validateServerOptions(opts); err != nil {
 		return nil, err
 	}
-	if judge == nil {
-		return nil, errors.New("judge service is required")
-	}
-	if logger == nil {
-		return nil, errors.New("logger is required")
-	}
 
 	handler := newHandler(judge, logger, opts.MaxBodyBytes)
 

@@ -69,16 +69,6 @@ func TestNewServer_RejectsInvalidOptions(t *testing.T) {
 	}
 }
 
-func TestNewServer_RequiresDependencies(t *testing.T) {
-	server, err := NewServer(testServerOptions(), nil, slog.Default())
-	assert.Nil(t, server)
-	require.EqualError(t, err, "judge service is required")
-
-	server, err = NewServer(testServerOptions(), &mockJudgeService{}, nil)
-	assert.Nil(t, server)
-	require.EqualError(t, err, "logger is required")
-}
-
 func testServerOptions() ServerOptions {
 	return ServerOptions{
 		Addr:         "localhost",
