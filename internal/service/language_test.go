@@ -136,9 +136,9 @@ func TestLanguageCompileAndRunRequests(t *testing.T) {
 			}}
 			runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
 
-			toolchain, err := newLanguage(compiler, runner).Resolve(tt.language)
+			languageCompiler, err := newLanguage(compiler, runner).Resolve(tt.language)
 			require.NoError(t, err)
-			program, compileResult, err := toolchain.Compile(t.Context(), "source code")
+			program, compileResult, err := languageCompiler.Compile(t.Context(), "source code")
 			require.NoError(t, err)
 			require.True(t, compileResult.Succeeded)
 
@@ -175,9 +175,9 @@ func TestLanguageCompileAndRunRequests(t *testing.T) {
 	}
 }
 
-func TestLanguageResolveRejectsUnknownLanguage(t *testing.T) {
-	_, err := newLanguage(&recordingCompiler{}, &recordingRunner{}).Resolve(model.LanguageUnknown)
-	require.EqualError(t, err, "unsupported language: Unknown")
+func TestLanguageResolveRejectsUnsupportedLanguage(t *testing.T) {
+	_, err := newLanguage(&recordingCompiler{}, &recordingRunner{}).Resolve(model.Language("Rust"))
+	require.EqualError(t, err, "unsupported language: Rust")
 }
 
 func TestLanguageCompileOutcomes(t *testing.T) {
@@ -213,10 +213,10 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := &recordingCompiler{output: tt.output, err: tt.compileErr}
-			toolchain, err := newLanguage(compiler, &recordingRunner{}).Resolve(model.LanguageCPP)
+			languageCompiler, err := newLanguage(compiler, &recordingRunner{}).Resolve(model.LanguageCPP)
 			require.NoError(t, err)
 
-			program, result, err := toolchain.Compile(t.Context(), "source")
+			program, result, err := languageCompiler.Compile(t.Context(), "source")
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				assert.Nil(t, program)
@@ -267,9 +267,9 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 			}}
 			runner := &recordingRunner{result: RunResult{Verdict: tt.verdict, Stderr: tt.stderr}}
-			toolchain, err := newLanguage(compiler, runner).Resolve(tt.language)
+			languageCompiler, err := newLanguage(compiler, runner).Resolve(tt.language)
 			require.NoError(t, err)
-			program, _, err := toolchain.Compile(t.Context(), "source")
+			program, _, err := languageCompiler.Compile(t.Context(), "source")
 			require.NoError(t, err)
 
 			result, err := program.Run(t.Context(), "", 1000, 128)
@@ -285,9 +285,9 @@ func TestCompiledProgramPropagatesRunnerError(t *testing.T) {
 		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 	}}
 	runner := &recordingRunner{err: errors.New("sandbox unavailable")}
-	toolchain, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
+	languageCompiler, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
 	require.NoError(t, err)
-	program, _, err := toolchain.Compile(t.Context(), "source")
+	program, _, err := languageCompiler.Compile(t.Context(), "source")
 	require.NoError(t, err)
 
 	_, err = program.Run(t.Context(), "", 1000, 128)
@@ -300,9 +300,9 @@ func TestCompiledProgramSupportsConcurrentRuns(t *testing.T) {
 		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
 	}}
 	runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
-	toolchain, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
+	languageCompiler, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
 	require.NoError(t, err)
-	program, _, err := toolchain.Compile(t.Context(), "source")
+	program, _, err := languageCompiler.Compile(t.Context(), "source")
 	require.NoError(t, err)
 
 	const runCount = 20

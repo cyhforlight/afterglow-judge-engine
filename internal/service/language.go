@@ -13,10 +13,10 @@ import (
 const javaNativeReserveMB = 64
 
 type language interface {
-	Resolve(model.Language) (languageToolchain, error)
+	Resolve(model.Language) (languageCompiler, error)
 }
 
-type languageToolchain interface {
+type languageCompiler interface {
 	Compile(context.Context, string) (compiledProgram, model.CompileResult, error)
 }
 
@@ -67,7 +67,7 @@ func newLanguage(compiler Compiler, runner Runner) language {
 	return &languageEngine{compiler: compiler, runner: runner}
 }
 
-func (l *languageEngine) Resolve(lang model.Language) (languageToolchain, error) {
+func (l *languageEngine) Resolve(lang model.Language) (languageCompiler, error) {
 	profile, err := profileForLanguage(lang)
 	if err != nil {
 		return nil, err

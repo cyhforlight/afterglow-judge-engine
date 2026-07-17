@@ -27,8 +27,9 @@ type JudgeEngine struct {
 }
 
 type admittedJudge struct {
-	request model.JudgeRequest
-	checker resolvedChecker
+	request  model.JudgeRequest
+	compiler languageCompiler
+	checker  resolvedChecker
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -103,6 +104,11 @@ func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
 		return admittedJudge{}, err
 	}
 
+	compiler, err := s.language.Resolve(req.Language)
+	if err != nil {
+		return admittedJudge{}, err
+	}
+
 	resolved, err := s.checker.Resolve(req.Checker)
 	if err != nil {
 		return admittedJudge{}, err
@@ -124,7 +130,7 @@ func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
 		}
 	}
 
-	return admittedJudge{request: req, checker: resolved}, nil
+	return admittedJudge{request: req, compiler: compiler, checker: resolved}, nil
 }
 
 func validateJudgeRequest(req model.JudgeRequest, limits model.JudgeLimits) error {
@@ -133,9 +139,6 @@ func validateJudgeRequest(req model.JudgeRequest, limits model.JudgeLimits) erro
 	}
 	if req.Language == model.LanguageUnknown {
 		return errors.New("language is required")
-	}
-	if !req.Language.IsSupported() {
-		return fmt.Errorf("unsupported language %q; expected one of C, C++, Java, Python", req.Language)
 	}
 	if len(req.SourceCode) > limits.MaxSourceBytes {
 		return fmt.Errorf("sourceCode must be at most %d bytes", limits.MaxSourceBytes)
@@ -209,14 +212,7 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 	}
 	defer s.concurrencySem.Release(1)
 
-	toolchain, err := s.language.Resolve(req.Language)
-	if err != nil {
-		err = fmt.Errorf("get language profile: %w", err)
-		slog.ErrorContext(ctx, "compile step failed", "error", err)
-		return failedBeforeRun(fmt.Sprintf("compile infrastructure error: %v", err))
-	}
-
-	program, compileResult, err := toolchain.Compile(ctx, req.SourceCode)
+	program, compileResult, err := admitted.compiler.Compile(ctx, req.SourceCode)
 	if err != nil {
 		slog.ErrorContext(ctx, "compile step failed", "error", err)
 		return failedBeforeRun(fmt.Sprintf("compile infrastructure error: %v", err))

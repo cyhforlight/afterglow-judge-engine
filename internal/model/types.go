@@ -14,10 +14,10 @@ func stringOrUnknown(value string) string {
 	return value
 }
 
-// Language represents a supported programming language.
+// Language identifies a programming language.
 type Language string
 
-// Supported programming languages.
+// Language identifiers.
 const (
 	LanguageUnknown Language = ""
 	LanguageC       Language = "C"
@@ -25,16 +25,6 @@ const (
 	LanguageJava    Language = "Java"
 	LanguagePython  Language = "Python"
 )
-
-// IsSupported reports whether the language can be judged.
-func (l Language) IsSupported() bool {
-	switch l {
-	case LanguageC, LanguageCPP, LanguageJava, LanguagePython:
-		return true
-	default:
-		return false
-	}
-}
 
 func (l Language) String() string {
 	return stringOrUnknown(string(l))

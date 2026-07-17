@@ -22,7 +22,7 @@ import (
 type fakeLanguage struct {
 	mu         sync.Mutex
 	resolveErr error
-	toolchain  *fakeLanguageToolchain
+	compiler   *fakeLanguageCompiler
 	languages  []model.Language
 }
 
@@ -33,13 +33,13 @@ func newFakeLanguage() *fakeLanguage {
 }
 
 func newFakeLanguageWithProgram(program compiledProgram) *fakeLanguage {
-	return &fakeLanguage{toolchain: &fakeLanguageToolchain{
+	return &fakeLanguage{compiler: &fakeLanguageCompiler{
 		program: program,
 		result:  model.CompileResult{Succeeded: true},
 	}}
 }
 
-func (l *fakeLanguage) Resolve(lang model.Language) (languageToolchain, error) {
+func (l *fakeLanguage) Resolve(lang model.Language) (languageCompiler, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -47,10 +47,10 @@ func (l *fakeLanguage) Resolve(lang model.Language) (languageToolchain, error) {
 	if l.resolveErr != nil {
 		return nil, l.resolveErr
 	}
-	return l.toolchain, nil
+	return l.compiler, nil
 }
 
-type fakeLanguageToolchain struct {
+type fakeLanguageCompiler struct {
 	mu      sync.Mutex
 	program compiledProgram
 	result  model.CompileResult
@@ -58,15 +58,15 @@ type fakeLanguageToolchain struct {
 	sources []string
 }
 
-func (t *fakeLanguageToolchain) Compile(
+func (c *fakeLanguageCompiler) Compile(
 	_ context.Context,
 	source string,
 ) (compiledProgram, model.CompileResult, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	t.sources = append(t.sources, source)
-	return t.program, t.result, t.err
+	c.sources = append(c.sources, source)
+	return c.program, c.result, c.err
 }
 
 type runCallResult struct {
@@ -294,8 +294,8 @@ func TestNewJudgeEngine_ValidatesConfiguration(t *testing.T) {
 
 func TestJudgeEngine_CompileError(t *testing.T) {
 	languageModule := newFakeLanguage()
-	languageModule.toolchain.program = nil
-	languageModule.toolchain.result = model.CompileResult{Succeeded: false, Log: "compile failed"}
+	languageModule.compiler.program = nil
+	languageModule.compiler.result = model.CompileResult{Succeeded: false, Log: "compile failed"}
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(languageModule, checkerModule)
 
@@ -305,7 +305,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.False(t, result.Compile.Succeeded)
 	assert.Equal(t, "compile failed", result.Compile.Log)
 	assert.Empty(t, result.Cases)
-	assert.Len(t, languageModule.toolchain.sources, 1)
+	assert.Len(t, languageModule.compiler.sources, 1)
 	assert.Zero(t, checkerModule.resolved.prepareCalls)
 }
 
@@ -360,7 +360,7 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 
 func TestJudgeEngine_CompilerInfraError(t *testing.T) {
 	languageModule := newFakeLanguage()
-	languageModule.toolchain.err = errors.New("boom")
+	languageModule.compiler.err = errors.New("boom")
 	engine := newTestJudgeEngine(languageModule, nil)
 
 	result := judgeSuccessfully(t, engine, baseJudgeRequest())
@@ -489,7 +489,7 @@ func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 			assert.Zero(t, result)
-			assert.Empty(t, languageModule.toolchain.sources)
+			assert.Empty(t, languageModule.compiler.sources)
 			assert.Zero(t, checkerModule.resolved.prepareCalls)
 		})
 	}
@@ -522,7 +522,7 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := baseJudgeRequest()
 			tt.mutate(&req)
-			engine := newTestJudgeEngine(nil, nil)
+			engine := newTestJudgeEngine(newLanguage(nil, nil), nil)
 
 			result, err := engine.Judge(t.Context(), req)
 			assert.Zero(t, result)
@@ -580,7 +580,7 @@ func TestJudgeEngine_UsesRequestedLanguage(t *testing.T) {
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Equal(t, []model.Language{model.LanguageJava}, languageModule.languages)
-	assert.Equal(t, []string{req.SourceCode}, languageModule.toolchain.sources)
+	assert.Equal(t, []string{req.SourceCode}, languageModule.compiler.sources)
 }
 
 func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {

@@ -82,9 +82,9 @@ func compileProgram(
 ) (compiledProgram, model.CompileResult) {
 	t.Helper()
 
-	toolchain, err := env.language.Resolve(lang)
+	languageCompiler, err := env.language.Resolve(lang)
 	require.NoError(t, err)
-	program, result, err := toolchain.Compile(env.ctx, sourceCode)
+	program, result, err := languageCompiler.Compile(env.ctx, sourceCode)
 	require.NoError(t, err)
 	return program, result
 }
