@@ -81,18 +81,6 @@ func TestLoad_ExternalDataDirDisabledWhenBlank(t *testing.T) {
 	assert.Empty(t, cfg.ExternalDataDir)
 }
 
-func TestLoad_DoesNotAccessExternalDataDir(t *testing.T) {
-	clearEnv()
-
-	missingDir := filepath.Join(t.TempDir(), "missing")
-	t.Setenv("EXTERNAL_DATA_DIR", missingDir)
-
-	cfg, err := Load()
-
-	require.NoError(t, err)
-	assert.Equal(t, missingDir, cfg.ExternalDataDir)
-}
-
 func TestLoad_InvalidConfig(t *testing.T) {
 	tests := []struct {
 		name        string

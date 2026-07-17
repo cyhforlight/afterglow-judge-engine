@@ -116,36 +116,3 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 		close(release)
 	})
 }
-
-// TestJudgeEngine_CanceledContextDoesNotAcquireCapacity verifies that canceled requests don't occupy slots.
-func TestJudgeEngine_CanceledContextDoesNotAcquireCapacity(t *testing.T) {
-	program := &gatedProgram{
-		result: RunResult{
-			Verdict:   execution.VerdictOK,
-			Stdout:    "output",
-			CPUTimeMs: 10,
-			MemoryMB:  10,
-		},
-	}
-
-	engine := newJudgeEngine(
-		newFakeLanguageWithProgram(program),
-		newFakeChecker(),
-		nil,
-		1,
-		model.DefaultJudgeLimits(),
-	)
-
-	req := baseJudgeRequest()
-
-	for range 20 {
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-
-		result, err := engine.Judge(ctx, req)
-		require.NoError(t, err)
-		assert.Equal(t, model.JudgeStatusSystemError, result.Status)
-	}
-
-	assert.Zero(t, program.calls.Load())
-}

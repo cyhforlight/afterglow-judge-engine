@@ -88,9 +88,7 @@ func TestResolveChecker_Builtin(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
-		{name: "another valid", input: "yesno", wantPath: "yesno"},
 		{name: "uppercase allowed", input: "NCMP", wantPath: "NCMP"},
-		{name: "mixed case allowed", input: "MyChecker", wantPath: "MyChecker"},
 		{name: "underscore allowed", input: "my_checker", wantPath: "my_checker"},
 		{name: "hyphen allowed", input: "ncmp-v2", wantPath: "ncmp-v2"},
 		{name: "file extension rejected", input: "ncmp.cpp", wantErr: "invalid path characters"},

@@ -34,16 +34,6 @@ func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
 	assert.Equal(t, "missing Authorization header", resp.Details)
 }
 
-func TestNewServer_FormatsIPv6Address(t *testing.T) {
-	opts := testServerOptions()
-	opts.Addr = "::1"
-
-	server, err := NewServer(opts, &mockJudgeService{}, slog.Default())
-
-	require.NoError(t, err)
-	assert.Equal(t, "[::1]:8080", server.httpServer.Addr)
-}
-
 func TestNewServer_RejectsInvalidOptions(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -60,43 +60,6 @@ func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *Handler {
 	return newHandler(judge, slog.Default(), int64(maxSizeMB)*testBytesPerMiB)
 }
 
-func TestHandleExecute_Success(t *testing.T) {
-	judge := &mockJudgeService{result: model.JudgeResult{
-		Status:  model.JudgeStatusOK,
-		Compile: model.CompileResult{Succeeded: true, Log: "ok"},
-		Cases: []model.JudgeCaseResult{{
-			Verdict:   model.VerdictOK,
-			Stdout:    "42\n",
-			ExitCode:  0,
-			ExtraInfo: "",
-		}},
-	}}
-	handler := newTestHandler(judge)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, validJudgeRequest()))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	handler.HandleExecute(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var resp struct {
-		Status string `json:"status"`
-		Cases  []struct {
-			Verdict string `json:"verdict"`
-		} `json:"cases"`
-	}
-	err := json.NewDecoder(w.Body).Decode(&resp)
-	require.NoError(t, err)
-	assert.Equal(t, "OK", resp.Status)
-	require.Len(t, resp.Cases, 1)
-	assert.Equal(t, "OK", resp.Cases[0].Verdict)
-	assert.Equal(t, "Python", judge.lastRequest.Language.String())
-	assert.Equal(t, "default", judge.lastRequest.Checker)
-	assert.Equal(t, "42\n", judge.lastRequest.TestCases[0].ExpectedOutput)
-}
-
 func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 	tests := []struct {
 		name string

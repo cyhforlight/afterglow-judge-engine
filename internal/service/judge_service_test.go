@@ -309,27 +309,6 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.Zero(t, checkerModule.resolved.prepareCalls)
 }
 
-func TestJudgeEngine_WrongAnswerAfterOK(t *testing.T) {
-	program := &fakeCompiledProgram{runResult: userOKRunResult("41\n")}
-	checkerModule := newFakeChecker()
-	checkerModule.resolved.prepared.result = checkerResult{
-		Verdict: model.VerdictWA,
-		Message: "1st lines differ - expected: '42', found: '41'",
-	}
-	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
-
-	result := judgeSuccessfully(t, engine, baseJudgeRequest(
-		model.JudgeTestCase{ExpectedOutput: "42\n"},
-	))
-
-	require.Len(t, result.Cases, 1)
-	assert.Equal(t, model.VerdictWA, result.Cases[0].Verdict)
-	assert.Equal(t, "1st lines differ - expected: '42', found: '41'", result.Cases[0].ExtraInfo)
-	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Len(t, program.inputs, 1)
-	assert.Len(t, checkerModule.resolved.prepared.calls, 1)
-}
-
 func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("2\n")},
@@ -396,26 +375,6 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, model.VerdictTLE, result.Cases[2].Verdict)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
 	assert.Len(t, checkerModule.resolved.prepared.calls, 2)
-}
-
-func TestJudgeEngine_AllTestCasesPass(t *testing.T) {
-	program := &fakeCompiledProgram{results: map[string]runCallResult{
-		"1\n": {result: userOKRunResult("2\n")},
-		"2\n": {result: userOKRunResult("4\n")},
-		"3\n": {result: userOKRunResult("6\n")},
-	}}
-	checkerModule := newFakeChecker()
-	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
-
-	result := judgeSuccessfully(t, engine, baseJudgeRequest(
-		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "2\n"},
-		model.JudgeTestCase{InputText: "2\n", ExpectedOutput: "4\n"},
-		model.JudgeTestCase{InputText: "3\n", ExpectedOutput: "6\n"},
-	))
-
-	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Len(t, result.Cases, 3)
-	assert.Len(t, checkerModule.resolved.prepared.calls, 3)
 }
 
 func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {

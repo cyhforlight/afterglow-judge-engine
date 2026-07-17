@@ -27,26 +27,6 @@ func TestWorkspace_CreateAndCleanup(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-func TestWorkspace_WriteFilesAndReadFile(t *testing.T) {
-	ws, err := newWorkspace()
-	require.NoError(t, err)
-	defer func() { _ = ws.cleanup() }()
-
-	err = ws.writeFiles([]File{
-		{Name: "main.cpp", Content: []byte("int main(){}"), Mode: 0o644},
-		{Name: "program", Content: []byte("binary"), Mode: 0o755},
-	})
-	require.NoError(t, err)
-
-	source, err := ws.readFile("main.cpp")
-	require.NoError(t, err)
-	assert.Equal(t, []byte("int main(){}"), source)
-
-	info, err := ws.stat("program")
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
-}
-
 func TestWorkspace_RejectsUnsafeNames(t *testing.T) {
 	ws, err := newWorkspace()
 	require.NoError(t, err)

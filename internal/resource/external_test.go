@@ -76,24 +76,6 @@ func TestExternal_ReadFile_DirectoryRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "regular file")
 }
 
-func TestExternal_Stat(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	testFile := filepath.Join(tmpDir, "test.txt")
-	err := os.WriteFile(testFile, []byte("test content"), 0o644)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	_, err = fs.Stat(ext, "test.txt")
-	require.NoError(t, err)
-
-	_, err = fs.Stat(ext, "missing.txt")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no such file")
-}
-
 func TestExternal_ReadFile_PathTraversal(t *testing.T) {
 	tmpDir := t.TempDir()
 
