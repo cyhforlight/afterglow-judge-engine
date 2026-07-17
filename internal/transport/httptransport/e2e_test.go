@@ -151,7 +151,7 @@ func projectRoot(t *testing.T) string {
 	}
 }
 
-func newE2EHandler(t *testing.T) *Handler {
+func newE2EHandler(t *testing.T) *handler {
 	t.Helper()
 
 	sb, err := sandbox.New("/run/containerd/containerd.sock", "afterglow-e2e")
@@ -176,7 +176,7 @@ func newE2EHandler(t *testing.T) *Handler {
 	return newHandler(judge, slog.Default(), 256*testBytesPerMiB)
 }
 
-func executeJudgeRequest(t *testing.T, handler *Handler, reqBody model.JudgeRequest) judgeHTTPResponse {
+func executeJudgeRequest(t *testing.T, handler *handler, reqBody model.JudgeRequest) judgeHTTPResponse {
 	t.Helper()
 
 	body, err := json.Marshal(reqBody)
@@ -185,7 +185,7 @@ func executeJudgeRequest(t *testing.T, handler *Handler, reqBody model.JudgeRequ
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
+	handler.handleExecute(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp judgeHTTPResponse

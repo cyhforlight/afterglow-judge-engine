@@ -32,9 +32,6 @@ type Config struct {
 	JudgeLimits             model.JudgeLimits
 	ExternalDataDir         string
 
-	// Security
-	APIKey string
-
 	// Observability
 	LogLevel slog.Level
 }
@@ -51,9 +48,6 @@ func Load() (*Config, error) {
 
 		// Execution Limits
 		ExternalDataDir: getEnv("EXTERNAL_DATA_DIR", ""),
-
-		// Security
-		APIKey: getEnv("API_KEY", ""),
 	}
 
 	httpPort, err := getEnvInt("HTTP_PORT", 8080)

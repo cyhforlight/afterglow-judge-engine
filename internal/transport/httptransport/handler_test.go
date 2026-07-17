@@ -52,11 +52,11 @@ func validJudgeRequest() model.JudgeRequest {
 	}
 }
 
-func newTestHandler(judge JudgeService) *Handler {
+func newTestHandler(judge JudgeService) *handler {
 	return newTestHandlerWithSize(judge, 256)
 }
 
-func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *Handler {
+func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *handler {
 	return newHandler(judge, slog.Default(), int64(maxSizeMB)*testBytesPerMiB)
 }
 
@@ -74,7 +74,7 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewBufferString(tt.body))
 			w := httptest.NewRecorder()
-			handler.HandleExecute(w, req)
+			handler.handleExecute(w, req)
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 		})
@@ -90,7 +90,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
 	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
+	handler.handleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, 1, judge.judgeCalls)
@@ -109,7 +109,7 @@ func TestHandleExecute_BodyTooLarge(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
 	w := httptest.NewRecorder()
-	handler.HandleExecute(w, req)
+	handler.handleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

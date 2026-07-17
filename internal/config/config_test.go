@@ -30,7 +30,6 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, int64(256*1024*1024), cfg.MaxInputBytes)
 	assert.Equal(t, model.DefaultJudgeLimits(), cfg.JudgeLimits)
 	assert.Empty(t, cfg.ExternalDataDir)
-	assert.Empty(t, cfg.APIKey)
 	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
 }
 
@@ -49,7 +48,6 @@ func TestLoad_FromEnv(t *testing.T) {
 	t.Setenv("MAX_TEST_CASES", "128")
 	t.Setenv("MAX_SOURCE_SIZE_KB", "512")
 	t.Setenv("EXTERNAL_DATA_DIR", tmpDir)
-	t.Setenv("API_KEY", "my-secret-key")
 	t.Setenv("LOG_LEVEL", "debug")
 
 	cfg, err := Load()
@@ -67,7 +65,6 @@ func TestLoad_FromEnv(t *testing.T) {
 		MaxSourceBytes: 512 * 1024,
 	}, cfg.JudgeLimits)
 	assert.Equal(t, tmpDir, cfg.ExternalDataDir)
-	assert.Equal(t, "my-secret-key", cfg.APIKey)
 	assert.Equal(t, slog.LevelDebug, cfg.LogLevel)
 }
 
@@ -165,8 +162,7 @@ func clearEnv() {
 		"MAX_CONCURRENT_JUDGES",
 		"MAX_TIME_LIMIT_MS", "MAX_MEMORY_MB",
 		"MAX_TEST_CASES", "MAX_SOURCE_SIZE_KB",
-		"EXTERNAL_DATA_DIR",
-		"API_KEY", "LOG_LEVEL",
+		"EXTERNAL_DATA_DIR", "LOG_LEVEL",
 	}
 	for _, v := range envVars {
 		_ = os.Unsetenv(v)

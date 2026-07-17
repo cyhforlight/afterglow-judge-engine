@@ -100,7 +100,6 @@ func initializeServer(cfg *config.Config, logger *slog.Logger) (*httptransport.S
 		ReadTimeout:  cfg.HTTPReadTimeout,
 		WriteTimeout: cfg.HTTPWriteTimeout,
 		MaxBodyBytes: cfg.MaxInputBytes,
-		APIKey:       cfg.APIKey,
 	}, judge, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize HTTP server: %w", err)

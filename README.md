@@ -46,7 +46,6 @@
   - 直接在请求体中传 `inputText` / `expectedOutputText`
   - 通过 `inputFile` / `expectedOutputFile` 引用外部文件
 - HTTP 边界保护：
-  - Bearer Token 鉴权（仅当配置了 `API_KEY`）
   - 请求体大小限制
   - 单次请求的时间、内存、测试点数量和源码大小上限
   - 严格 JSON 解码，拒绝未知字段
@@ -100,7 +99,6 @@ export EXTERNAL_DATA_DIR=/absolute/path/to/testdata
 ```bash
 curl -X POST http://localhost:8080/v1/execute \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
   -d '{
     "sourceCode": "import sys\nn=int(sys.stdin.readline())\nprint(n*2)",
     "checker": "default",
@@ -113,8 +111,6 @@ curl -X POST http://localhost:8080/v1/execute \
     ]
   }'
 ```
-
-如果未配置 `API_KEY`，则无需 `Authorization` 请求头。
 
 ## 架构
 
@@ -188,10 +184,7 @@ testdata/
 ```http
 POST /v1/execute
 Content-Type: application/json
-Authorization: Bearer <token>
 ```
-
-只有在配置了 `API_KEY` 时才会校验 Bearer Token。
 
 请求体字段：
 
@@ -343,7 +336,6 @@ external:relative/path/to/checker.cpp
 | `MAX_TEST_CASES` | `64` | 单次请求测试点数量上限 |
 | `MAX_SOURCE_SIZE_KB` | `256` | 源代码大小上限 |
 | `EXTERNAL_DATA_DIR` | 空 | 外部测试数据和外部 checker 根目录；未配置时关闭该能力 |
-| `API_KEY` | 空 | Bearer Token；非空时自动启用鉴权 |
 | `LOG_LEVEL` | `info` | 日志级别；当前支持 `info` 和 `debug` |
 
 ## 开发

@@ -21,7 +21,6 @@ type ServerOptions struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	MaxBodyBytes int64
-	APIKey       string
 }
 
 // Server implements the HTTP transport layer.
@@ -39,14 +38,9 @@ func NewServer(opts ServerOptions, judge JudgeService, logger *slog.Logger) (*Se
 	handler := newHandler(judge, logger, opts.MaxBodyBytes)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/execute", handler.HandleExecute)
+	mux.HandleFunc("POST /v1/execute", handler.handleExecute)
 
-	var finalHandler http.Handler = mux
-	if opts.APIKey != "" {
-		finalHandler = AuthMiddleware(logger, opts.APIKey)(finalHandler)
-	}
-	finalHandler = RecoveryMiddleware(logger)(finalHandler)
-	finalHandler = LoggingMiddleware(logger)(finalHandler)
+	finalHandler := loggingMiddleware(logger)(mux)
 
 	addr := net.JoinHostPort(strings.TrimSpace(opts.Addr), strconv.Itoa(opts.Port))
 	httpServer := &http.Server{

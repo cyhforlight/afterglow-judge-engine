@@ -16,23 +16,21 @@ type JudgeService interface {
 	Judge(context.Context, model.JudgeRequest) (model.JudgeResult, error)
 }
 
-// Handler handles HTTP requests for judging.
-type Handler struct {
+type handler struct {
 	judge   JudgeService
 	logger  *slog.Logger
 	maxSize int64 // max request body size in bytes
 }
 
-func newHandler(judge JudgeService, logger *slog.Logger, maxSize int64) *Handler {
-	return &Handler{
+func newHandler(judge JudgeService, logger *slog.Logger, maxSize int64) *handler {
+	return &handler{
 		judge:   judge,
 		logger:  logger,
 		maxSize: maxSize,
 	}
 }
 
-// HandleExecute handles POST /v1/execute requests.
-func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
+func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxSize)
@@ -59,7 +57,7 @@ func (h *Handler) HandleExecute(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeJSON writes a JSON response.
-func (h *Handler) writeJSON(w http.ResponseWriter, status int, data any) {
+func (h *handler) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -68,6 +66,6 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, data any) {
 }
 
 // writeError writes an error response.
-func (h *Handler) writeError(w http.ResponseWriter, status int, code, details string) {
+func (h *handler) writeError(w http.ResponseWriter, status int, code, details string) {
 	writeErrorResponse(w, h.logger, status, code, details)
 }

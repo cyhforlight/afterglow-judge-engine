@@ -1,38 +1,13 @@
 package httptransport
 
 import (
-	"encoding/json"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestIntegration_NewServer_UsesAPIKeyForAuth(t *testing.T) {
-	opts := testServerOptions()
-	opts.APIKey = "secret-token"
-
-	server, err := NewServer(opts, &mockJudgeService{}, slog.Default())
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", http.NoBody)
-	w := httptest.NewRecorder()
-
-	server.httpServer.Handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
-
-	var resp errorResponse
-	err = json.NewDecoder(w.Body).Decode(&resp)
-	require.NoError(t, err)
-	assert.Equal(t, "UNAUTHORIZED", resp.Code)
-	assert.Equal(t, "missing Authorization header", resp.Details)
-}
 
 func TestNewServer_RejectsInvalidOptions(t *testing.T) {
 	tests := []struct {
