@@ -41,6 +41,7 @@ func testCompileRequest(content string) CompileRequest {
 		ImageRef:     "gcc:12",
 		Command:      []string{"g++", "main.cpp"},
 		ArtifactName: "a.out",
+		Limits:       execution.Limits{WallTimeMs: 3000},
 	}
 }
 
@@ -112,6 +113,48 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 	})
 }
 
+func TestCachedCompiler_CallerCancellationDoesNotCancelSharedCompile(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var compileCount atomic.Int32
+		release := make(chan struct{})
+		started := make(chan context.Context, 1)
+		inner := &gatedCompiler{
+			release:      release,
+			started:      started,
+			compileCount: &compileCount,
+			result:       model.CompileResult{Succeeded: true},
+			artifact:     testCompiledArtifact(),
+		}
+		cc, err := NewCachedCompiler(inner, 16)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		firstResult := make(chan error, 1)
+		go func() {
+			_, err := cc.Compile(ctx, testCompileRequest("shared"))
+			firstResult <- err
+		}()
+
+		compileCtx := <-started
+		secondResult := make(chan error, 1)
+		go func() {
+			_, err := cc.Compile(t.Context(), testCompileRequest("shared"))
+			secondResult <- err
+		}()
+		synctest.Wait()
+
+		cancel()
+		synctest.Wait()
+		require.ErrorIs(t, <-firstResult, context.Canceled)
+		require.NoError(t, compileCtx.Err())
+
+		close(release)
+		synctest.Wait()
+		require.NoError(t, <-secondResult)
+		assert.Equal(t, int32(1), compileCount.Load())
+	})
+}
+
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 	inner := &cachedCompilerFake{err: errors.New("infra error")}
 	cc, err := NewCachedCompiler(inner, 16)
@@ -129,12 +172,16 @@ func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 // gatedCompiler blocks on a channel to test singleflight coalescing.
 type gatedCompiler struct {
 	release      chan struct{}
+	started      chan context.Context
 	compileCount *atomic.Int32
 	result       model.CompileResult
 	artifact     *execution.Artifact
 }
 
-func (g *gatedCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+func (g *gatedCompiler) Compile(ctx context.Context, _ CompileRequest) (CompileOutput, error) {
+	if g.started != nil {
+		g.started <- ctx
+	}
 	<-g.release
 	g.compileCount.Add(1)
 	return CompileOutput{Result: g.result, Artifact: g.artifact}, nil

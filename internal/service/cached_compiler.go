@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"afterglow-judge-engine/internal/execution"
 
@@ -43,14 +44,20 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 	}
 
 	// Coalesce concurrent compilations of the same key.
-	v, err, _ := c.group.Do(key, func() (any, error) {
+	resultCh := c.group.DoChan(key, func() (any, error) {
+		compileCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			time.Duration(req.Limits.WallTimeMs)*time.Millisecond,
+		)
+		defer cancel()
+
 		// Double-check: another goroutine may have populated the cache.
 		if cached, ok := c.cache.Get(key); ok {
-			slog.DebugContext(ctx, "compile cache hit after singleflight wait", "key", key[:16])
+			slog.DebugContext(compileCtx, "compile cache hit after singleflight wait", "key", key[:16])
 			return cached, nil
 		}
 
-		out, err := c.inner.Compile(ctx, req)
+		out, err := c.inner.Compile(compileCtx, req)
 		if err != nil {
 			return nil, err
 		}
@@ -62,11 +69,16 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 
 		return out, nil
 	})
-	if err != nil {
-		return CompileOutput{}, err
-	}
 
-	return v.(CompileOutput), nil
+	select {
+	case <-ctx.Done():
+		return CompileOutput{}, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return CompileOutput{}, result.Err
+		}
+		return result.Val.(CompileOutput), nil
+	}
 }
 
 // computeCacheKey produces a deterministic sha256 digest over the
