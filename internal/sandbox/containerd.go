@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -129,14 +130,13 @@ func (s *Sandbox) executeInContainer(
 	defer s.cpus.release(cpuID)
 
 	containerID := generateContainerID()
-	requestSpecOpts := sandboxSpecOpts(req, cpuID)
-
-	specOpts := make([]oci.SpecOpts, 0, 2+len(requestSpecOpts))
-	specOpts = append(specOpts,
-		oci.WithImageConfig(image),
-		oci.WithProcessArgs(req.Command...),
+	specOpts := slices.Concat(
+		[]oci.SpecOpts{
+			oci.WithImageConfig(image),
+			oci.WithProcessArgs(req.Command...),
+		},
+		sandboxSpecOpts(req, cpuID),
 	)
-	specOpts = append(specOpts, requestSpecOpts...)
 
 	container, err := client.NewContainer(ctx, containerID,
 		containerd.WithImage(image),

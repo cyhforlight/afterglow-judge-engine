@@ -66,7 +66,7 @@ func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, sb, 1)
-	result, err := exec.Execute(context.Background(), compileJobWithArtifact())
+	result, err := exec.Execute(t.Context(), compileJobWithArtifact())
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, result.ExitCode)
@@ -101,7 +101,7 @@ func TestExecutor_PassesRuntimeOptions(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, sb, 1)
-	_, err := exec.Execute(context.Background(), Job{
+	_, err := exec.Execute(t.Context(), Job{
 		Files: []File{{
 			Name:    testProgramName,
 			Content: []byte(testBinary),
@@ -131,7 +131,7 @@ func TestExecutor_MissingArtifactReturnsError(t *testing.T) {
 		},
 	}, 1)
 
-	_, err := exec.Execute(context.Background(), validJobWithArtifact("missing"))
+	_, err := exec.Execute(t.Context(), validJobWithArtifact("missing"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `stat artifact "missing"`)
 }
@@ -144,7 +144,7 @@ func TestExecutor_SandboxErrorSkipsArtifactCollection(t *testing.T) {
 		},
 	}, 1)
 
-	_, err := exec.Execute(context.Background(), validJobWithArtifact(testProgramName))
+	_, err := exec.Execute(t.Context(), validJobWithArtifact(testProgramName))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sandbox execute: boom")
 }
@@ -186,7 +186,7 @@ func TestExecutor_ContextCancelWhileWaitingForCapacity(t *testing.T) {
 		go exec.Execute(t.Context(), validJob())
 		synctest.Wait()
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
 		_, err := exec.Execute(ctx, validJob())

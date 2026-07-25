@@ -20,7 +20,7 @@ func TestSandbox_Cancellation(t *testing.T) {
 
 	sb, err := New(testSocketPath, testNamespace)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	// Ensure image setup is not part of the cancellation window under test.

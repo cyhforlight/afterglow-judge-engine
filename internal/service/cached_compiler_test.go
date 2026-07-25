@@ -54,11 +54,11 @@ func TestCachedCompiler_CacheHit(t *testing.T) {
 	require.NoError(t, err)
 
 	req := testCompileRequest("hello")
-	out1, err := cc.Compile(context.Background(), req)
+	out1, err := cc.Compile(t.Context(), req)
 	require.NoError(t, err)
 	assert.True(t, out1.Result.Succeeded)
 
-	out2, err := cc.Compile(context.Background(), req)
+	out2, err := cc.Compile(t.Context(), req)
 	require.NoError(t, err)
 	assert.True(t, out2.Result.Succeeded)
 	assert.Equal(t, 1, inner.calls, "inner should only be called once")
@@ -72,10 +72,10 @@ func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
 	require.NoError(t, err)
 
 	req := testCompileRequest("bad")
-	_, err = cc.Compile(context.Background(), req)
+	_, err = cc.Compile(t.Context(), req)
 	require.NoError(t, err)
 
-	_, err = cc.Compile(context.Background(), req)
+	_, err = cc.Compile(t.Context(), req)
 	require.NoError(t, err)
 	assert.Equal(t, 2, inner.calls, "failed compiles should not be cached")
 }
@@ -161,10 +161,10 @@ func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 	require.NoError(t, err)
 
 	req := testCompileRequest("err")
-	_, err = cc.Compile(context.Background(), req)
+	_, err = cc.Compile(t.Context(), req)
 	require.Error(t, err)
 
-	_, err = cc.Compile(context.Background(), req)
+	_, err = cc.Compile(t.Context(), req)
 	require.Error(t, err)
 	assert.Equal(t, 2, inner.calls)
 }

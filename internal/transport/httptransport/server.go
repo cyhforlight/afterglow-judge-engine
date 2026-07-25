@@ -81,7 +81,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serveErrCh := make(chan error, 1)
 	go func() {
 		err := s.httpServer.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErrCh <- fmt.Errorf("server error: %w", err)
 			return
 		}

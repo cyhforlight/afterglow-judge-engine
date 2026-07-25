@@ -61,7 +61,7 @@ func TestCPUPool_AcquireHonorsContextCancellation(t *testing.T) {
 	cpuID, err := pool.acquire(t.Context())
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	_, err = pool.acquire(ctx)

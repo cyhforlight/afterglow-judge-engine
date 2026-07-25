@@ -65,6 +65,7 @@
 
 ### 运行前提
 
+- Go 1.26
 - Linux 环境：Ubuntu 22.04 / Debian 12 或更新版本
 - cgroup v2
 - 可用的 containerd

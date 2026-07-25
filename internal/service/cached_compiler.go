@@ -87,8 +87,7 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 // Resource limits and artifact name are execution-time constraints
 // that do not change the resulting binary.
 func computeCacheKey(req CompileRequest) string {
-	sorted := slices.Clone(req.Files)
-	slices.SortFunc(sorted, func(a, b execution.File) int {
+	sorted := slices.SortedFunc(slices.Values(req.Files), func(a, b execution.File) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
 

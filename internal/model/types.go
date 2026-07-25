@@ -2,16 +2,14 @@
 package model
 
 import (
+	"cmp"
 	"encoding/json"
 )
 
 const unknownString = "Unknown"
 
 func stringOrUnknown(value string) string {
-	if value == "" {
-		return unknownString
-	}
-	return value
+	return cmp.Or(value, unknownString)
 }
 
 // Language identifies a programming language.

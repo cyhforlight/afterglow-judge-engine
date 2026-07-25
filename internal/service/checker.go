@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -165,10 +166,7 @@ func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error)
 		return nil, fmt.Errorf("checker setup failed: %w", err)
 	}
 	if !compileOut.Result.Succeeded {
-		message := strings.TrimSpace(compileOut.Result.Log)
-		if message == "" {
-			message = "checker compilation failed"
-		}
+		message := cmp.Or(strings.TrimSpace(compileOut.Result.Log), "checker compilation failed")
 		return nil, fmt.Errorf("checker compilation failed: %s", message)
 	}
 	return &compiledChecker{runner: r.engine.runner, artifact: *compileOut.Artifact}, nil
@@ -221,13 +219,11 @@ func (c *compiledChecker) Check(
 		return checkerResult{Verdict: model.VerdictUKE}, err
 	}
 
-	message := strings.TrimSpace(runOut.Stderr)
-	if message == "" {
-		message = strings.TrimSpace(runOut.Stdout)
-	}
-	if message == "" {
-		message = strings.TrimSpace(runOut.ExtraInfo)
-	}
+	message := cmp.Or(
+		strings.TrimSpace(runOut.Stderr),
+		strings.TrimSpace(runOut.Stdout),
+		strings.TrimSpace(runOut.ExtraInfo),
+	)
 
 	result := checkerResult{Verdict: model.VerdictUKE, Message: message}
 	switch runOut.Verdict {

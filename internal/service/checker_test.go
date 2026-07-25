@@ -218,7 +218,7 @@ func TestCheckerReference_Prepare(t *testing.T) {
 	resolved, err := engine.Resolve("")
 	require.NoError(t, err)
 
-	prepared, err := resolved.Prepare(context.Background())
+	prepared, err := resolved.Prepare(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, prepared)
 	require.Len(t, compiler.requests, 1)
@@ -265,7 +265,7 @@ func TestCheckerReference_PrepareFailures(t *testing.T) {
 			resolved, err := engine.Resolve("")
 			require.NoError(t, err)
 
-			_, err = resolved.Prepare(context.Background())
+			_, err = resolved.Prepare(t.Context())
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
@@ -334,7 +334,7 @@ func TestCompiledChecker_Check(t *testing.T) {
 				artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 			}
 
-			result, err := prepared.Check(context.Background(), "input", "actual", "expected")
+			result, err := prepared.Check(t.Context(), "input", "actual", "expected")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantVerdict, result.Verdict)
 			assert.Equal(t, tt.wantMessage, result.Message)
@@ -349,7 +349,7 @@ func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
 		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 	}
 
-	_, err := prepared.Check(context.Background(), "input", "actual", "expected")
+	_, err := prepared.Check(t.Context(), "input", "actual", "expected")
 	require.NoError(t, err)
 	require.Len(t, runner.requests, 1)
 
@@ -380,7 +380,7 @@ func TestCompiledChecker_CheckRunnerError(t *testing.T) {
 		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 	}
 
-	result, err := prepared.Check(context.Background(), "", "", "")
+	result, err := prepared.Check(t.Context(), "", "", "")
 
 	require.ErrorContains(t, err, "sandbox unavailable")
 	assert.Equal(t, model.VerdictUKE, result.Verdict)

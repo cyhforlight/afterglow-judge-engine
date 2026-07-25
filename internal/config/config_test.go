@@ -16,7 +16,6 @@ import (
 )
 
 func TestLoad_Defaults(t *testing.T) {
-	// Clear environment
 	clearEnv()
 
 	cfg, err := Load()

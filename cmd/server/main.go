@@ -28,8 +28,6 @@ func main() {
 	logger := setupLogger(cfg.LogLevel)
 	slog.SetDefault(logger)
 
-	logger.Info("starting sandbox server", "addr", fmt.Sprintf("%s:%d", cfg.HTTPAddr, cfg.HTTPPort))
-
 	server, err := initializeServer(cfg, logger)
 	if err != nil {
 		logger.Error("initialization failed", "error", err)
@@ -44,8 +42,6 @@ func main() {
 		logger.Error("server error", "error", serverErr)
 		os.Exit(1)
 	}
-
-	logger.Info("server stopped gracefully")
 }
 
 func setupLogger(level slog.Level) *slog.Logger {

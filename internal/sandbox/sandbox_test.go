@@ -132,7 +132,7 @@ func TestWatchExecution_NaturalExitReturnsMetricsError(t *testing.T) {
 	limiter := newOutputLimiter(1024)
 
 	result, err := (&Sandbox{}).watchExecution(
-		context.Background(),
+		t.Context(),
 		&fakeTaskController{},
 		exitCh,
 		newLimitedWriter(limiter),
@@ -164,7 +164,7 @@ func TestWatchExecution_ForcedStopStillKillsTaskWhenMetricsFail(t *testing.T) {
 	limiter.signal()
 
 	result, err := (&Sandbox{}).watchExecution(
-		context.Background(),
+		t.Context(),
 		task,
 		exitCh,
 		newLimitedWriter(limiter),
@@ -198,7 +198,7 @@ func TestWatchExecution_StopsTaskAtCPUTimeLimit(t *testing.T) {
 	limits.WallTimeMs = 1000
 
 	result, err := (&Sandbox{}).watchExecution(
-		context.Background(),
+		t.Context(),
 		task,
 		exitCh,
 		newLimitedWriter(limiter),
@@ -233,7 +233,7 @@ func TestWatchExecution_CPUMetricsFailureStopsTask(t *testing.T) {
 	limits.WallTimeMs = 1000
 
 	result, err := (&Sandbox{}).watchExecution(
-		context.Background(),
+		t.Context(),
 		task,
 		exitCh,
 		newLimitedWriter(limiter),

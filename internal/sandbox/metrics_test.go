@@ -82,7 +82,7 @@ func TestCollectMetrics_ReturnsReadErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := collectMetrics(context.Background(), tt.reader)
+			_, err := collectMetrics(t.Context(), tt.reader)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})

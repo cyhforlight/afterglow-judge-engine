@@ -2,7 +2,6 @@ package httptransport
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -168,8 +167,7 @@ func newE2EHandler(t *testing.T) *handler {
 	judge, err := service.NewJudgeEngine(executor, bundledFS, externalFS, 10, model.DefaultJudgeLimits())
 	require.NoError(t, err)
 
-	ctx := context.Background()
-	if err := sb.CheckEnvironment(ctx); err != nil {
+	if err := sb.CheckEnvironment(t.Context()); err != nil {
 		t.Skipf("sandbox environment unavailable: %v", err)
 	}
 
@@ -182,7 +180,7 @@ func executeJudgeRequest(t *testing.T, handler *handler, reqBody model.JudgeRequ
 	body, err := json.Marshal(reqBody)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.handleExecute(w, req)

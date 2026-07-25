@@ -79,7 +79,6 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 		Log:       compileLog,
 	}
 
-	artifact := result.Artifacts[req.ArtifactName]
-	out.Artifact = &artifact
+	out.Artifact = new(result.Artifacts[req.ArtifactName])
 	return out, nil
 }

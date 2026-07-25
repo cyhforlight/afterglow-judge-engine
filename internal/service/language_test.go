@@ -310,10 +310,7 @@ func TestCompiledProgramSupportsConcurrentRuns(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range runCount {
 		wg.Go(func() {
-			errs[i] = func() error {
-				_, err := program.Run(t.Context(), fmt.Sprintf("input-%d", i), 1000, 128)
-				return err
-			}()
+			_, errs[i] = program.Run(t.Context(), fmt.Sprintf("input-%d", i), 1000, 128)
 		})
 	}
 	wg.Wait()

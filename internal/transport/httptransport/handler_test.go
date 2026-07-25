@@ -72,7 +72,7 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 	handler := newTestHandler(&mockJudgeService{})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/v1/execute", bytes.NewBufferString(tt.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", bytes.NewBufferString(tt.body))
 			w := httptest.NewRecorder()
 			handler.handleExecute(w, req)
 
@@ -88,7 +88,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	dto := validJudgeRequest()
 	dto.Checker = "ncmp"
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
 	w := httptest.NewRecorder()
 	handler.handleExecute(w, req)
 
@@ -107,7 +107,7 @@ func TestHandleExecute_BodyTooLarge(t *testing.T) {
 	dto := validJudgeRequest()
 	dto.SourceCode = "abcdefghijklmnopqrstuvwxyz"
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
 	w := httptest.NewRecorder()
 	handler.handleExecute(w, req)
 

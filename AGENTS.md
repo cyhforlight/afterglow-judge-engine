@@ -100,7 +100,7 @@ HTTP 请求、外部文件和路径、用户提交的程序、编译器输出以
 
 ## 5. 技术栈与工具链
 
-- Go 版本以 `go.mod` 为唯一事实来源，当前为 Go 1.25.0。
+- Go 版本以 `go.mod` 为唯一事实来源，当前为 Go 1.26.0。
 - 目标运行环境为 Ubuntu 22.04、Debian 12 或更新版本。
 - 格式化和 import 管理使用 goimports。
 - 代码质量检查使用 golangci-lint，具体规则以 `.golangci.yml` 为准。

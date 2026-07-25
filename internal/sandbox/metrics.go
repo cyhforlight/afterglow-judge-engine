@@ -72,12 +72,8 @@ func parseCgroupMetrics(data typeurl.Any) (cgroupMetrics, error) {
 		m.peakMemBytes = max(v2.Memory.MaxUsage, v2.Memory.Usage)
 	}
 	if v2.MemoryEvents != nil {
-		if v2.MemoryEvents.OomKill > 0 {
-			m.oomKillDetected = true
-		}
-		if v2.MemoryEvents.Max > 0 || v2.MemoryEvents.Oom > 0 {
-			m.memoryLimitHit = true
-		}
+		m.oomKillDetected = v2.MemoryEvents.OomKill > 0
+		m.memoryLimitHit = v2.MemoryEvents.Max > 0 || v2.MemoryEvents.Oom > 0
 	}
 	return m, nil
 }

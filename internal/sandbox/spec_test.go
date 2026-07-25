@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"context"
 	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/oci"
@@ -12,7 +11,7 @@ import (
 
 func TestSandboxSecurityOpts_PinsContainerToCPU(t *testing.T) {
 	spec := &oci.Spec{Linux: &specs.Linux{}}
-	err := sandboxSecurityOpts(false, 7)(context.Background(), nil, nil, spec)
+	err := sandboxSecurityOpts(false, 7)(t.Context(), nil, nil, spec)
 	require.NoError(t, err)
 
 	require.NotNil(t, spec.Linux.Resources)
