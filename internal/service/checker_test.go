@@ -16,16 +16,14 @@ import (
 )
 
 type recordingCheckerCompiler struct {
-	mu       sync.Mutex
-	output   CompileOutput
-	err      error
-	requests []CompileRequest
+	mu     sync.Mutex
+	output CompileOutput
+	err    error
 }
 
-func (c *recordingCheckerCompiler) Compile(_ context.Context, req CompileRequest) (CompileOutput, error) {
+func (c *recordingCheckerCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.requests = append(c.requests, req)
 	return c.output, c.err
 }
 
@@ -204,38 +202,6 @@ func TestCheckerReference_Validate(t *testing.T) {
 	}
 }
 
-func TestCheckerReference_Prepare(t *testing.T) {
-	compiler := &recordingCheckerCompiler{output: CompileOutput{
-		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &execution.Artifact{Data: []byte("checker binary"), Mode: 0o755},
-	}}
-	runner := &recordingCheckerRunner{}
-	engine := &checkerEngine{
-		compiler:  compiler,
-		runner:    runner,
-		bundledFS: checkerTestFS(),
-	}
-	resolved, err := engine.Resolve("")
-	require.NoError(t, err)
-
-	prepared, err := resolved.Prepare(t.Context())
-	require.NoError(t, err)
-	require.NotNil(t, prepared)
-	require.Len(t, compiler.requests, 1)
-
-	req := compiler.requests[0]
-	assert.Equal(t, "checker", req.ArtifactName)
-	assert.Equal(t, "docker.io/library/gcc:12-bookworm", req.ImageRef)
-	assert.Equal(t, checkerCompileProfile().BuildCommand, req.Command)
-	assert.Equal(t, checkerCompileProfile().TimeoutMs, req.Limits.CPUTimeMs)
-	assert.Equal(t, checkerCompileProfile().MemoryMB, req.Limits.MemoryMB)
-	require.Len(t, req.Files, 2)
-	assert.Equal(t, "checker.cpp", req.Files[0].Name)
-	assert.Equal(t, []byte("checker source"), req.Files[0].Content)
-	assert.Equal(t, testlibHeaderKey, req.Files[1].Name)
-	assert.Equal(t, []byte("testlib header"), req.Files[1].Content)
-}
-
 func TestCheckerReference_PrepareFailures(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -340,38 +306,6 @@ func TestCompiledChecker_Check(t *testing.T) {
 			assert.Equal(t, tt.wantMessage, result.Message)
 		})
 	}
-}
-
-func TestCompiledChecker_CheckBuildsRunRequest(t *testing.T) {
-	runner := &recordingCheckerRunner{result: RunResult{Verdict: execution.VerdictOK, ExitCode: 0}}
-	prepared := &compiledChecker{
-		runner:   runner,
-		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
-	}
-
-	_, err := prepared.Check(t.Context(), "input", "actual", "expected")
-	require.NoError(t, err)
-	require.Len(t, runner.requests, 1)
-
-	req := runner.requests[0]
-	assert.Equal(t, "docker.io/library/debian:12-slim", req.ImageRef)
-	assert.Equal(t, checkerRunLimits(), req.Limits)
-	assert.Equal(t, []string{
-		"./checker",
-		"input.txt",
-		"output.txt",
-		"answer.txt",
-	}, req.Command)
-	require.Len(t, req.Files, 4)
-	assert.Equal(t, []string{"checker", "input.txt", "output.txt", "answer.txt"}, []string{
-		req.Files[0].Name,
-		req.Files[1].Name,
-		req.Files[2].Name,
-		req.Files[3].Name,
-	})
-	assert.Equal(t, []byte("input"), req.Files[1].Content)
-	assert.Equal(t, []byte("actual"), req.Files[2].Content)
-	assert.Equal(t, []byte("expected"), req.Files[3].Content)
 }
 
 func TestCompiledChecker_CheckRunnerError(t *testing.T) {

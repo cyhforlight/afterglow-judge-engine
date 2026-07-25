@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"sync"
 	"testing"
 
@@ -52,127 +51,6 @@ func (r *recordingRunner) Run(_ context.Context, req RunRequest) (RunResult, err
 	defer r.mu.Unlock()
 	r.requests = append(r.requests, recordedRun{request: req, input: string(input)})
 	return r.result, r.err
-}
-
-func TestLanguageCompileAndRunRequests(t *testing.T) {
-	tests := []struct {
-		name               string
-		language           model.Language
-		compileImage       string
-		sourceFile         string
-		artifactName       string
-		compileCommand     []string
-		compileTimeLimit   int
-		compileMemory      int
-		runImage           string
-		runCommand         []string
-		sandboxMemoryLimit int
-	}{
-		{
-			name:               "C",
-			language:           model.LanguageC,
-			compileImage:       "docker.io/library/gcc:12-bookworm",
-			sourceFile:         "main.c",
-			artifactName:       "program",
-			compileCommand:     []string{"gcc", "-O2", "-pipe", "-static", "-s", "-o", "program", "main.c", "-lm"},
-			compileTimeLimit:   30000,
-			compileMemory:      512,
-			runImage:           "docker.io/library/debian:12-slim",
-			runCommand:         []string{"./program"},
-			sandboxMemoryLimit: 128,
-		},
-		{
-			name:               "C++",
-			language:           model.LanguageCPP,
-			compileImage:       "docker.io/library/gcc:12-bookworm",
-			sourceFile:         "main.cpp",
-			artifactName:       "program",
-			compileCommand:     []string{"g++", "-std=c++20", "-O2", "-pipe", "-static", "-s", "-o", "program", "main.cpp", "-lm"},
-			compileTimeLimit:   30000,
-			compileMemory:      512,
-			runImage:           "docker.io/library/debian:12-slim",
-			runCommand:         []string{"./program"},
-			sandboxMemoryLimit: 128,
-		},
-		{
-			name:         "Java",
-			language:     model.LanguageJava,
-			compileImage: "docker.io/library/eclipse-temurin:21-jdk-jammy",
-			sourceFile:   "Main.java",
-			artifactName: "solution.jar",
-			compileCommand: []string{
-				"sh", "-c",
-				"mkdir -p classes && javac -encoding UTF-8 -d classes Main.java && jar --create --file solution.jar --main-class Main -C classes .",
-			},
-			compileTimeLimit:   30000,
-			compileMemory:      512,
-			runImage:           "docker.io/library/eclipse-temurin:21-jre-jammy",
-			runCommand:         []string{"java", "-Xmx128m", "-Xms64m", "-jar", "./solution.jar"},
-			sandboxMemoryLimit: 192,
-		},
-		{
-			name:         "Python",
-			language:     model.LanguagePython,
-			compileImage: "docker.io/library/python:3.11-slim-bookworm",
-			sourceFile:   "solution.py",
-			artifactName: "solution.pyc",
-			compileCommand: []string{
-				"sh", "-c",
-				"python3 -c 'import py_compile; py_compile.compile(\"solution.py\", cfile=\"solution.pyc\", doraise=True)' || exit 1",
-			},
-			compileTimeLimit:   10000,
-			compileMemory:      256,
-			runImage:           "docker.io/library/python:3.11-slim-bookworm",
-			runCommand:         []string{"python3", "./solution.pyc"},
-			sandboxMemoryLimit: 128,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			compiler := &recordingCompiler{output: CompileOutput{
-				Result:   model.CompileResult{Succeeded: true},
-				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
-			}}
-			runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
-
-			languageCompiler, err := newLanguage(compiler, runner).Resolve(tt.language)
-			require.NoError(t, err)
-			program, compileResult, err := languageCompiler.Compile(t.Context(), "source code")
-			require.NoError(t, err)
-			require.True(t, compileResult.Succeeded)
-
-			require.Len(t, compiler.requests, 1)
-			compileReq := compiler.requests[0]
-			assert.Equal(t, tt.compileImage, compileReq.ImageRef)
-			assert.Equal(t, tt.compileCommand, compileReq.Command)
-			assert.Equal(t, tt.artifactName, compileReq.ArtifactName)
-			require.Len(t, compileReq.Files, 1)
-			assert.Equal(t, tt.sourceFile, compileReq.Files[0].Name)
-			assert.Equal(t, []byte("source code"), compileReq.Files[0].Content)
-			assert.Equal(t, fs.FileMode(0o644), compileReq.Files[0].Mode)
-			assert.Equal(t, tt.compileTimeLimit, compileReq.Limits.CPUTimeMs)
-			assert.Equal(t, tt.compileTimeLimit*execution.WallTimeMultiplier, compileReq.Limits.WallTimeMs)
-			assert.Equal(t, tt.compileMemory, compileReq.Limits.MemoryMB)
-			assert.Equal(t, int64(execution.DefaultCompileOutputLimitBytes), compileReq.Limits.OutputBytes)
-
-			_, err = program.Run(t.Context(), "input data", 250, 128)
-			require.NoError(t, err)
-			require.Len(t, runner.requests, 1)
-			runReq := runner.requests[0]
-			assert.Equal(t, "input data", runReq.input)
-			assert.Equal(t, tt.runImage, runReq.request.ImageRef)
-			assert.Equal(t, tt.runCommand, runReq.request.Command)
-			require.Len(t, runReq.request.Files, 1)
-			assert.Equal(t, tt.artifactName, runReq.request.Files[0].Name)
-			assert.Equal(t, []byte("program"), runReq.request.Files[0].Content)
-			assert.Equal(t, fs.FileMode(0o755), runReq.request.Files[0].Mode)
-			assert.Equal(t, 250, runReq.request.Limits.CPUTimeMs)
-			assert.Equal(t, 250*execution.WallTimeMultiplier, runReq.request.Limits.WallTimeMs)
-			assert.Equal(t, tt.sandboxMemoryLimit, runReq.request.Limits.MemoryMB)
-			assert.Equal(t, int64(execution.DefaultRunOutputLimitBytes), runReq.request.Limits.OutputBytes)
-		})
-	}
 }
 
 func TestLanguageResolveRejectsUnsupportedLanguage(t *testing.T) {

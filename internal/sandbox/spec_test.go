@@ -19,11 +19,15 @@ func TestSandboxSecurityOpts_PinsContainerToCPU(t *testing.T) {
 	assert.Equal(t, "7", spec.Linux.Resources.CPU.Cpus)
 }
 
-func TestMountSpecOpts_SetsContainerPathAsCwd(t *testing.T) {
+func TestMountSpecOpts_ConfiguresMountAndWorkingDirectory(t *testing.T) {
 	opts := mountSpecOpts(&Mount{HostPath: "/tmp/work", ContainerPath: "/sandbox"})
-	require.Len(t, opts, 2)
-
 	spec := &oci.Spec{Process: &specs.Process{}}
-	require.NoError(t, opts[1](t.Context(), nil, nil, spec))
+	for _, opt := range opts {
+		require.NoError(t, opt(t.Context(), nil, nil, spec))
+	}
+
+	require.Len(t, spec.Mounts, 1)
+	assert.Equal(t, "/tmp/work", spec.Mounts[0].Source)
+	assert.Equal(t, "/sandbox", spec.Mounts[0].Destination)
 	assert.Equal(t, "/sandbox", spec.Process.Cwd)
 }

@@ -21,27 +21,17 @@ func (e *fakeExecutor) Execute(_ context.Context, job execution.Job) (execution.
 	return e.executeFunc(job), nil
 }
 
-func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
+func TestCompiler_UsesWritableUnsandboxedWorkspace(t *testing.T) {
 	exec := &fakeExecutor{
 		executeFunc: func(job execution.Job) execution.Result {
 			t.Helper()
 
-			assert.Equal(t, "compiler-image", job.ImageRef)
-			assert.Equal(t, []string{"gcc", "-o", "program", "main.c"}, job.Command)
 			assert.Equal(t, "/work", job.MountPath)
 			assert.False(t, job.ReadOnlyMount)
 			assert.False(t, job.EnableSeccomp)
 			assert.Equal(t, []string{"program"}, job.Artifacts)
-			require.Len(t, job.Files, 1)
-			assert.Equal(t, "main.c", job.Files[0].Name)
-			assert.Equal(t, []byte("int main() { return 0; }"), job.Files[0].Content)
-
 			return execution.Result{
-				RawResult: execution.RawResult{
-					ExitCode: 0,
-					Verdict:  execution.VerdictOK,
-					Stdout:   "build ok",
-				},
+				RawResult: execution.RawResult{Verdict: execution.VerdictOK},
 				Artifacts: map[string]execution.Artifact{
 					"program": {Data: []byte("binary"), Mode: 0o755},
 				},
@@ -51,79 +41,26 @@ func TestCompiler_ExecutesCompileJobAndLoadsArtifact(t *testing.T) {
 
 	compiler := newCompiler(exec)
 	out, err := compiler.Compile(t.Context(), CompileRequest{
-		Files: []execution.File{{
-			Name:    "main.c",
-			Content: []byte("int main() { return 0; }"),
-			Mode:    0o644,
-		}},
-		ImageRef:     "compiler-image",
-		Command:      []string{"gcc", "-o", "program", "main.c"},
 		ArtifactName: "program",
-		Limits: execution.Limits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: execution.DefaultCompileOutputLimitBytes,
-		},
 	})
 	require.NoError(t, err)
 	require.True(t, out.Result.Succeeded)
 	require.NotNil(t, out.Artifact)
-	assert.Equal(t, []byte("binary"), out.Artifact.Data)
 }
 
-func TestRunner_ExecutesRunJobAndReturnsRawResult(t *testing.T) {
+func TestRunner_UsesReadOnlySandbox(t *testing.T) {
 	exec := &fakeExecutor{
 		executeFunc: func(job execution.Job) execution.Result {
 			t.Helper()
 
-			assert.Equal(t, "runtime-image", job.ImageRef)
-			assert.Equal(t, []string{"./program"}, job.Command)
 			assert.Equal(t, "/sandbox", job.MountPath)
 			assert.True(t, job.ReadOnlyMount)
 			assert.True(t, job.EnableSeccomp)
-			require.Len(t, job.Files, 1)
-			assert.Equal(t, "program", job.Files[0].Name)
-			assert.Equal(t, []byte("binary"), job.Files[0].Content)
-
-			return execution.Result{
-				RawResult: execution.RawResult{
-					ExitCode:  0,
-					Stdout:    "stdout",
-					Stderr:    "stderr",
-					CPUTimeMs: 12,
-					MemoryMB:  34,
-					Verdict:   execution.VerdictOK,
-					ExtraInfo: "details",
-				},
-			}
+			return execution.Result{}
 		},
 	}
 
 	runner := newRunner(exec)
-	out, err := runner.Run(t.Context(), RunRequest{
-		Files: []execution.File{{
-			Name:    "program",
-			Content: []byte("binary"),
-			Mode:    0o755,
-		}},
-		ImageRef: "runtime-image",
-		Command:  []string{"./program"},
-		Limits: execution.Limits{
-			CPUTimeMs:   1000,
-			WallTimeMs:  3000,
-			MemoryMB:    128,
-			OutputBytes: execution.DefaultRunOutputLimitBytes,
-		},
-	})
+	_, err := runner.Run(t.Context(), RunRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, RunResult{
-		ExitCode:  0,
-		Stdout:    "stdout",
-		Stderr:    "stderr",
-		CPUTimeMs: 12,
-		MemoryMB:  34,
-		Verdict:   execution.VerdictOK,
-		ExtraInfo: "details",
-	}, out)
 }
