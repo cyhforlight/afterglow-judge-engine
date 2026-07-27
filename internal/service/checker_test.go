@@ -71,13 +71,6 @@ func TestNewChecker_RejectsDirectoryDependency(t *testing.T) {
 	require.ErrorContains(t, err, `"testlib.h" is not a regular file`)
 }
 
-func TestResolveChecker_Default(t *testing.T) {
-	location, err := resolveChecker("")
-	require.NoError(t, err)
-	assert.Equal(t, "default", location.path)
-	assert.False(t, location.isExternal)
-}
-
 func TestResolveChecker_Builtin(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -85,6 +78,7 @@ func TestResolveChecker_Builtin(t *testing.T) {
 		wantPath string
 		wantErr  string
 	}{
+		{name: "empty selects default", input: "", wantPath: "default"},
 		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
 		{name: "uppercase allowed", input: "NCMP", wantPath: "NCMP"},
 		{name: "underscore allowed", input: "my_checker", wantPath: "my_checker"},

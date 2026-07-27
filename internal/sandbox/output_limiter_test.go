@@ -41,9 +41,15 @@ func TestLimitedWriter_ExactLimitDoesNotOverflow(t *testing.T) {
 	limiter := newOutputLimiter(5)
 	stdout := newLimitedWriter(limiter)
 
-	_, err := stdout.Write([]byte("12345"))
+	n, err := stdout.Write([]byte("12345"))
 	require.NoError(t, err)
 
+	assert.Equal(t, 5, n)
 	assert.Equal(t, "12345", stdout.String())
 	assert.False(t, stdout.isOverflowed())
+	select {
+	case <-limiter.ch:
+		t.Fatal("reaching the exact limit must not signal overflow")
+	default:
+	}
 }

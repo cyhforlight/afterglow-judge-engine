@@ -523,16 +523,19 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 	}
 }
 
-func TestJudgeEngine_Judge_UsesRequestedChecker(t *testing.T) {
+func TestJudgeEngine_UsesRequestedLanguageAndChecker(t *testing.T) {
+	languageModule := newFakeLanguage()
 	checkerModule := newFakeChecker()
-	program := &fakeCompiledProgram{runResult: userOKRunResult("YES\n")}
-	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
+	engine := newTestJudgeEngine(languageModule, checkerModule)
 	req := baseJudgeRequest(model.JudgeTestCase{ExpectedOutput: "YES\n"})
+	req.Language = model.LanguageJava
 	req.Checker = "yesno"
 
 	result := judgeSuccessfully(t, engine, req)
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
+	assert.Equal(t, []model.Language{model.LanguageJava}, languageModule.languages)
+	assert.Equal(t, []string{req.SourceCode}, languageModule.compiler.sources)
 	assert.Equal(t, []string{"yesno"}, checkerModule.references)
 }
 
@@ -560,19 +563,6 @@ func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "infrastructure error: sandbox unavailable")
 	assert.Empty(t, checkerModule.resolved.prepared.calls)
-}
-
-func TestJudgeEngine_UsesRequestedLanguage(t *testing.T) {
-	languageModule := newFakeLanguage()
-	engine := newTestJudgeEngine(languageModule, nil)
-	req := baseJudgeRequest()
-	req.Language = model.LanguageJava
-
-	result := judgeSuccessfully(t, engine, req)
-
-	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, []model.Language{model.LanguageJava}, languageModule.languages)
-	assert.Equal(t, []string{req.SourceCode}, languageModule.compiler.sources)
 }
 
 func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
@@ -635,9 +625,7 @@ func TestAggregateStatus(t *testing.T) {
 		cases    []model.JudgeCaseResult
 		expected model.JudgeStatus
 	}{
-		{"all OK returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictOK}}, model.JudgeStatusOK},
-		{"WA without UKE returns OK", []model.JudgeCaseResult{{Verdict: model.VerdictOK}, {Verdict: model.VerdictWA}}, model.JudgeStatusOK},
-		{"mixed runtime errors without UKE returns OK", []model.JudgeCaseResult{
+		{"all non-infrastructure verdicts return OK", []model.JudgeCaseResult{
 			{Verdict: model.VerdictOK}, {Verdict: model.VerdictTLE}, {Verdict: model.VerdictMLE},
 			{Verdict: model.VerdictRE}, {Verdict: model.VerdictOLE}, {Verdict: model.VerdictWA},
 		}, model.JudgeStatusOK},

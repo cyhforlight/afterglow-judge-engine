@@ -53,11 +53,7 @@ func validJudgeRequest() model.JudgeRequest {
 }
 
 func newTestHandler(judge JudgeService) *handler {
-	return newTestHandlerWithSize(judge, 256)
-}
-
-func newTestHandlerWithSize(judge JudgeService, maxSizeMB int) *handler {
-	return newHandler(judge, slog.Default(), int64(maxSizeMB)*testBytesPerMiB)
+	return newHandler(judge, slog.Default(), 256*testBytesPerMiB)
 }
 
 func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
@@ -69,14 +65,22 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 		{name: "unknown field", body: `{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`},
 	}
 
-	handler := newTestHandler(&mockJudgeService{})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			judge := &mockJudgeService{}
+			handler := newTestHandler(judge)
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", bytes.NewBufferString(tt.body))
 			w := httptest.NewRecorder()
 			handler.handleExecute(w, req)
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.Zero(t, judge.judgeCalls)
+
+			var resp errorResponse
+			err := json.NewDecoder(w.Body).Decode(&resp)
+			require.NoError(t, err)
+			assert.Equal(t, "INVALID_REQUEST", resp.Code)
+			assert.NotEmpty(t, resp.Details)
 		})
 	}
 }
@@ -98,11 +102,13 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
+	assert.Equal(t, "INVALID_REQUEST", resp.Code)
 	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {
-	handler := newTestHandlerWithSize(&mockJudgeService{}, 0)
+	judge := &mockJudgeService{}
+	handler := newHandler(judge, slog.Default(), 1)
 
 	dto := validJudgeRequest()
 	dto.SourceCode = "abcdefghijklmnopqrstuvwxyz"
@@ -112,4 +118,11 @@ func TestHandleExecute_BodyTooLarge(t *testing.T) {
 	handler.handleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Zero(t, judge.judgeCalls)
+
+	var resp errorResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "INVALID_REQUEST", resp.Code)
+	assert.Contains(t, resp.Details, "request body too large")
 }
