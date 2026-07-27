@@ -198,6 +198,14 @@ func testFileSystem(files map[string][]byte) fstest.MapFS {
 	return fsys
 }
 
+type readFailFS struct {
+	fs.FS
+}
+
+func (readFailFS) ReadFile(string) ([]byte, error) {
+	return nil, fs.ErrPermission
+}
+
 func userOKRunResult(stdout string) RunResult {
 	return RunResult{ExitCode: 0, Stdout: stdout, Verdict: execution.VerdictOK}
 }
@@ -390,6 +398,31 @@ func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.True(t, result.Compile.Succeeded)
 	assert.Empty(t, result.Cases)
+}
+
+func TestJudgeEngine_TestDataLoadFailureReturnsNoCaseResults(t *testing.T) {
+	program := &fakeCompiledProgram{runResult: userOKRunResult("output")}
+	checkerModule := newFakeChecker()
+	externalFS := readFailFS{FS: testFileSystem(map[string][]byte{
+		"test.in":  []byte("input"),
+		"test.out": []byte("output"),
+	})}
+	engine := newTestJudgeEngineWithExternalResources(
+		newFakeLanguageWithProgram(program),
+		checkerModule,
+		externalFS,
+	)
+
+	result := judgeSuccessfully(t, engine, baseJudgeRequest(
+		model.JudgeTestCase{ExpectedOutput: "output"},
+		model.JudgeTestCase{InputFile: "test.in", ExpectedOutputFile: "test.out"},
+	))
+
+	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
+	assert.True(t, result.Compile.Succeeded)
+	assert.Equal(t, []model.JudgeCaseResult{}, result.Cases)
+	assert.Empty(t, program.inputs)
+	assert.Empty(t, checkerModule.resolved.prepared.calls)
 }
 
 func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {

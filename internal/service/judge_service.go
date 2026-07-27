@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -236,7 +237,19 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 		}
 	}
 
-	caseResults := s.runAllCases(ctx, req, program, prepared)
+	req.TestCases = slices.Clone(req.TestCases)
+	for i := range req.TestCases {
+		if err := s.loadTestCaseData(&req.TestCases[i]); err != nil {
+			slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
+			return model.JudgeResult{
+				Status:  model.JudgeStatusSystemError,
+				Compile: compileResult,
+				Cases:   []model.JudgeCaseResult{},
+			}
+		}
+	}
+
+	caseResults := runAllCases(ctx, req, program, prepared)
 
 	return model.JudgeResult{
 		Status:  aggregateStatus(caseResults),
@@ -245,27 +258,18 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 	}
 }
 
-// runAllCases loads test data and executes each case concurrently.
+// runAllCases executes preloaded test cases concurrently.
 // Actual parallelism is bounded by the execution module.
-func (s *JudgeEngine) runAllCases(
+func runAllCases(
 	ctx context.Context,
 	req model.JudgeRequest,
 	program compiledProgram,
 	prepared preparedChecker,
 ) []model.JudgeCaseResult {
 	results := make([]model.JudgeCaseResult, len(req.TestCases))
-
 	var wg sync.WaitGroup
 	for i, tc := range req.TestCases {
 		wg.Go(func() {
-			if err := s.loadTestCaseData(&tc); err != nil {
-				slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
-				results[i] = model.JudgeCaseResult{
-					Verdict:   model.VerdictUKE,
-					ExtraInfo: fmt.Sprintf("test data loading failed: %v", err),
-				}
-				return
-			}
 			results[i] = runSingleCase(ctx, req, program, prepared, tc, i)
 		})
 	}

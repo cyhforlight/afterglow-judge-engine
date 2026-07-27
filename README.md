@@ -148,7 +148,7 @@ transport -> service -> model
 2. transport 单次调用 service；service 校验请求限制、checker 引用和外部资源是否可用
 3. 请求通过校验后，service 限制并发判题请求数
 4. service 解析语言、编译用户代码并准备已解析的 checker
-5. 编译成功后，各 testcase 按需加载 `inputFile` / `expectedOutputFile`
+5. 编译和 checker 准备成功后，完整加载全部 testcase 的 `inputFile` / `expectedOutputFile`；任一读取失败则终止本次评测
 6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
 7. service 汇总逐点结果和判题流程状态
 8. transport 将未受理错误映射为 HTTP 400，或以 HTTP 200 返回判题结果
@@ -275,7 +275,7 @@ Content-Type: application/json
 }
 ```
 
-顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致。
+顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致；checker 准备或测试数据加载失败时返回空数组。
 
 `cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 
