@@ -120,7 +120,7 @@ curl -X POST http://localhost:8080/v1/execute \
 当前实现采用一条比较克制的分层链路：
 
 - `transport/httptransport`
-  - 负责 HTTP 路由、鉴权、请求体大小限制、JSON 解码、调用 service 和响应编码
+  - 负责 HTTP 路由、请求体大小限制、JSON 解码、调用 service 和响应编码
 - `service`
   - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`
@@ -283,7 +283,7 @@ Content-Type: application/json
 
 ```json
 {
-  "error": "INVALID_REQUEST",
+  "error": "Bad Request",
   "code": "INVALID_REQUEST",
   "details": "sourceCode is required"
 }

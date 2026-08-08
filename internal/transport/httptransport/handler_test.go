@@ -97,11 +97,13 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	handler.handleExecute(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 	assert.Equal(t, 1, judge.judgeCalls)
 
 	var resp errorResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
+	assert.Equal(t, http.StatusText(http.StatusBadRequest), resp.Error)
 	assert.Equal(t, "INVALID_REQUEST", resp.Code)
 	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)
 }

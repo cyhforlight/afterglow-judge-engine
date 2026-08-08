@@ -265,9 +265,6 @@ func builtinCheckerPath(shortName string) string {
 }
 
 func validateCheckerShortName(name string) error {
-	if name == "" {
-		return errors.New("checker name must not be empty")
-	}
 	if strings.ContainsAny(name, `/\.`) {
 		return fmt.Errorf("checker %q contains invalid path characters (/, \\, .)", name)
 	}

@@ -22,6 +22,12 @@ type handler struct {
 	maxSize int64 // max request body size in bytes
 }
 
+type errorResponse struct {
+	Error   string `json:"error"`
+	Code    string `json:"code"`
+	Details string `json:"details,omitempty"`
+}
+
 func newHandler(judge JudgeService, logger *slog.Logger, maxSize int64) *handler {
 	return &handler{
 		judge:   judge,
@@ -39,17 +45,17 @@ func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		h.writeInvalidRequest(w, err.Error())
 		return
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "request body must contain exactly one JSON object")
+		h.writeInvalidRequest(w, "request body must contain exactly one JSON object")
 		return
 	}
 
 	result, err := h.judge.Judge(ctx, req)
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		h.writeInvalidRequest(w, err.Error())
 		return
 	}
 
@@ -65,7 +71,10 @@ func (h *handler) writeJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-// writeError writes an error response.
-func (h *handler) writeError(w http.ResponseWriter, status int, code, details string) {
-	writeErrorResponse(w, h.logger, status, code, details)
+func (h *handler) writeInvalidRequest(w http.ResponseWriter, details string) {
+	h.writeJSON(w, http.StatusBadRequest, errorResponse{
+		Error:   http.StatusText(http.StatusBadRequest),
+		Code:    "INVALID_REQUEST",
+		Details: details,
+	})
 }
