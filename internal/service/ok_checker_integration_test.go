@@ -43,6 +43,8 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 		{19, "default", model.VerdictWA},
 		{20, "lcmp", model.VerdictWA},
 	}
+	externalRoot, err := filepath.Abs(testdataPath("ok-and-checker-cases"))
+	require.NoError(t, err)
 
 	for _, tc := range testcases {
 		testcaseName := fmt.Sprintf("testcase-%d", tc.num)
@@ -63,7 +65,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			runOut := runUserProgram(t, env, program, inputData, 2000, 256)
 			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
-			externalFS, err := resource.NewExternal(testdataPath("ok-and-checker-cases"))
+			externalFS, err := resource.NewExternal(externalRoot)
 			require.NoError(t, err)
 			checkerModule := newCheckerForTest(t, env.compiler, env.runner, externalFS)
 			prepared := prepareCheckerForTest(env.ctx, t, checkerModule, tc.checker)
