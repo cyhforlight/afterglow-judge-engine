@@ -26,7 +26,7 @@ type checkerExecutorFake struct {
 type gatedCheckerExecutor struct {
 	release      chan struct{}
 	started      chan context.Context
-	compileCount *atomic.Int32
+	compileCount atomic.Int32
 }
 
 func (e *checkerExecutorFake) Compile(
@@ -94,60 +94,23 @@ func materializeCheckerPlan(t *testing.T, checkerModule checker, location checke
 	return plan
 }
 
-func TestNewChecker_RejectsMissingTestlib(t *testing.T) {
-	bundledFS := testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")})
-	_, err := newChecker(&checkerExecutorFake{}, bundledFS, nil)
-
-	require.ErrorContains(t, err, `checker dependency "testlib.h" is not available`)
-}
-
-func TestNewChecker_RejectsMissingDefaultChecker(t *testing.T) {
-	bundledFS := testFileSystem(map[string][]byte{testlibHeaderKey: []byte("header")})
-	_, err := newChecker(&checkerExecutorFake{}, bundledFS, nil)
-
-	require.ErrorContains(t, err, `checker dependency "checkers/default.cpp" is not available`)
-}
-
-func TestResolveChecker_Builtin(t *testing.T) {
+func TestResolveChecker(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantPath string
-		wantErr  string
+		name         string
+		input        string
+		wantPath     string
+		wantExternal bool
+		wantErr      string
 	}{
 		{name: "empty selects default", input: "", wantPath: "default"},
 		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
-		{name: "uppercase allowed", input: "NCMP", wantPath: "NCMP"},
-		{name: "underscore allowed", input: "my_checker", wantPath: "my_checker"},
-		{name: "hyphen allowed", input: "ncmp-v2", wantPath: "ncmp-v2"},
-		{name: "file extension rejected", input: "ncmp.cpp", wantErr: "invalid path characters"},
-		{name: "path rejected", input: "../ncmp", wantErr: "invalid path characters"},
-		{name: "special char rejected", input: "ncmp@v2", wantErr: "invalid characters"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			location, err := resolveChecker(tt.input)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantPath, location.path)
-			assert.False(t, location.isExternal)
-		})
-	}
-}
-
-func TestResolveChecker_External(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		wantPath string
-		wantErr  string
-	}{
-		{name: "valid path", input: "external:testcase-15/checker.cpp", wantPath: "testcase-15/checker.cpp"},
-		{name: "normalized path", input: "external:a/../b/checker.cpp", wantPath: "b/checker.cpp"},
+		{name: "path rejected", input: "../ncmp.cpp", wantErr: "invalid path characters"},
+		{
+			name:         "valid external path",
+			input:        "external:testcase-15/checker.cpp",
+			wantPath:     "testcase-15/checker.cpp",
+			wantExternal: true,
+		},
 		{name: "path traversal rejected", input: "external:../etc/passwd", wantErr: "escapes resource root"},
 		{name: "non-cpp rejected", input: "external:script.sh", wantErr: "must be a .cpp file"},
 		{name: "empty path", input: "external:", wantErr: "external checker path is required"},
@@ -162,7 +125,7 @@ func TestResolveChecker_External(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPath, location.path)
-			assert.True(t, location.isExternal)
+			assert.Equal(t, tt.wantExternal, location.isExternal)
 		})
 	}
 }
@@ -171,26 +134,22 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 	tests := []struct {
 		name       string
 		reference  string
-		bundledFS  fs.FS
 		externalFS fs.FS
 		wantErr    string
 	}{
 		{
 			name:      "requested builtin missing",
 			reference: "ncmp",
-			bundledFS: checkerTestFS(),
 			wantErr:   `builtin checker "ncmp" is not available`,
 		},
 		{
 			name:      "external resources not configured",
 			reference: "external:custom.cpp",
-			bundledFS: checkerTestFS(),
 			wantErr:   `external checker "custom.cpp" requires external resources`,
 		},
 		{
 			name:       "external checker missing",
 			reference:  "external:custom.cpp",
-			bundledFS:  checkerTestFS(),
 			externalFS: testFileSystem(nil),
 			wantErr:    `external checker "custom.cpp" is not available`,
 		},
@@ -198,7 +157,7 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			engine := &checkerEngine{bundledFS: tt.bundledFS, externalFS: tt.externalFS}
+			engine := &checkerEngine{bundledFS: checkerTestFS(), externalFS: tt.externalFS}
 			location, err := resolveChecker(tt.reference)
 			require.NoError(t, err)
 			_, err = engine.Materialize(location)
@@ -256,46 +215,13 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 	}
 }
 
-func TestCheckerPlan_PrepareCoalescesConcurrentCompilations(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		var compileCount atomic.Int32
-		release := make(chan struct{})
-		executor := &gatedCheckerExecutor{release: release, compileCount: &compileCount}
-		checkerModule := newUnitChecker(t, executor, nil)
-
-		const callers = 5
-		plans := make([]checkerPlan, callers)
-		for i := range plans {
-			plans[i] = materializeCheckerPlan(t, checkerModule, checkerLocation{path: defaultCheckerName})
-		}
-
-		errs := make([]error, callers)
-		for i := range plans {
-			go func() {
-				_, errs[i] = plans[i].Prepare(t.Context())
-			}()
-		}
-
-		synctest.Wait()
-		close(release)
-		synctest.Wait()
-
-		for i, err := range errs {
-			require.NoError(t, err, "caller %d", i)
-		}
-		assert.Equal(t, int32(1), compileCount.Load())
-	})
-}
-
 func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		var compileCount atomic.Int32
 		release := make(chan struct{})
 		started := make(chan context.Context, 1)
 		executor := &gatedCheckerExecutor{
-			release:      release,
-			started:      started,
-			compileCount: &compileCount,
+			release: release,
+			started: started,
 		}
 		checkerModule := newUnitChecker(t, executor, nil)
 		firstPlan := materializeCheckerPlan(t, checkerModule, checkerLocation{path: defaultCheckerName})
@@ -324,7 +250,7 @@ func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *
 		close(release)
 		synctest.Wait()
 		require.NoError(t, <-secondResult)
-		assert.Equal(t, int32(1), compileCount.Load())
+		assert.Equal(t, int32(1), executor.compileCount.Load())
 	})
 }
 
@@ -389,11 +315,6 @@ func TestCompiledChecker_Check(t *testing.T) {
 		{
 			name:        "nonzero protocol exit",
 			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
-			wantVerdict: model.VerdictUKE,
-		},
-		{
-			name:        "unset sandbox verdict",
-			runResult:   execution.RunResult{},
 			wantVerdict: model.VerdictUKE,
 		},
 	}

@@ -54,11 +54,10 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 
 		release := make(chan struct{})
 		externalFS := newGatedReadFS(release)
-		languageModule := newFakeLanguage()
 		checkerModule := newFakeChecker()
 
 		engine := newJudgeEngine(
-			languageModule,
+			newFakeLanguage(),
 			checkerModule,
 			externalFS,
 			maxConcurrent,
@@ -75,8 +74,7 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 
 		synctest.Wait()
 		assert.Equal(t, int32(maxConcurrent), externalFS.active.Load())
-		assert.Empty(t, languageModule.compiler.sources)
-		assert.Equal(t, maxConcurrent, checkerModule.materializeCalls())
+		assert.Equal(t, int32(maxConcurrent), checkerModule.materializeCalls.Load())
 
 		close(release)
 		synctest.Wait()

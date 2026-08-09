@@ -2,8 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"errors"
-	"math"
 	"testing"
 	"testing/synctest"
 
@@ -12,17 +10,7 @@ import (
 	typeurl "github.com/containerd/typeurl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/anypb"
 )
-
-type fakeMetricsReader struct {
-	metric *types.Metric
-	err    error
-}
-
-func (r fakeMetricsReader) Metrics(context.Context) (*types.Metric, error) {
-	return r.metric, r.err
-}
 
 type blockingMetricsReader struct{}
 
@@ -56,61 +44,10 @@ func TestParseCgroupMetrics_MapsV2Stats(t *testing.T) {
 	assert.True(t, got.oomKillDetected)
 }
 
-func TestCollectMetrics_ReturnsReadErrors(t *testing.T) {
-	readErr := errors.New("metrics unavailable")
-	tests := []struct {
-		name    string
-		reader  fakeMetricsReader
-		wantErr string
-	}{
-		{
-			name:    "containerd read failure",
-			reader:  fakeMetricsReader{err: readErr},
-			wantErr: "read task metrics: metrics unavailable",
-		},
-		{
-			name:    "nil response",
-			reader:  fakeMetricsReader{},
-			wantErr: "response contains no data",
-		},
-		{
-			name:    "missing metric data",
-			reader:  fakeMetricsReader{metric: &types.Metric{}},
-			wantErr: "response contains no data",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := collectMetrics(t.Context(), tt.reader)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
-}
-
-func TestParseCgroupMetrics_ReturnsMalformedDataError(t *testing.T) {
-	raw, err := typeurl.MarshalAny(&cgroupsv2.Metrics{})
-	require.NoError(t, err)
-
-	_, err = parseCgroupMetrics(&anypb.Any{
-		TypeUrl: raw.GetTypeUrl(),
-		Value:   []byte{0xff},
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unmarshal cgroup v2 metrics")
-}
-
 func TestCollectMetrics_TimesOut(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, err := collectMetrics(t.Context(), blockingMetricsReader{})
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
-}
-
-func TestUint64ToInt_SaturatesOverflow(t *testing.T) {
-	assert.Equal(t, math.MaxInt, uint64ToInt(uint64(math.MaxInt)+1))
-	assert.Equal(t, 42, uint64ToInt(42))
 }

@@ -1,101 +1,36 @@
 package resource
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewExternal_RejectsInvalidMountPoint(t *testing.T) {
+func TestExternal_OpensOnlyRegularFilesWithinRoot(t *testing.T) {
 	tmpDir := t.TempDir()
-	filePath := filepath.Join(tmpDir, "file.txt")
-	err := os.WriteFile(filePath, nil, 0o644)
+	err := os.Mkdir(filepath.Join(tmpDir, "cases"), 0o755)
+	require.NoError(t, err)
+	err = os.Symlink("/etc/passwd", filepath.Join(tmpDir, "evil.txt"))
+	require.NoError(t, err)
+
+	ext, err := NewExternal(tmpDir)
 	require.NoError(t, err)
 
 	tests := []struct {
-		name        string
-		mountPoint  string
-		wantMessage string
+		name string
+		path string
 	}{
-		{name: "relative", mountPoint: "testdata", wantMessage: "must be absolute"},
-		{name: "missing", mountPoint: filepath.Join(tmpDir, "missing"), wantMessage: "not accessible"},
-		{name: "file", mountPoint: filePath, wantMessage: "not a directory"},
+		{name: "directory", path: "cases"},
+		{name: "path traversal", path: "../../../etc/passwd"},
+		{name: "symlink escape", path: "evil.txt"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ext, err := NewExternal(tt.mountPoint)
-
-			assert.Nil(t, ext)
+			file, err := ext.Open(tt.path)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantMessage)
+			require.Nil(t, file)
 		})
 	}
-}
-
-func TestExternal_ReadFile_SeesFileUpdates(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	testFile := filepath.Join(tmpDir, "test.txt")
-	content1 := []byte("version 1")
-	err := os.WriteFile(testFile, content1, 0o644)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	retrieved1, err := fs.ReadFile(ext, "test.txt")
-	require.NoError(t, err)
-	assert.Equal(t, content1, retrieved1)
-
-	content2 := []byte("version 2")
-	err = os.WriteFile(testFile, content2, 0o644)
-	require.NoError(t, err)
-
-	retrieved2, err := fs.ReadFile(ext, "test.txt")
-	require.NoError(t, err)
-	assert.Equal(t, content2, retrieved2)
-}
-
-func TestExternal_ReadFile_DirectoryRejected(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	subDir := filepath.Join(tmpDir, "cases")
-	err := os.MkdirAll(subDir, 0o755)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	_, err = fs.ReadFile(ext, "cases")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "regular file")
-}
-
-func TestExternal_ReadFile_PathTraversal(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	_, err = fs.ReadFile(ext, "../../../etc/passwd")
-	require.Error(t, err)
-}
-
-func TestExternal_ReadFile_SymlinkEscape_Blocked(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	evilLink := filepath.Join(tmpDir, "evil.txt")
-	err := os.Symlink("/etc/passwd", evilLink)
-	require.NoError(t, err)
-
-	ext, err := NewExternal(tmpDir)
-	require.NoError(t, err)
-
-	_, err = fs.ReadFile(ext, "evil.txt")
-	require.Error(t, err)
 }

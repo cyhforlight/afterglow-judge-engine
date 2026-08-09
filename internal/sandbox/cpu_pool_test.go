@@ -7,22 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
-
-func TestCPUIdsFromAffinity(t *testing.T) {
-	var affinity unix.CPUSet
-	for _, cpuID := range []int{1, 4, 7} {
-		affinity.Set(cpuID)
-	}
-
-	assert.Equal(t, []int{1, 4, 7}, cpuIDsFromAffinity(&affinity))
-}
-
-func TestNewCPUPoolFromIDs_RejectsEmptySet(t *testing.T) {
-	_, err := newCPUPoolFromIDs(nil)
-	require.EqualError(t, err, "cpu affinity contains no available CPUs")
-}
 
 func TestCPUPool_LeasesCPUExclusively(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {

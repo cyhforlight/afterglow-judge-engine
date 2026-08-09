@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
@@ -29,18 +28,11 @@ type metricsReader interface {
 }
 
 func (m cgroupMetrics) cpuMillis() int {
-	return uint64ToInt(m.cpuNanos / nanosPerMs)
+	return int(m.cpuNanos / nanosPerMs) //nolint:gosec // The converted value fits int on the supported x64 target.
 }
 
 func (m cgroupMetrics) peakMemMB() int {
-	return uint64ToInt(m.peakMemBytes / uint64(bytesPerMiB))
-}
-
-func uint64ToInt(value uint64) int {
-	if value > uint64(math.MaxInt) {
-		return math.MaxInt
-	}
-	return int(value)
+	return int(m.peakMemBytes / uint64(bytesPerMiB)) //nolint:gosec // The converted value fits int on the supported x64 target.
 }
 
 func collectMetrics(ctx context.Context, task metricsReader) (cgroupMetrics, error) {

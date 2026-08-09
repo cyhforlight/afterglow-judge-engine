@@ -18,16 +18,13 @@ import (
 )
 
 type mockJudgeService struct {
-	err         error
-	result      model.JudgeResult
-	lastRequest model.JudgeRequest
-	judgeCalls  int
+	err        error
+	judgeCalls int
 }
 
-func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
+func (m *mockJudgeService) Judge(_ context.Context, _ model.JudgeRequest) (model.JudgeResult, error) {
 	m.judgeCalls++
-	m.lastRequest = req
-	return m.result, m.err
+	return model.JudgeResult{}, m.err
 }
 
 func makeJudgeBody(t *testing.T, req model.JudgeRequest) io.Reader {
@@ -59,7 +56,7 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 		name string
 		body string
 	}{
-		{name: "invalid JSON", body: "invalid"},
+		{name: "two JSON objects", body: "{}{}"},
 		{name: "unknown field", body: `{"sourceCode":"x","language":"Python","timeLimit":1,"memoryLimit":1,"testcases":[{"name":"c"}],"unknown":1}`},
 	}
 
