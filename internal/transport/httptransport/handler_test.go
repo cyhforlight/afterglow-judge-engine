@@ -85,12 +85,11 @@ func TestHandleExecute_RejectsMalformedBody(t *testing.T) {
 	}
 }
 
-func TestHandleExecute_InvalidChecker(t *testing.T) {
-	judge := &mockJudgeService{err: errors.New(`checker "ncmp" is not allowed`)}
+func TestHandleExecute_ServiceRejectionReturnsBadRequest(t *testing.T) {
+	judge := &mockJudgeService{err: errors.New(`inputFile "cases/1.in" is not available`)}
 	handler := newTestHandler(judge)
 
 	dto := validJudgeRequest()
-	dto.Checker = "ncmp"
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
 	w := httptest.NewRecorder()
@@ -105,7 +104,7 @@ func TestHandleExecute_InvalidChecker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusText(http.StatusBadRequest), resp.Error)
 	assert.Equal(t, "INVALID_REQUEST", resp.Code)
-	assert.Equal(t, `checker "ncmp" is not allowed`, resp.Details)
+	assert.Equal(t, `inputFile "cases/1.in" is not available`, resp.Details)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {

@@ -60,6 +60,7 @@
 - 运行阶段的 seccomp 仍是黑名单策略，不是完整 allowlist
 - 请求取消会立即停止 task；kill、wait 和 cleanup 使用独立的有界 context，避免请求取消阻断资源释放
 - 外部测试数据和外部 checker 只从 `EXTERNAL_DATA_DIR` 指定的资源根目录读取，并做路径穿越和 symlink escape 检查
+- 外部资源快照目前没有单请求总字节上限，`EXTERNAL_DATA_DIR` 应只承载受控题目资源
 
 ## 快速开始
 
@@ -145,13 +146,13 @@ transport -> service -> model
 一次 `POST /v1/execute` 的处理流程如下：
 
 1. HTTP 层限制请求体大小并做严格 JSON 解码
-2. transport 单次调用 service；service 校验请求限制、checker 引用和外部资源是否可用
-3. 请求通过校验后，service 限制并发判题请求数
-4. service 解析语言、编译用户代码并准备已解析的 checker
-5. 编译和 checker 准备成功后，完整加载全部 testcase 的 `inputFile` / `expectedOutputFile`；任一读取失败则终止本次评测
+2. transport 单次调用 service；service 校验请求字段、资源限制、语言和 checker 引用语法
+3. 请求通过校验后，service 取得判题并发配额
+4. service 单次读取 checker 源码和全部文件型 testcase，构造不再持有外部路径、包含内容快照的内部判题计划
+5. service 编译用户代码并从源码快照准备 checker
 6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
 7. service 汇总逐点结果和判题流程状态
-8. transport 将未受理错误映射为 HTTP 400，或以 HTTP 200 返回判题结果
+8. transport 将请求或资源 materialize 错误映射为 HTTP 400，或以 HTTP 200 返回判题结果
 
 ### 目录结构
 
@@ -275,7 +276,7 @@ Content-Type: application/json
 }
 ```
 
-顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致；checker 准备或测试数据加载失败时返回空数组。
+顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致；checker 编译准备失败时返回空数组。文件型 testcase 或 checker 源码无法读取时，请求以 HTTP 400 拒绝。
 
 `cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 

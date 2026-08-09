@@ -16,14 +16,16 @@ import (
 )
 
 type recordingCheckerCompiler struct {
-	mu     sync.Mutex
-	output CompileOutput
-	err    error
+	mu       sync.Mutex
+	output   CompileOutput
+	err      error
+	requests []CompileRequest
 }
 
-func (c *recordingCheckerCompiler) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+func (c *recordingCheckerCompiler) Compile(_ context.Context, req CompileRequest) (CompileOutput, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.requests = append(c.requests, req)
 	return c.output, c.err
 }
 
@@ -60,15 +62,6 @@ func TestNewChecker_RejectsMissingDefaultChecker(t *testing.T) {
 	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
 
 	require.ErrorContains(t, err, `checker dependency "checkers/default.cpp" is not available`)
-}
-
-func TestNewChecker_RejectsDirectoryDependency(t *testing.T) {
-	bundledFS := checkerTestFS()
-	bundledFS[testlibHeaderKey] = &fstest.MapFile{Mode: fs.ModeDir}
-
-	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
-
-	require.ErrorContains(t, err, `"testlib.h" is not a regular file`)
 }
 
 func TestResolveChecker_Builtin(t *testing.T) {
@@ -130,7 +123,7 @@ func TestResolveChecker_External(t *testing.T) {
 	}
 }
 
-func TestCheckerReference_Validate(t *testing.T) {
+func TestCheckerEngine_Materialize(t *testing.T) {
 	tests := []struct {
 		name       string
 		reference  string
@@ -139,18 +132,10 @@ func TestCheckerReference_Validate(t *testing.T) {
 		wantErr    string
 	}{
 		{
-			name:      "builtin available",
-			bundledFS: checkerTestFS(),
-		},
-		{
 			name:      "requested builtin missing",
 			reference: "ncmp",
 			bundledFS: checkerTestFS(),
 			wantErr:   `builtin checker "ncmp" is not available`,
-		},
-		{
-			name:      "engine dependency is not request validation",
-			bundledFS: testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")}),
 		},
 		{
 			name:      "external resources not configured",
@@ -165,30 +150,17 @@ func TestCheckerReference_Validate(t *testing.T) {
 			externalFS: testFileSystem(nil),
 			wantErr:    `external checker "custom.cpp" is not available`,
 		},
-		{
-			name:       "external checker available",
-			reference:  "external:custom.cpp",
-			bundledFS:  checkerTestFS(),
-			externalFS: testFileSystem(map[string][]byte{"custom.cpp": []byte("source")}),
-		},
-		{
-			name:       "external checker is a directory",
-			reference:  "external:custom.cpp",
-			bundledFS:  checkerTestFS(),
-			externalFS: fstest.MapFS{"custom.cpp": &fstest.MapFile{Mode: fs.ModeDir}},
-			wantErr:    `"custom.cpp" is not a regular file`,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := &checkerEngine{bundledFS: tt.bundledFS, externalFS: tt.externalFS}
-			resolved, err := engine.Resolve(tt.reference)
+			location, err := resolveChecker(tt.reference)
 			require.NoError(t, err)
-
-			err = resolved.Validate()
+			plan, err := engine.Materialize(location)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
+				require.NotNil(t, plan)
 				return
 			}
 			require.ErrorContains(t, err, tt.wantErr)
@@ -196,7 +168,7 @@ func TestCheckerReference_Validate(t *testing.T) {
 	}
 }
 
-func TestCheckerReference_PrepareFailures(t *testing.T) {
+func TestCheckerSnapshot_PrepareFailures(t *testing.T) {
 	tests := []struct {
 		name       string
 		output     CompileOutput
@@ -222,30 +194,40 @@ func TestCheckerReference_PrepareFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			compiler := &recordingCheckerCompiler{output: tt.output, err: tt.compileErr}
 			engine := &checkerEngine{compiler: compiler, bundledFS: checkerTestFS()}
-			resolved, err := engine.Resolve("")
+			plan, err := engine.Materialize(checkerLocation{path: defaultCheckerName})
 			require.NoError(t, err)
 
-			_, err = resolved.Prepare(t.Context())
+			_, err = plan.Prepare(t.Context())
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
 
-func TestCheckerReference_PrepareReportsDisappearedExternalSource(t *testing.T) {
-	externalFS := testFileSystem(map[string][]byte{"custom.cpp": []byte("source")})
+func TestCheckerSnapshot_PrepareUsesCapturedSource(t *testing.T) {
+	const checkerSource = "original source"
+
+	externalFS := testFileSystem(map[string][]byte{"custom.cpp": []byte(checkerSource)})
+	compiler := &recordingCheckerCompiler{output: CompileOutput{
+		Result:   model.CompileResult{Succeeded: true},
+		Artifact: &execution.Artifact{Data: []byte("checker binary"), Mode: 0o755},
+	}}
 	engine := &checkerEngine{
-		compiler:   &recordingCheckerCompiler{},
-		bundledFS:  checkerTestFS(),
-		externalFS: externalFS,
+		compiler:      compiler,
+		runner:        &recordingCheckerRunner{},
+		bundledFS:     checkerTestFS(),
+		externalFS:    externalFS,
+		testlibHeader: []byte("testlib header"),
 	}
-	resolved, err := engine.Resolve("external:custom.cpp")
+	plan, err := engine.Materialize(checkerLocation{isExternal: true, path: "custom.cpp"})
 	require.NoError(t, err)
-	require.NoError(t, resolved.Validate())
 
 	delete(externalFS, "custom.cpp")
 
-	_, err = resolved.Prepare(t.Context())
-	require.ErrorContains(t, err, `checker setup failed: load external checker "custom.cpp"`)
+	_, err = plan.Prepare(t.Context())
+	require.NoError(t, err)
+	require.Len(t, compiler.requests, 1)
+	require.NotEmpty(t, compiler.requests[0].Files)
+	assert.Equal(t, checkerSource, string(compiler.requests[0].Files[0].Content))
 }
 
 func TestCompiledChecker_Check(t *testing.T) {

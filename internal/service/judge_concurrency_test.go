@@ -2,61 +2,69 @@ package service
 
 import (
 	"context"
+	"io/fs"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"testing/synctest"
 	"time"
 
-	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type gatedProgram struct {
-	result  RunResult
+type gatedReadFS struct {
+	fs.ReadFileFS
 	release <-chan struct{}
 	active  atomic.Int32
-	calls   atomic.Int32
 }
 
-func (p *gatedProgram) Run(context.Context, string, int, int) (RunResult, error) {
-	p.calls.Add(1)
-	p.active.Add(1)
-	defer p.active.Add(-1)
+func (f *gatedReadFS) ReadFile(name string) ([]byte, error) {
+	f.active.Add(1)
+	defer f.active.Add(-1)
 
-	if p.release != nil {
-		<-p.release
+	<-f.release
+	return f.ReadFileFS.ReadFile(name)
+}
+
+func newGatedReadFS(release <-chan struct{}) *gatedReadFS {
+	return &gatedReadFS{
+		ReadFileFS: fstest.MapFS{
+			"test.in":  &fstest.MapFile{Data: []byte("input")},
+			"test.out": &fstest.MapFile{Data: []byte("output")},
+		},
+		release: release,
 	}
-	return p.result, nil
 }
 
-// TestJudgeEngine_ConcurrencyLimit verifies that maxConcurrent limits parallel Judge() calls.
+func externalFileJudgeRequest() model.JudgeRequest {
+	return baseJudgeRequest(model.JudgeTestCase{
+		InputFile:          "test.in",
+		ExpectedOutputFile: "test.out",
+	})
+}
+
+// TestJudgeEngine_ConcurrencyLimit verifies that materialization is covered by the Judge limit.
 func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const maxConcurrent = 2
 		const numRequests = 5
 
 		release := make(chan struct{})
-		program := &gatedProgram{
-			release: release,
-			result: RunResult{
-				Verdict:   execution.VerdictOK,
-				Stdout:    "output",
-				CPUTimeMs: 10,
-				MemoryMB:  10,
-			},
-		}
+		externalFS := newGatedReadFS(release)
+		languageModule := newFakeLanguage()
+		checkerModule := newFakeChecker()
 
 		engine := newJudgeEngine(
-			newFakeLanguageWithProgram(program),
-			newFakeChecker(),
-			nil,
+			languageModule,
+			checkerModule,
+			externalFS,
 			maxConcurrent,
 			model.DefaultJudgeLimits(),
 		)
-		req := baseJudgeRequest()
+		req := externalFileJudgeRequest()
 		results := make([]model.JudgeResult, numRequests)
 		judgeErrors := make([]error, numRequests)
 
@@ -67,7 +75,9 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 		}
 
 		synctest.Wait()
-		assert.Equal(t, int32(maxConcurrent), program.active.Load())
+		assert.Equal(t, int32(maxConcurrent), externalFS.active.Load())
+		assert.Empty(t, languageModule.compiler.sources)
+		assert.Equal(t, maxConcurrent, checkerModule.materializeCalls())
 
 		close(release)
 		synctest.Wait()
@@ -82,28 +92,20 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
-		program := &gatedProgram{
-			release: release,
-			result: RunResult{
-				Verdict:   execution.VerdictOK,
-				Stdout:    "output",
-				CPUTimeMs: 10,
-				MemoryMB:  10,
-			},
-		}
+		externalFS := newGatedReadFS(release)
 
 		engine := newJudgeEngine(
-			newFakeLanguageWithProgram(program),
+			newFakeLanguage(),
 			newFakeChecker(),
-			nil,
+			externalFS,
 			1,
 			model.DefaultJudgeLimits(),
 		)
-		req := baseJudgeRequest()
+		req := externalFileJudgeRequest()
 
 		go engine.Judge(t.Context(), req)
 		synctest.Wait()
-		assert.Equal(t, int32(1), program.active.Load())
+		assert.Equal(t, int32(1), externalFS.active.Load())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()

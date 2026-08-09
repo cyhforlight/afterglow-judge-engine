@@ -101,54 +101,51 @@ func (p *fakeCompiledProgram) Run(
 }
 
 type fakeChecker struct {
-	mu         sync.Mutex
-	resolveErr error
-	resolved   *fakeResolvedChecker
-	references []string
+	mu             sync.Mutex
+	materializeErr error
+	plan           *fakeCheckerPlan
+	references     []string
 }
 
 func newFakeChecker() *fakeChecker {
-	return &fakeChecker{resolved: &fakeResolvedChecker{
+	return &fakeChecker{plan: &fakeCheckerPlan{
 		prepared: &fakePreparedChecker{result: checkerResult{Verdict: model.VerdictOK}},
 	}}
 }
 
-func (c *fakeChecker) Resolve(reference string) (resolvedChecker, error) {
+func (c *fakeChecker) Materialize(location checkerLocation) (checkerPlan, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.references = append(c.references, reference)
-	if c.resolveErr != nil {
-		return nil, c.resolveErr
+	c.references = append(c.references, location.path)
+	if c.materializeErr != nil {
+		return nil, c.materializeErr
 	}
-	return c.resolved, nil
+	return c.plan, nil
 }
 
-type fakeResolvedChecker struct {
-	mu            sync.Mutex
-	validateErr   error
-	prepareErr    error
-	prepared      *fakePreparedChecker
-	validateCalls int
-	prepareCalls  int
-}
-
-func (c *fakeResolvedChecker) Validate() error {
+func (c *fakeChecker) materializeCalls() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.validateCalls++
-	return c.validateErr
+	return len(c.references)
 }
 
-func (c *fakeResolvedChecker) Prepare(context.Context) (preparedChecker, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+type fakeCheckerPlan struct {
+	mu           sync.Mutex
+	prepareErr   error
+	prepared     *fakePreparedChecker
+	prepareCalls int
+}
 
-	c.prepareCalls++
-	if c.prepareErr != nil {
-		return nil, c.prepareErr
+func (p *fakeCheckerPlan) Prepare(context.Context) (preparedChecker, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.prepareCalls++
+	if p.prepareErr != nil {
+		return nil, p.prepareErr
 	}
-	return c.prepared, nil
+	return p.prepared, nil
 }
 
 type checkerCallResult struct {
@@ -196,14 +193,6 @@ func testFileSystem(files map[string][]byte) fstest.MapFS {
 		fsys[name] = &fstest.MapFile{Data: data}
 	}
 	return fsys
-}
-
-type readFailFS struct {
-	fs.FS
-}
-
-func (readFailFS) ReadFile(string) ([]byte, error) {
-	return nil, fs.ErrPermission
 }
 
 func userOKRunResult(stdout string) RunResult {
@@ -314,7 +303,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.Equal(t, "compile failed", result.Compile.Log)
 	assert.Empty(t, result.Cases)
 	assert.Len(t, languageModule.compiler.sources, 1)
-	assert.Zero(t, checkerModule.resolved.prepareCalls)
+	assert.Zero(t, checkerModule.plan.prepareCalls)
 }
 
 func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
@@ -324,7 +313,7 @@ func TestJudgeEngine_CheckerFailureMarksOnlyCurrentCase(t *testing.T) {
 		"3\n": {result: userOKRunResult("6\n")},
 	}}
 	checkerModule := newFakeChecker()
-	checkerModule.resolved.prepared.results = map[string]checkerCallResult{
+	checkerModule.plan.prepared.results = map[string]checkerCallResult{
 		"2\n": {result: checkerResult{Verdict: model.VerdictOK}},
 		"4\n": {result: checkerResult{Verdict: model.VerdictUKE, Message: "checker timed out"}},
 		"6\n": {result: checkerResult{Verdict: model.VerdictOK}},
@@ -364,7 +353,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 		"3\n": {result: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}},
 	}}
 	checkerModule := newFakeChecker()
-	checkerModule.resolved.prepared.results = map[string]checkerCallResult{
+	checkerModule.plan.prepared.results = map[string]checkerCallResult{
 		"2\n": {result: checkerResult{Verdict: model.VerdictOK}},
 		"4\n": {result: checkerResult{Verdict: model.VerdictWA, Message: "2nd lines differ"}},
 	}
@@ -382,12 +371,12 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, "2nd lines differ", result.Cases[1].ExtraInfo)
 	assert.Equal(t, model.VerdictTLE, result.Cases[2].Verdict)
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Len(t, checkerModule.resolved.prepared.calls, 2)
+	assert.Len(t, checkerModule.plan.prepared.calls, 2)
 }
 
 func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	checkerModule := newFakeChecker()
-	checkerModule.resolved.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
+	checkerModule.plan.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
 	engine := newTestJudgeEngine(nil, checkerModule)
 
 	result := judgeSuccessfully(t, engine, baseJudgeRequest(
@@ -400,44 +389,38 @@ func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
 	assert.Empty(t, result.Cases)
 }
 
-func TestJudgeEngine_TestDataLoadFailureReturnsNoCaseResults(t *testing.T) {
-	program := &fakeCompiledProgram{runResult: userOKRunResult("output")}
-	checkerModule := newFakeChecker()
-	externalFS := readFailFS{FS: testFileSystem(map[string][]byte{
-		"test.in":  []byte("input"),
-		"test.out": []byte("output"),
-	})}
+func TestJudgeEngine_TestDataMaterializeFailureRejectsBeforeCompile(t *testing.T) {
+	languageModule := newFakeLanguage()
+	externalFS := testFileSystem(map[string][]byte{"test.in": []byte("input")})
 	engine := newTestJudgeEngineWithExternalResources(
-		newFakeLanguageWithProgram(program),
-		checkerModule,
+		languageModule,
+		nil,
 		externalFS,
 	)
 
-	result := judgeSuccessfully(t, engine, baseJudgeRequest(
+	result, err := engine.Judge(t.Context(), baseJudgeRequest(
 		model.JudgeTestCase{ExpectedOutput: "output"},
 		model.JudgeTestCase{InputFile: "test.in", ExpectedOutputFile: "test.out"},
 	))
 
-	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
-	assert.True(t, result.Compile.Succeeded)
-	assert.Equal(t, []model.JudgeCaseResult{}, result.Cases)
-	assert.Empty(t, program.inputs)
-	assert.Empty(t, checkerModule.resolved.prepared.calls)
+	require.ErrorContains(t, err, `testcases[1]: expectedOutputFile "test.out" is not available`)
+	assert.Zero(t, result)
+	assert.Empty(t, languageModule.compiler.sources)
 }
 
-func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {
+func TestJudgeEngine_RejectsUnmaterializableRequest(t *testing.T) {
 	tests := []struct {
-		name       string
-		req        model.JudgeRequest
-		checkerErr error
-		externalFS fs.FS
-		wantErr    string
+		name           string
+		req            model.JudgeRequest
+		materializeErr error
+		externalFS     fs.FS
+		wantErr        string
 	}{
 		{
-			name:       "checker validation error",
-			req:        baseJudgeRequest(),
-			checkerErr: errors.New("checker dependency missing"),
-			wantErr:    "checker dependency missing",
+			name:           "checker materialization error",
+			req:            baseJudgeRequest(),
+			materializeErr: errors.New("checker dependency missing"),
+			wantErr:        "checker dependency missing",
 		},
 		{
 			name: "external input requires resources",
@@ -447,34 +430,13 @@ func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {
 			}),
 			wantErr: `inputFile "cases/1.in" requires external resources`,
 		},
-		{
-			name: "missing external input file",
-			req: baseJudgeRequest(model.JudgeTestCase{
-				InputFile:          "cases/1.in",
-				ExpectedOutputFile: "cases/1.out",
-			}),
-			externalFS: testFileSystem(nil),
-			wantErr:    `testcases[0]: inputFile "cases/1.in" is not available`,
-		},
-		{
-			name: "external input is a directory",
-			req: baseJudgeRequest(model.JudgeTestCase{
-				InputFile:          "cases/1.in",
-				ExpectedOutputFile: "cases/1.out",
-			}),
-			externalFS: fstest.MapFS{
-				"cases/1.in":  &fstest.MapFile{Mode: fs.ModeDir},
-				"cases/1.out": &fstest.MapFile{Data: []byte("output")},
-			},
-			wantErr: `"cases/1.in" is not a regular file`,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			languageModule := newFakeLanguage()
 			checkerModule := newFakeChecker()
-			checkerModule.resolved.validateErr = tt.checkerErr
+			checkerModule.materializeErr = tt.materializeErr
 			engine := newTestJudgeEngineWithExternalResources(languageModule, checkerModule, tt.externalFS)
 
 			result, err := engine.Judge(t.Context(), tt.req)
@@ -482,7 +444,7 @@ func TestJudgeEngine_RejectsInvalidRequest(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 			assert.Zero(t, result)
 			assert.Empty(t, languageModule.compiler.sources)
-			assert.Zero(t, checkerModule.resolved.prepareCalls)
+			assert.Zero(t, checkerModule.plan.prepareCalls)
 		})
 	}
 }
@@ -508,6 +470,9 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 			req.TestCases = []model.JudgeTestCase{{InputText: "x", InputFile: "1.in", ExpectedOutputFile: "1.out"}}
 		}, wantErr: "cannot mix text and file data"},
 		{name: "incomplete file pair", mutate: func(req *model.JudgeRequest) { req.TestCases = []model.JudgeTestCase{{InputFile: "1.in"}} }, wantErr: "must be provided together"},
+		{name: "invalid input file path", mutate: func(req *model.JudgeRequest) {
+			req.TestCases = []model.JudgeTestCase{{InputFile: "../1.in", ExpectedOutputFile: "1.out"}}
+		}, wantErr: "inputFile must be a valid relative path"},
 	}
 
 	for _, tt := range tests {
@@ -549,7 +514,7 @@ func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictTLE, result.Cases[0].Verdict)
 	assert.Len(t, program.inputs, 1)
-	assert.Empty(t, checkerModule.resolved.prepared.calls)
+	assert.Empty(t, checkerModule.plan.prepared.calls)
 }
 
 func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
@@ -562,7 +527,7 @@ func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "infrastructure error: sandbox unavailable")
-	assert.Empty(t, checkerModule.resolved.prepared.calls)
+	assert.Empty(t, checkerModule.plan.prepared.calls)
 }
 
 func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
@@ -571,7 +536,7 @@ func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
 		"2\n": {result: userOKRunResult("42\n")},
 	}}
 	checkerModule := newFakeChecker()
-	checkerModule.resolved.prepared.err = errors.New("sandbox boom")
+	checkerModule.plan.prepared.err = errors.New("sandbox boom")
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
 	result := judgeSuccessfully(t, engine, baseJudgeRequest(
@@ -584,10 +549,10 @@ func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
 	assert.Contains(t, result.Cases[0].ExtraInfo, "checker infrastructure error")
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.Len(t, program.inputs, 2)
-	assert.Len(t, checkerModule.resolved.prepared.calls, 2)
+	assert.Len(t, checkerModule.plan.prepared.calls, 2)
 }
 
-func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
+func TestJudgeEngine_MaterializesExternalTestCase(t *testing.T) {
 	fakeResources := testFileSystem(map[string][]byte{
 		"test.in":  []byte("input data"),
 		"test.out": []byte("expected output"),
@@ -599,24 +564,20 @@ func TestJudgeEngine_DoesNotMutateCallerRequest(t *testing.T) {
 		checkerModule,
 		fakeResources,
 	)
-	originalReq := model.JudgeRequest{
-		SourceCode:  "code",
-		Language:    model.LanguageCPP,
-		TimeLimit:   1000,
-		MemoryLimit: 128,
-		TestCases: []model.JudgeTestCase{{
-			InputFile:          "test.in",
-			ExpectedOutputFile: "test.out",
-		}},
-	}
+	req := baseJudgeRequest(model.JudgeTestCase{
+		InputFile:          "test.in",
+		ExpectedOutputFile: "test.out",
+	})
 
-	result := judgeSuccessfully(t, engine, originalReq)
+	result := judgeSuccessfully(t, engine, req)
 
 	assert.Equal(t, model.JudgeStatusOK, result.Status)
-	assert.Equal(t, "test.in", originalReq.TestCases[0].InputFile)
-	assert.Equal(t, "test.out", originalReq.TestCases[0].ExpectedOutputFile)
-	assert.Empty(t, originalReq.TestCases[0].InputText)
-	assert.Empty(t, originalReq.TestCases[0].ExpectedOutput)
+	assert.Equal(t, []string{"input data"}, program.inputs)
+	assert.Equal(t, []checkerCall{{
+		input:          "input data",
+		actualOutput:   "expected output",
+		expectedOutput: "expected output",
+	}}, checkerModule.plan.prepared.calls)
 }
 
 func TestAggregateStatus(t *testing.T) {

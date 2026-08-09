@@ -33,9 +33,11 @@ func newCheckerForTest(t *testing.T, compiler Compiler, runner Runner, externalF
 func prepareCheckerForTest(ctx context.Context, t *testing.T, checkerModule checker, reference string) preparedChecker {
 	t.Helper()
 
-	resolved, err := checkerModule.Resolve(reference)
+	location, err := resolveChecker(reference)
 	require.NoError(t, err)
-	prepared, err := resolved.Prepare(ctx)
+	plan, err := checkerModule.Materialize(location)
+	require.NoError(t, err)
+	prepared, err := plan.Prepare(ctx)
 	require.NoError(t, err)
 	return prepared
 }

@@ -31,16 +31,13 @@ const (
 	checkerMemoryLimitMB  = 256
 )
 
-// checker resolves a request reference without loading or compiling resources.
+// checker materializes a resolved location into an immutable compile plan.
 type checker interface {
-	Resolve(reference string) (resolvedChecker, error)
+	Materialize(location checkerLocation) (checkerPlan, error)
 }
 
-// resolvedChecker represents a validated checker reference. Validate checks
-// resource availability for request intake, while Prepare loads and compiles
-// the checker independently of whether Validate was called.
-type resolvedChecker interface {
-	Validate() error
+// checkerPlan owns the source snapshot used to compile one checker.
+type checkerPlan interface {
 	Prepare(ctx context.Context) (preparedChecker, error)
 }
 
@@ -56,15 +53,18 @@ type checkerResult struct {
 }
 
 type checkerEngine struct {
-	compiler   Compiler
-	runner     Runner
-	bundledFS  fs.FS
-	externalFS fs.FS
+	compiler      Compiler
+	runner        Runner
+	bundledFS     fs.FS
+	externalFS    fs.FS
+	testlibHeader []byte
 }
 
-type checkerReference struct {
-	engine   *checkerEngine
-	location checkerLocation
+type checkerSnapshot struct {
+	compiler      Compiler
+	runner        Runner
+	source        []byte
+	testlibHeader []byte
 }
 
 type compiledChecker struct {
@@ -78,10 +78,13 @@ type checkerLocation struct {
 }
 
 func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (checker, error) {
-	for _, dependency := range []string{testlibHeaderKey, builtinCheckerPath(defaultCheckerName)} {
-		if err := validateResourceFile(bundledFS, dependency); err != nil {
-			return nil, fmt.Errorf("checker dependency %q is not available: %w", dependency, err)
-		}
+	testlibHeader, err := fs.ReadFile(bundledFS, testlibHeaderKey)
+	if err != nil {
+		return nil, fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
+	}
+	defaultCheckerPath := builtinCheckerPath(defaultCheckerName)
+	if err := validateResourceFile(bundledFS, defaultCheckerPath); err != nil {
+		return nil, fmt.Errorf("checker dependency %q is not available: %w", defaultCheckerPath, err)
 	}
 
 	cachedCompiler, err := NewCachedCompiler(compiler, checkerCacheEntries)
@@ -90,38 +93,26 @@ func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (
 	}
 
 	return &checkerEngine{
-		compiler:   cachedCompiler,
-		runner:     runner,
-		bundledFS:  bundledFS,
-		externalFS: externalFS,
+		compiler:      cachedCompiler,
+		runner:        runner,
+		bundledFS:     bundledFS,
+		externalFS:    externalFS,
+		testlibHeader: testlibHeader,
 	}, nil
 }
 
-func (c *checkerEngine) Resolve(reference string) (resolvedChecker, error) {
-	location, err := resolveChecker(reference)
+func (c *checkerEngine) Materialize(location checkerLocation) (checkerPlan, error) {
+	source, err := c.readSource(location)
 	if err != nil {
 		return nil, err
 	}
-	return &checkerReference{engine: c, location: location}, nil
-}
 
-func (r *checkerReference) Validate() error {
-	location := r.location
-	if location.isExternal {
-		if r.engine.externalFS == nil {
-			return fmt.Errorf("external checker %q requires external resources", location.path)
-		}
-		if err := validateResourceFile(r.engine.externalFS, location.path); err != nil {
-			return fmt.Errorf("external checker %q is not available: %w", location.path, err)
-		}
-	} else {
-		sourceKey := builtinCheckerPath(location.path)
-		if err := validateResourceFile(r.engine.bundledFS, sourceKey); err != nil {
-			return fmt.Errorf("builtin checker %q is not available: %w", location.path, err)
-		}
-	}
-
-	return nil
+	return &checkerSnapshot{
+		compiler:      c.compiler,
+		runner:        c.runner,
+		source:        source,
+		testlibHeader: c.testlibHeader,
+	}, nil
 }
 
 func validateResourceFile(fsys fs.FS, name string) error {
@@ -135,22 +126,12 @@ func validateResourceFile(fsys fs.FS, name string) error {
 	return nil
 }
 
-func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error) {
-	checkerSource, err := r.loadSource()
-	if err != nil {
-		return nil, fmt.Errorf("checker setup failed: %w", err)
-	}
-
-	testlibHeader, err := fs.ReadFile(r.engine.bundledFS, testlibHeaderKey)
-	if err != nil {
-		return nil, fmt.Errorf("checker setup failed: load %q: %w", testlibHeaderKey, err)
-	}
-
+func (p *checkerSnapshot) Prepare(ctx context.Context) (preparedChecker, error) {
 	profile := checkerCompileProfile()
-	compileOut, err := r.engine.compiler.Compile(ctx, CompileRequest{
+	compileOut, err := p.compiler.Compile(ctx, CompileRequest{
 		Files: []execution.File{
-			{Name: profile.SourceFile, Content: checkerSource, Mode: 0o644},
-			{Name: testlibHeaderKey, Content: testlibHeader, Mode: 0o644},
+			{Name: profile.SourceFile, Content: p.source, Mode: 0o644},
+			{Name: testlibHeaderKey, Content: p.testlibHeader, Mode: 0o644},
 		},
 		ImageRef:     profile.ImageRef,
 		Command:      profile.BuildCommand,
@@ -169,26 +150,25 @@ func (r *checkerReference) Prepare(ctx context.Context) (preparedChecker, error)
 		message := cmp.Or(strings.TrimSpace(compileOut.Result.Log), "checker compilation failed")
 		return nil, fmt.Errorf("checker compilation failed: %s", message)
 	}
-	return &compiledChecker{runner: r.engine.runner, artifact: *compileOut.Artifact}, nil
+	return &compiledChecker{runner: p.runner, artifact: *compileOut.Artifact}, nil
 }
 
-func (r *checkerReference) loadSource() ([]byte, error) {
-	location := r.location
+func (c *checkerEngine) readSource(location checkerLocation) ([]byte, error) {
 	if location.isExternal {
-		if r.engine.externalFS == nil {
-			return nil, errors.New("external resources not configured")
+		if c.externalFS == nil {
+			return nil, fmt.Errorf("external checker %q requires external resources", location.path)
 		}
-		checkerSource, err := fs.ReadFile(r.engine.externalFS, location.path)
+		checkerSource, err := fs.ReadFile(c.externalFS, location.path)
 		if err != nil {
-			return nil, fmt.Errorf("load external checker %q: %w", location.path, err)
+			return nil, fmt.Errorf("external checker %q is not available: %w", location.path, err)
 		}
 		return checkerSource, nil
 	}
 
 	sourceKey := builtinCheckerPath(location.path)
-	checkerSource, err := fs.ReadFile(r.engine.bundledFS, sourceKey)
+	checkerSource, err := fs.ReadFile(c.bundledFS, sourceKey)
 	if err != nil {
-		return nil, fmt.Errorf("load builtin checker %q from %q: %w", location.path, sourceKey, err)
+		return nil, fmt.Errorf("builtin checker %q is not available: %w", location.path, err)
 	}
 	return checkerSource, nil
 }

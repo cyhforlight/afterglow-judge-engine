@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,10 +26,18 @@ type JudgeEngine struct {
 	limits         model.JudgeLimits
 }
 
-type admittedJudge struct {
-	request  model.JudgeRequest
-	compiler languageCompiler
-	checker  resolvedChecker
+type judgePlan struct {
+	sourceCode  string
+	timeLimit   int
+	memoryLimit int
+	cases       []caseData
+	compiler    languageCompiler
+	checker     checkerPlan
+}
+
+type caseData struct {
+	input          string
+	expectedOutput string
 }
 
 // NewJudgeEngine creates a judge engine.
@@ -100,40 +107,6 @@ func newJudgeEngine(
 	}
 }
 
-func (s *JudgeEngine) admit(req model.JudgeRequest) (admittedJudge, error) {
-	if err := validateJudgeRequest(req, s.limits); err != nil {
-		return admittedJudge{}, err
-	}
-
-	compiler, err := s.language.Resolve(req.Language)
-	if err != nil {
-		return admittedJudge{}, err
-	}
-
-	resolved, err := s.checker.Resolve(req.Checker)
-	if err != nil {
-		return admittedJudge{}, err
-	}
-
-	if err := resolved.Validate(); err != nil {
-		return admittedJudge{}, err
-	}
-
-	for index, testCase := range req.TestCases {
-		if testCase.InputFile == "" {
-			continue
-		}
-		if err := s.validateExternalDependency(testCase.InputFile, "inputFile"); err != nil {
-			return admittedJudge{}, fmt.Errorf("testcases[%d]: %w", index, err)
-		}
-		if err := s.validateExternalDependency(testCase.ExpectedOutputFile, "expectedOutputFile"); err != nil {
-			return admittedJudge{}, fmt.Errorf("testcases[%d]: %w", index, err)
-		}
-	}
-
-	return admittedJudge{request: req, compiler: compiler, checker: resolved}, nil
-}
-
 func validateJudgeRequest(req model.JudgeRequest, limits model.JudgeLimits) error {
 	if strings.TrimSpace(req.SourceCode) == "" {
 		return errors.New("sourceCode is required")
@@ -181,39 +154,99 @@ func validateJudgeTestCase(index int, testCase model.JudgeTestCase) error {
 	if hasInputFile != hasExpectedOutputFile {
 		return fmt.Errorf("testcases[%d]: inputFile and expectedOutputFile must be provided together", index)
 	}
-	return nil
-}
-
-func (s *JudgeEngine) validateExternalDependency(path, label string) error {
-	if s.externalFS == nil {
-		return fmt.Errorf("%s %q requires external resources", label, path)
+	if hasInputFile && !fs.ValidPath(testCase.InputFile) {
+		return fmt.Errorf("testcases[%d]: inputFile must be a valid relative path", index)
 	}
-	if err := validateResourceFile(s.externalFS, path); err != nil {
-		return fmt.Errorf("%s %q is not available: %w", label, path, err)
+	if hasExpectedOutputFile && !fs.ValidPath(testCase.ExpectedOutputFile) {
+		return fmt.Errorf("testcases[%d]: expectedOutputFile must be a valid relative path", index)
 	}
 	return nil
 }
 
-// Judge admits a request, then compiles its source code and evaluates all test cases.
-// An error means the request was rejected before judging started. Once admitted,
-// all failures are represented by the returned JudgeResult.
+// Judge validates a request, reserves capacity, and materializes its resources
+// before compiling and evaluating all test cases. An error means the request or
+// its resources were rejected before compilation; later failures are JudgeResults.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
-	admitted, err := s.admit(req)
+	if err := validateJudgeRequest(req, s.limits); err != nil {
+		return model.JudgeResult{}, err
+	}
+
+	compiler, err := s.language.Resolve(req.Language)
 	if err != nil {
 		return model.JudgeResult{}, err
 	}
-	return s.run(ctx, admitted), nil
-}
-
-func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.JudgeResult {
-	req := admitted.request
+	checkerLocation, err := resolveChecker(req.Checker)
+	if err != nil {
+		return model.JudgeResult{}, err
+	}
 
 	if err := s.concurrencySem.Acquire(ctx, 1); err != nil {
-		return failedBeforeRun("judge request cancelled or timed out while waiting for capacity")
+		return failedBeforeRun("judge request cancelled or timed out while waiting for capacity"), nil
 	}
 	defer s.concurrencySem.Release(1)
 
-	program, compileResult, err := admitted.compiler.Compile(ctx, req.SourceCode)
+	plan, err := s.materialize(req, compiler, checkerLocation)
+	if err != nil {
+		return model.JudgeResult{}, err
+	}
+	return executeJudgePlan(ctx, plan), nil
+}
+
+func (s *JudgeEngine) materialize(
+	req model.JudgeRequest,
+	compiler languageCompiler,
+	checkerLocation checkerLocation,
+) (judgePlan, error) {
+	checker, err := s.checker.Materialize(checkerLocation)
+	if err != nil {
+		return judgePlan{}, err
+	}
+
+	cases := make([]caseData, len(req.TestCases))
+	for i, testCase := range req.TestCases {
+		data, err := s.materializeCase(testCase)
+		if err != nil {
+			return judgePlan{}, fmt.Errorf("testcases[%d]: %w", i, err)
+		}
+		cases[i] = data
+	}
+
+	return judgePlan{
+		sourceCode:  req.SourceCode,
+		timeLimit:   req.TimeLimit,
+		memoryLimit: req.MemoryLimit,
+		cases:       cases,
+		compiler:    compiler,
+		checker:     checker,
+	}, nil
+}
+
+func (s *JudgeEngine) materializeCase(testCase model.JudgeTestCase) (caseData, error) {
+	if testCase.InputFile == "" {
+		return caseData{input: testCase.InputText, expectedOutput: testCase.ExpectedOutput}, nil
+	}
+	if s.externalFS == nil {
+		return caseData{}, fmt.Errorf("inputFile %q requires external resources", testCase.InputFile)
+	}
+
+	input, err := fs.ReadFile(s.externalFS, testCase.InputFile)
+	if err != nil {
+		return caseData{}, fmt.Errorf("inputFile %q is not available: %w", testCase.InputFile, err)
+	}
+	expectedOutput, err := fs.ReadFile(s.externalFS, testCase.ExpectedOutputFile)
+	if err != nil {
+		return caseData{}, fmt.Errorf(
+			"expectedOutputFile %q is not available: %w",
+			testCase.ExpectedOutputFile,
+			err,
+		)
+	}
+
+	return caseData{input: string(input), expectedOutput: string(expectedOutput)}, nil
+}
+
+func executeJudgePlan(ctx context.Context, plan judgePlan) model.JudgeResult {
+	program, compileResult, err := plan.compiler.Compile(ctx, plan.sourceCode)
 	if err != nil {
 		slog.ErrorContext(ctx, "compile step failed", "error", err)
 		return failedBeforeRun(fmt.Sprintf("compile infrastructure error: %v", err))
@@ -227,7 +260,7 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 		}
 	}
 
-	prepared, err := admitted.checker.Prepare(ctx)
+	prepared, err := plan.checker.Prepare(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
 		return model.JudgeResult{
@@ -237,19 +270,7 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 		}
 	}
 
-	req.TestCases = slices.Clone(req.TestCases)
-	for i := range req.TestCases {
-		if err := s.loadTestCaseData(&req.TestCases[i]); err != nil {
-			slog.ErrorContext(ctx, "failed to load test case data", "index", i, "error", err)
-			return model.JudgeResult{
-				Status:  model.JudgeStatusSystemError,
-				Compile: compileResult,
-				Cases:   []model.JudgeCaseResult{},
-			}
-		}
-	}
-
-	caseResults := runAllCases(ctx, req, program, prepared)
+	caseResults := runAllCases(ctx, plan, program, prepared)
 
 	return model.JudgeResult{
 		Status:  aggregateStatus(caseResults),
@@ -262,46 +283,28 @@ func (s *JudgeEngine) run(ctx context.Context, admitted admittedJudge) model.Jud
 // Actual parallelism is bounded by the execution module.
 func runAllCases(
 	ctx context.Context,
-	req model.JudgeRequest,
+	plan judgePlan,
 	program compiledProgram,
 	prepared preparedChecker,
 ) []model.JudgeCaseResult {
-	results := make([]model.JudgeCaseResult, len(req.TestCases))
+	results := make([]model.JudgeCaseResult, len(plan.cases))
 	var wg sync.WaitGroup
-	for i, tc := range req.TestCases {
+	for i, testCase := range plan.cases {
 		wg.Go(func() {
-			results[i] = runSingleCase(ctx, req, program, prepared, tc, i)
+			results[i] = runSingleCase(
+				ctx,
+				plan.timeLimit,
+				plan.memoryLimit,
+				program,
+				prepared,
+				testCase,
+				i,
+			)
 		})
 	}
 	wg.Wait()
 
 	return results
-}
-
-// loadTestCaseData resolves file paths to actual content strings.
-// Modifies testCase in-place, converting file paths to text.
-func (s *JudgeEngine) loadTestCaseData(testCase *model.JudgeTestCase) error {
-	if testCase.InputFile == "" {
-		return nil
-	}
-	if s.externalFS == nil {
-		return errors.New("external resources not configured, cannot load testcase files")
-	}
-
-	input, err := fs.ReadFile(s.externalFS, testCase.InputFile)
-	if err != nil {
-		return fmt.Errorf("load inputFile %q: %w", testCase.InputFile, err)
-	}
-	expectedOutput, err := fs.ReadFile(s.externalFS, testCase.ExpectedOutputFile)
-	if err != nil {
-		return fmt.Errorf("load expectedOutputFile %q: %w", testCase.ExpectedOutputFile, err)
-	}
-
-	testCase.InputText = string(input)
-	testCase.ExpectedOutput = string(expectedOutput)
-	testCase.InputFile = ""
-	testCase.ExpectedOutputFile = ""
-	return nil
 }
 
 func convertVerdict(v execution.Verdict) model.Verdict {
@@ -323,13 +326,14 @@ func convertVerdict(v execution.Verdict) model.Verdict {
 
 func runSingleCase(
 	ctx context.Context,
-	req model.JudgeRequest,
+	timeLimit int,
+	memoryLimit int,
 	program compiledProgram,
 	prepared preparedChecker,
-	testCase model.JudgeTestCase,
+	testCase caseData,
 	index int,
 ) model.JudgeCaseResult {
-	runResult, err := program.Run(ctx, testCase.InputText, req.TimeLimit, req.MemoryLimit)
+	runResult, err := program.Run(ctx, testCase.input, timeLimit, memoryLimit)
 	if err != nil {
 		slog.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
 		return model.JudgeCaseResult{
@@ -342,7 +346,7 @@ func runSingleCase(
 		return judgeCaseResultFromExecution(runResult, convertVerdict(runResult.Verdict), runResult.ExtraInfo)
 	}
 
-	checkResult, err := prepared.Check(ctx, testCase.InputText, runResult.Stdout, testCase.ExpectedOutput)
+	checkResult, err := prepared.Check(ctx, testCase.input, runResult.Stdout, testCase.expectedOutput)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
 		return judgeCaseResultFromExecution(
