@@ -46,7 +46,7 @@ func newTestExecutor(t testing.TB, sb sandboxExecutor, maxConcurrent int) Execut
 	return exec
 }
 
-func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
+func TestExecutor_WritesFilesAndCollectsArtifact(t *testing.T) {
 	sb := &fakeSandbox{
 		executeFunc: func(req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
 			t.Helper()
@@ -76,9 +76,9 @@ func TestExecutor_WritesFilesAndCollectsArtifacts(t *testing.T) {
 	assert.Equal(t, 34, result.MemoryMB)
 	assert.Equal(t, VerdictOK, result.Verdict)
 	assert.Equal(t, "details", result.ExtraInfo)
-	require.Contains(t, result.Artifacts, testProgramName)
-	assert.Equal(t, []byte(testBinary), result.Artifacts[testProgramName].Data)
-	assert.Equal(t, os.FileMode(0o755), result.Artifacts[testProgramName].Mode)
+	require.NotNil(t, result.Artifact)
+	assert.Equal(t, []byte(testBinary), result.Artifact.Data)
+	assert.Equal(t, os.FileMode(0o755), result.Artifact.Mode)
 }
 
 func TestExecutor_PassesRuntimeOptions(t *testing.T) {
@@ -204,7 +204,7 @@ func TestNewExecutor_RequiresPositiveConcurrency(t *testing.T) {
 
 func validJobWithArtifact(name string) Job {
 	job := validJob()
-	job.Artifacts = []string{name}
+	job.ArtifactName = name
 	return job
 }
 
@@ -244,7 +244,7 @@ func compileJobWithArtifact() Job {
 			MemoryMB:    128,
 			OutputBytes: DefaultCompileOutputLimitBytes,
 		},
-		Artifacts: []string{testProgramName},
+		ArtifactName: testProgramName,
 	}
 }
 

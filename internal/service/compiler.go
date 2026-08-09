@@ -52,7 +52,7 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 		ReadOnlyMount: false,
 		Limits:        req.Limits,
 		EnableSeccomp: false, // Compilation needs fork for shell scripts
-		Artifacts:     []string{req.ArtifactName},
+		ArtifactName:  req.ArtifactName,
 	})
 	if err != nil {
 		return out, fmt.Errorf("execute compilation: %w", err)
@@ -79,6 +79,6 @@ func (c *compiler) Compile(ctx context.Context, req CompileRequest) (CompileOutp
 		Log:       compileLog,
 	}
 
-	out.Artifact = new(result.Artifacts[req.ArtifactName])
+	out.Artifact = result.Artifact
 	return out, nil
 }

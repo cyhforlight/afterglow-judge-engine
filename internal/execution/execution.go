@@ -51,16 +51,16 @@ type Job struct {
 	Stdin         io.Reader
 	Limits        Limits
 	EnableSeccomp bool
-	Artifacts     []string
+	ArtifactName  string
 }
 
 // RawResult contains the outcome reported by the sandbox.
 type RawResult = sandbox.ExecuteResult
 
-// Result contains the raw sandbox result and any collected artifacts.
+// Result contains the raw sandbox result and an optional collected artifact.
 type Result struct {
 	RawResult
-	Artifacts map[string]Artifact
+	Artifact *Artifact
 }
 
 // Default execution policy values shared by compile and run primitives.
@@ -139,35 +139,31 @@ func (e *executor) Execute(ctx context.Context, job Job) (result Result, err err
 
 	result = Result{RawResult: sandboxResult}
 
-	if len(job.Artifacts) == 0 || result.ExitCode != 0 || result.Verdict != VerdictOK {
+	if job.ArtifactName == "" || result.ExitCode != 0 || result.Verdict != VerdictOK {
 		return result, nil
 	}
 
-	artifacts, err := collectArtifacts(ws, job.Artifacts)
+	artifact, err := collectArtifact(ws, job.ArtifactName)
 	if err != nil {
 		return Result{}, err
 	}
-	result.Artifacts = artifacts
+	result.Artifact = artifact
 	return result, nil
 }
 
-func collectArtifacts(ws *workspace, names []string) (map[string]Artifact, error) {
-	artifacts := make(map[string]Artifact, len(names))
-	for _, name := range names {
-		info, err := ws.stat(name)
-		if err != nil {
-			return nil, fmt.Errorf("stat artifact %q: %w", name, err)
-		}
-
-		data, err := ws.readFile(name)
-		if err != nil {
-			return nil, fmt.Errorf("read artifact %q: %w", name, err)
-		}
-
-		artifacts[name] = Artifact{
-			Data: data,
-			Mode: info.Mode().Perm(),
-		}
+func collectArtifact(ws *workspace, name string) (*Artifact, error) {
+	info, err := ws.stat(name)
+	if err != nil {
+		return nil, fmt.Errorf("stat artifact %q: %w", name, err)
 	}
-	return artifacts, nil
+
+	data, err := ws.readFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("read artifact %q: %w", name, err)
+	}
+
+	return &Artifact{
+		Data: data,
+		Mode: info.Mode().Perm(),
+	}, nil
 }

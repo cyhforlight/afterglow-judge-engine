@@ -29,12 +29,10 @@ func TestCompiler_UsesWritableUnsandboxedWorkspace(t *testing.T) {
 			assert.Equal(t, "/work", job.MountPath)
 			assert.False(t, job.ReadOnlyMount)
 			assert.False(t, job.EnableSeccomp)
-			assert.Equal(t, []string{"program"}, job.Artifacts)
+			assert.Equal(t, "program", job.ArtifactName)
 			return execution.Result{
 				RawResult: execution.RawResult{Verdict: execution.VerdictOK},
-				Artifacts: map[string]execution.Artifact{
-					"program": {Data: []byte("binary"), Mode: 0o755},
-				},
+				Artifact:  &execution.Artifact{Data: []byte("binary"), Mode: 0o755},
 			}
 		},
 	}
