@@ -15,26 +15,27 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// cachedCompiler decorates a Compiler with an LRU cache and singleflight
-// deduplication. Concurrent compilations of identical requests are coalesced
-// into a single inner.Compile call.
+// cachedCompiler decorates Executor.Compile with an LRU cache and singleflight
+// deduplication while leaving Run unchanged.
 type cachedCompiler struct {
-	inner Compiler
-	cache *lru.Cache[string, CompileOutput]
+	execution.Executor
+	cache *lru.Cache[string, execution.CompileResult]
 	group singleflight.Group
 }
 
-// NewCachedCompiler wraps inner with an LRU cache and singleflight.
-func NewCachedCompiler(inner Compiler, maxEntries int) (Compiler, error) {
-	compileCache, err := lru.New[string, CompileOutput](maxEntries)
+func newCachedCompiler(inner execution.Executor, maxEntries int) (execution.Executor, error) {
+	compileCache, err := lru.New[string, execution.CompileResult](maxEntries)
 	if err != nil {
 		return nil, fmt.Errorf("create compile cache: %w", err)
 	}
 
-	return &cachedCompiler{inner: inner, cache: compileCache}, nil
+	return &cachedCompiler{Executor: inner, cache: compileCache}, nil
 }
 
-func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (CompileOutput, error) {
+func (c *cachedCompiler) Compile(
+	ctx context.Context,
+	req execution.CompileRequest,
+) (execution.CompileResult, error) {
 	key := computeCacheKey(req)
 
 	// Fast path: cache hit.
@@ -57,13 +58,13 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 			return cached, nil
 		}
 
-		out, err := c.inner.Compile(compileCtx, req)
+		out, err := c.Executor.Compile(compileCtx, req)
 		if err != nil {
 			return nil, err
 		}
 
 		// Only cache successful compilations.
-		if out.Result.Succeeded {
+		if out.Artifact != nil {
 			c.cache.Add(key, out)
 		}
 
@@ -72,21 +73,19 @@ func (c *cachedCompiler) Compile(ctx context.Context, req CompileRequest) (Compi
 
 	select {
 	case <-ctx.Done():
-		return CompileOutput{}, ctx.Err()
+		return execution.CompileResult{}, ctx.Err()
 	case result := <-resultCh:
 		if result.Err != nil {
-			return CompileOutput{}, result.Err
+			return execution.CompileResult{}, result.Err
 		}
-		return result.Val.(CompileOutput), nil
+		return result.Val.(execution.CompileResult), nil
 	}
 }
 
 // computeCacheKey produces a deterministic sha256 digest over the
-// CompileRequest fields that affect the compiled output: source files
-// (sorted by name), container image, and build command.
-// Resource limits and artifact name are execution-time constraints
-// that do not change the resulting binary.
-func computeCacheKey(req CompileRequest) string {
+// CompileRequest fields that affect the compiled output and its collection:
+// source files (sorted by name), container image, build command, and artifact name.
+func computeCacheKey(req execution.CompileRequest) string {
 	sorted := slices.SortedFunc(slices.Values(req.Files), func(a, b execution.File) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
@@ -104,5 +103,6 @@ func computeCacheKey(req CompileRequest) string {
 		h.Write([]byte(arg))
 		h.Write([]byte{0})
 	}
+	h.Write([]byte(req.ArtifactName))
 	return fmt.Sprintf("compile:%x", h.Sum(nil))
 }

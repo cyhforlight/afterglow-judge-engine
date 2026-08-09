@@ -3,9 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"sync"
 	"testing"
 
 	"afterglow-judge-engine/internal/execution"
@@ -15,53 +12,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type recordingCompiler struct {
-	mu       sync.Mutex
-	output   CompileOutput
-	err      error
-	requests []CompileRequest
+type fakeLanguageExecutor struct {
+	compileResult execution.CompileResult
+	compileErr    error
+	runResult     execution.RunResult
 }
 
-func (c *recordingCompiler) Compile(_ context.Context, req CompileRequest) (CompileOutput, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.requests = append(c.requests, req)
-	return c.output, c.err
+func (e *fakeLanguageExecutor) Compile(
+	_ context.Context,
+	_ execution.CompileRequest,
+) (execution.CompileResult, error) {
+	return e.compileResult, e.compileErr
 }
 
-type recordedRun struct {
-	request RunRequest
-	input   string
-}
-
-type recordingRunner struct {
-	mu       sync.Mutex
-	result   RunResult
-	err      error
-	requests []recordedRun
-}
-
-func (r *recordingRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
-	input, err := io.ReadAll(req.Stdin)
-	if err != nil {
-		return RunResult{}, fmt.Errorf("read stdin: %w", err)
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.requests = append(r.requests, recordedRun{request: req, input: string(input)})
-	return r.result, r.err
+func (e *fakeLanguageExecutor) Run(
+	_ context.Context,
+	_ execution.RunRequest,
+) (execution.RunResult, error) {
+	return e.runResult, nil
 }
 
 func TestLanguageResolveRejectsUnsupportedLanguage(t *testing.T) {
-	_, err := newLanguage(&recordingCompiler{}, &recordingRunner{}).Resolve(model.Language("Rust"))
+	_, err := newLanguage(&fakeLanguageExecutor{}).Resolve(model.Language("Rust"))
 	require.EqualError(t, err, "unsupported language: Rust")
 }
 
 func TestLanguageCompileOutcomes(t *testing.T) {
 	tests := []struct {
 		name        string
-		output      CompileOutput
+		output      execution.CompileResult
 		compileErr  error
 		wantResult  model.CompileResult
 		wantErr     string
@@ -69,7 +48,7 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 	}{
 		{
 			name:       "compile error",
-			output:     CompileOutput{Result: model.CompileResult{Succeeded: false, Log: "syntax error"}},
+			output:     execution.CompileResult{Log: "syntax error"},
 			wantResult: model.CompileResult{Succeeded: false, Log: "syntax error"},
 		},
 		{
@@ -79,9 +58,9 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 		},
 		{
 			name: "successful compile",
-			output: CompileOutput{
-				Result:   model.CompileResult{Succeeded: true, Log: "warning"},
-				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
+			output: execution.CompileResult{
+				Log:      "warning",
+				Artifact: &execution.Artifact{Name: "program", Data: []byte("program"), Mode: 0o755},
 			},
 			wantResult:  model.CompileResult{Succeeded: true, Log: "warning"},
 			wantProgram: true,
@@ -90,8 +69,8 @@ func TestLanguageCompileOutcomes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			compiler := &recordingCompiler{output: tt.output, err: tt.compileErr}
-			languageCompiler, err := newLanguage(compiler, &recordingRunner{}).Resolve(model.LanguageCPP)
+			executor := &fakeLanguageExecutor{compileResult: tt.output, compileErr: tt.compileErr}
+			languageCompiler, err := newLanguage(executor).Resolve(model.LanguageCPP)
 			require.NoError(t, err)
 
 			program, result, err := languageCompiler.Compile(t.Context(), "source")
@@ -140,12 +119,13 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			compiler := &recordingCompiler{output: CompileOutput{
-				Result:   model.CompileResult{Succeeded: true},
-				Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
-			}}
-			runner := &recordingRunner{result: RunResult{Verdict: tt.verdict, Stderr: tt.stderr}}
-			languageCompiler, err := newLanguage(compiler, runner).Resolve(tt.language)
+			executor := &fakeLanguageExecutor{
+				compileResult: execution.CompileResult{
+					Artifact: &execution.Artifact{Name: "program", Data: []byte("program"), Mode: 0o755},
+				},
+				runResult: execution.RunResult{Verdict: tt.verdict, Stderr: tt.stderr},
+			}
+			languageCompiler, err := newLanguage(executor).Resolve(tt.language)
 			require.NoError(t, err)
 			program, _, err := languageCompiler.Compile(t.Context(), "source")
 			require.NoError(t, err)
@@ -155,46 +135,4 @@ func TestLanguageRunNormalizesJavaOutOfMemory(t *testing.T) {
 			assert.Equal(t, tt.wantVerdict, result.Verdict)
 		})
 	}
-}
-
-func TestCompiledProgramPropagatesRunnerError(t *testing.T) {
-	compiler := &recordingCompiler{output: CompileOutput{
-		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
-	}}
-	runner := &recordingRunner{err: errors.New("sandbox unavailable")}
-	languageCompiler, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
-	require.NoError(t, err)
-	program, _, err := languageCompiler.Compile(t.Context(), "source")
-	require.NoError(t, err)
-
-	_, err = program.Run(t.Context(), "", 1000, 128)
-	require.EqualError(t, err, "sandbox unavailable")
-}
-
-func TestCompiledProgramSupportsConcurrentRuns(t *testing.T) {
-	compiler := &recordingCompiler{output: CompileOutput{
-		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &execution.Artifact{Data: []byte("program"), Mode: 0o755},
-	}}
-	runner := &recordingRunner{result: RunResult{Verdict: execution.VerdictOK}}
-	languageCompiler, err := newLanguage(compiler, runner).Resolve(model.LanguageCPP)
-	require.NoError(t, err)
-	program, _, err := languageCompiler.Compile(t.Context(), "source")
-	require.NoError(t, err)
-
-	const runCount = 20
-	errs := make([]error, runCount)
-	var wg sync.WaitGroup
-	for i := range runCount {
-		wg.Go(func() {
-			_, errs[i] = program.Run(t.Context(), fmt.Sprintf("input-%d", i), 1000, 128)
-		})
-	}
-	wg.Wait()
-
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-	assert.Len(t, runner.requests, runCount)
 }

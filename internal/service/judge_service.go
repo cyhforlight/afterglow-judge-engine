@@ -55,14 +55,12 @@ func NewJudgeEngine(
 		return nil, fmt.Errorf("invalid judge limits: %w", err)
 	}
 
-	compiler := newCompiler(executor)
-	runner := newRunner(executor)
-	checkerModule, err := newChecker(compiler, runner, bundledFS, externalFS)
+	checkerModule, err := newChecker(executor, bundledFS, externalFS)
 	if err != nil {
 		return nil, fmt.Errorf("initialize checker: %w", err)
 	}
 
-	return newJudgeEngine(newLanguage(compiler, runner), checkerModule, externalFS, maxConcurrent, limits), nil
+	return newJudgeEngine(newLanguage(executor), checkerModule, externalFS, maxConcurrent, limits), nil
 }
 
 func validateJudgeLimits(limits model.JudgeLimits) error {
@@ -378,7 +376,7 @@ func failedBeforeRun(log string) model.JudgeResult {
 }
 
 func judgeCaseResultFromExecution(
-	runResult RunResult,
+	runResult execution.RunResult,
 	verdict model.Verdict,
 	extraInfo string,
 ) model.JudgeCaseResult {

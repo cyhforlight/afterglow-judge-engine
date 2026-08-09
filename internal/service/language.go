@@ -21,26 +21,24 @@ type languageCompiler interface {
 }
 
 type compiledProgram interface {
-	Run(context.Context, string, int, int) (RunResult, error)
+	Run(context.Context, string, int, int) (execution.RunResult, error)
 }
 
 type languageEngine struct {
-	compiler Compiler
-	runner   Runner
+	executor execution.Executor
 }
 
 type resolvedLanguage struct {
 	language model.Language
 	profile  languageProfile
-	compiler Compiler
-	runner   Runner
+	executor execution.Executor
 }
 
 type compiledLanguageProgram struct {
 	language model.Language
 	profile  runConfig
 	artifact execution.Artifact
-	runner   Runner
+	executor execution.Executor
 }
 
 type languageProfile struct {
@@ -59,12 +57,11 @@ type compileConfig struct {
 
 type runConfig struct {
 	ImageRef       string
-	ArtifactName   string
 	RuntimeCommand func(artifactPath string, memoryMB int) []string
 }
 
-func newLanguage(compiler Compiler, runner Runner) language {
-	return &languageEngine{compiler: compiler, runner: runner}
+func newLanguage(executor execution.Executor) language {
+	return &languageEngine{executor: executor}
 }
 
 func (l *languageEngine) Resolve(lang model.Language) (languageCompiler, error) {
@@ -75,8 +72,7 @@ func (l *languageEngine) Resolve(lang model.Language) (languageCompiler, error) 
 	return &resolvedLanguage{
 		language: lang,
 		profile:  profile,
-		compiler: l.compiler,
-		runner:   l.runner,
+		executor: l.executor,
 	}, nil
 }
 
@@ -85,7 +81,7 @@ func (l *resolvedLanguage) Compile(
 	sourceCode string,
 ) (compiledProgram, model.CompileResult, error) {
 	config := l.profile.Compile
-	compileOut, err := l.compiler.Compile(ctx, CompileRequest{
+	compileOut, err := l.executor.Compile(ctx, execution.CompileRequest{
 		Files: []execution.File{{
 			Name:    config.SourceFile,
 			Content: []byte(sourceCode),
@@ -104,16 +100,20 @@ func (l *resolvedLanguage) Compile(
 	if err != nil {
 		return nil, model.CompileResult{}, err
 	}
-	if !compileOut.Result.Succeeded {
-		return nil, compileOut.Result, nil
+	compileResult := model.CompileResult{
+		Succeeded: compileOut.Artifact != nil,
+		Log:       compileOut.Log,
+	}
+	if compileOut.Artifact == nil {
+		return nil, compileResult, nil
 	}
 
 	return &compiledLanguageProgram{
 		language: l.language,
 		profile:  l.profile.Run,
 		artifact: *compileOut.Artifact,
-		runner:   l.runner,
-	}, compileOut.Result, nil
+		executor: l.executor,
+	}, compileResult, nil
 }
 
 func (p *compiledLanguageProgram) Run(
@@ -121,15 +121,11 @@ func (p *compiledLanguageProgram) Run(
 	input string,
 	timeLimitMs int,
 	memoryLimitMB int,
-) (RunResult, error) {
-	runOut, err := p.runner.Run(ctx, RunRequest{
-		Files: []execution.File{{
-			Name:    p.profile.ArtifactName,
-			Content: p.artifact.Data,
-			Mode:    p.artifact.Mode,
-		}},
+) (execution.RunResult, error) {
+	runOut, err := p.executor.Run(ctx, execution.RunRequest{
+		Artifact: p.artifact,
 		ImageRef: p.profile.ImageRef,
-		Command:  p.profile.RuntimeCommand("./"+p.profile.ArtifactName, memoryLimitMB),
+		Command:  p.profile.RuntimeCommand("./"+p.artifact.Name, memoryLimitMB),
 		Stdin:    strings.NewReader(input),
 		Limits: execution.Limits{
 			CPUTimeMs:   timeLimitMs,
@@ -139,7 +135,7 @@ func (p *compiledLanguageProgram) Run(
 		},
 	})
 	if err != nil {
-		return RunResult{}, err
+		return execution.RunResult{}, err
 	}
 
 	return normalizeLanguageRunResult(p.language, runOut), nil
@@ -175,7 +171,6 @@ func cProfile() languageProfile {
 		},
 		Run: runConfig{
 			ImageRef:       "docker.io/library/debian:12-slim",
-			ArtifactName:   "program",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -196,7 +191,6 @@ func cppProfile() languageProfile {
 		},
 		Run: runConfig{
 			ImageRef:       "docker.io/library/debian:12-slim",
-			ArtifactName:   "program",
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -218,8 +212,7 @@ func javaProfile() languageProfile {
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:     "docker.io/library/eclipse-temurin:21-jre-jammy",
-			ArtifactName: "solution.jar",
+			ImageRef: "docker.io/library/eclipse-temurin:21-jre-jammy",
 			RuntimeCommand: func(p string, memoryMB int) []string {
 				initialHeapMB := min(memoryMB, 64)
 				return []string{
@@ -249,7 +242,6 @@ func pythonProfile() languageProfile {
 		},
 		Run: runConfig{
 			ImageRef:       "docker.io/library/python:3.11-slim-bookworm",
-			ArtifactName:   "solution.pyc",
 			RuntimeCommand: func(p string, _ int) []string { return []string{"python3", p} },
 		},
 	}
@@ -262,7 +254,7 @@ func sandboxMemoryLimitMB(lang model.Language, memoryLimitMB int) int {
 	return memoryLimitMB + max(javaNativeReserveMB, memoryLimitMB/4)
 }
 
-func normalizeLanguageRunResult(lang model.Language, runOut RunResult) RunResult {
+func normalizeLanguageRunResult(lang model.Language, runOut execution.RunResult) execution.RunResult {
 	if lang == model.LanguageJava &&
 		runOut.Verdict == execution.VerdictRE &&
 		strings.Contains(runOut.Stderr, "java.lang.OutOfMemoryError") {

@@ -17,7 +17,7 @@ func runUserProgram(
 	program compiledProgram,
 	input string,
 	timeLimit, memoryLimit int,
-) RunResult {
+) execution.RunResult {
 	t.Helper()
 
 	runOut, err := program.Run(env.ctx, input, timeLimit, memoryLimit)

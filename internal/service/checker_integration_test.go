@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
 
@@ -20,12 +21,12 @@ type checkerScenario struct {
 	rejectedOutput string
 }
 
-func newCheckerForTest(t *testing.T, compiler Compiler, runner Runner, externalFS fs.FS) checker {
+func newCheckerForTest(t *testing.T, executor execution.Executor, externalFS fs.FS) checker {
 	t.Helper()
 
 	bundledFS, err := resource.NewBundled()
 	require.NoError(t, err)
-	checkerModule, err := newChecker(compiler, runner, bundledFS, externalFS)
+	checkerModule, err := newChecker(executor, bundledFS, externalFS)
 	require.NoError(t, err)
 	return checkerModule
 }
@@ -133,7 +134,7 @@ func TestChecker_AllBundledCheckers(t *testing.T) {
 		t.Run(scenario.checker, func(t *testing.T) {
 			t.Parallel()
 			env := newServiceIntegrationEnv(t, 90*time.Second)
-			checkerModule := newCheckerForTest(t, env.compiler, env.runner, nil)
+			checkerModule := newCheckerForTest(t, env.executor, nil)
 			prepared := prepareCheckerForTest(env.ctx, t, checkerModule, scenario.checker)
 
 			cases := []struct {

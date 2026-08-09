@@ -70,13 +70,13 @@ func (c *fakeLanguageCompiler) Compile(
 }
 
 type runCallResult struct {
-	result RunResult
+	result execution.RunResult
 	err    error
 }
 
 type fakeCompiledProgram struct {
 	mu        sync.Mutex
-	runResult RunResult
+	runResult execution.RunResult
 	runErr    error
 	results   map[string]runCallResult
 	inputs    []string
@@ -86,7 +86,7 @@ func (p *fakeCompiledProgram) Run(
 	_ context.Context,
 	input string,
 	_, _ int,
-) (RunResult, error) {
+) (execution.RunResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -95,7 +95,7 @@ func (p *fakeCompiledProgram) Run(
 		return result.result, result.err
 	}
 	if p.results != nil {
-		return RunResult{}, fmt.Errorf("fake program: no result for input %q", input)
+		return execution.RunResult{}, fmt.Errorf("fake program: no result for input %q", input)
 	}
 	return p.runResult, p.runErr
 }
@@ -195,8 +195,8 @@ func testFileSystem(files map[string][]byte) fstest.MapFS {
 	return fsys
 }
 
-func userOKRunResult(stdout string) RunResult {
-	return RunResult{ExitCode: 0, Stdout: stdout, Verdict: execution.VerdictOK}
+func userOKRunResult(stdout string) execution.RunResult {
+	return execution.RunResult{ExitCode: 0, Stdout: stdout, Verdict: execution.VerdictOK}
 }
 
 func newTestJudgeEngine(languageModule language, checkerModule checker) *JudgeEngine {
@@ -245,11 +245,10 @@ func judgeSuccessfully(t *testing.T, engine *JudgeEngine, req model.JudgeRequest
 }
 
 func TestNewJudgeEngine_ValidatesConfiguration(t *testing.T) {
-	executor := &fakeExecutor{}
 	limits := model.DefaultJudgeLimits()
 
 	for _, maxConcurrent := range []int{0, -1} {
-		engine, err := NewJudgeEngine(executor, checkerTestFS(), nil, maxConcurrent, limits)
+		engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, maxConcurrent, limits)
 		assert.Nil(t, engine)
 		require.ErrorContains(t, err, "max concurrent judges must be positive")
 	}
@@ -281,7 +280,7 @@ func TestNewJudgeEngine_ValidatesConfiguration(t *testing.T) {
 		t.Run("invalid "+tt.name+" limit", func(t *testing.T) {
 			invalidLimits := limits
 			tt.mutate(&invalidLimits)
-			engine, err := NewJudgeEngine(executor, checkerTestFS(), nil, 1, invalidLimits)
+			engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, 1, invalidLimits)
 			assert.Nil(t, engine)
 			require.ErrorContains(t, err, "invalid judge limits")
 		})
@@ -350,7 +349,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	program := &fakeCompiledProgram{results: map[string]runCallResult{
 		"1\n": {result: userOKRunResult("2\n")},
 		"2\n": {result: userOKRunResult("4\n")},
-		"3\n": {result: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}},
+		"3\n": {result: execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}},
 	}}
 	checkerModule := newFakeChecker()
 	checkerModule.plan.prepared.results = map[string]checkerCallResult{
@@ -479,7 +478,7 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := baseJudgeRequest()
 			tt.mutate(&req)
-			engine := newTestJudgeEngine(newLanguage(nil, nil), nil)
+			engine := newTestJudgeEngine(newLanguage(nil), nil)
 
 			result, err := engine.Judge(t.Context(), req)
 			assert.Zero(t, result)
@@ -505,7 +504,7 @@ func TestJudgeEngine_UsesRequestedLanguageAndChecker(t *testing.T) {
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
-	program := &fakeCompiledProgram{runResult: RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}}
+	program := &fakeCompiledProgram{runResult: execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}}
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 

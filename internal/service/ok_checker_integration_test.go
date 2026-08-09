@@ -67,7 +67,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 
 			externalFS, err := resource.NewExternal(externalRoot)
 			require.NoError(t, err)
-			checkerModule := newCheckerForTest(t, env.compiler, env.runner, externalFS)
+			checkerModule := newCheckerForTest(t, env.executor, externalFS)
 			prepared := prepareCheckerForTest(env.ctx, t, checkerModule, tc.checker)
 			checkResult := checkForTest(env.ctx, t, prepared, inputData, runOut.Stdout, expectedOutput)
 			assert.Equal(t, tc.want, checkResult.Verdict)

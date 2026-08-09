@@ -1,4 +1,4 @@
-// Package execution prepares workspaces and runs generic container jobs.
+// Package execution compiles and runs programs in temporary container workspaces.
 package execution
 
 import (
@@ -13,20 +13,21 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// Artifact is a file produced by an execution job.
+// Artifact is a file produced by a compilation.
 type Artifact struct {
+	Name string
 	Data []byte
 	Mode os.FileMode
 }
 
-// File describes a file available to an execution job.
+// File describes a file available to a compilation or run.
 type File struct {
 	Name    string
 	Content []byte
 	Mode    os.FileMode
 }
 
-// Limits defines resource constraints for an execution job.
+// Limits defines resource constraints for a compilation or run.
 type Limits = sandbox.ResourceLimits
 
 // Verdict classifies the raw execution outcome.
@@ -41,27 +42,34 @@ const (
 	VerdictRE  = sandbox.VerdictRE
 )
 
-// Job describes a single command executed in a temporary workspace.
-type Job struct {
-	Files         []File
-	ImageRef      string
-	Command       []string
-	MountPath     string
-	ReadOnlyMount bool
-	Stdin         io.Reader
-	Limits        Limits
-	EnableSeccomp bool
-	ArtifactName  string
+// CompileRequest describes one isolated compilation.
+type CompileRequest struct {
+	Files        []File
+	ImageRef     string
+	Command      []string
+	ArtifactName string
+	Limits       Limits
 }
 
-// RawResult contains the outcome reported by the sandbox.
-type RawResult = sandbox.ExecuteResult
-
-// Result contains the raw sandbox result and an optional collected artifact.
-type Result struct {
-	RawResult
+// CompileResult contains compiler diagnostics and the optional compiled artifact.
+// A nil artifact means compilation finished without a usable output.
+type CompileResult struct {
+	Log      string
 	Artifact *Artifact
 }
+
+// RunRequest describes one isolated program execution.
+type RunRequest struct {
+	Artifact Artifact
+	Files    []File
+	ImageRef string
+	Command  []string
+	Stdin    io.Reader
+	Limits   Limits
+}
+
+// RunResult contains the outcome reported by the sandbox.
+type RunResult = sandbox.ExecuteResult
 
 // Default execution policy values shared by compile and run primitives.
 const (
@@ -76,9 +84,10 @@ const (
 	DefaultCompileOutputLimitBytes = 1 * 1024 * 1024 // 1MB
 )
 
-// Executor runs generic execution jobs.
+// Executor compiles and runs programs with shared container capacity.
 type Executor interface {
-	Execute(ctx context.Context, job Job) (Result, error)
+	Compile(ctx context.Context, req CompileRequest) (CompileResult, error)
+	Run(ctx context.Context, req RunRequest) (RunResult, error)
 }
 
 type sandboxExecutor interface {
@@ -88,6 +97,23 @@ type sandboxExecutor interface {
 type executor struct {
 	sandbox sandboxExecutor
 	sem     *semaphore.Weighted
+}
+
+type task struct {
+	files         []File
+	imageRef      string
+	command       []string
+	mountPath     string
+	readOnlyMount bool
+	stdin         io.Reader
+	limits        Limits
+	enableSeccomp bool
+	artifactName  string
+}
+
+type taskResult struct {
+	sandbox.ExecuteResult
+	artifact *Artifact
 }
 
 // NewExecutor creates a capacity-limited executor backed by a sandbox.
@@ -101,53 +127,102 @@ func NewExecutor(sb sandboxExecutor, maxConcurrent int) (Executor, error) {
 	}, nil
 }
 
-func (e *executor) Execute(ctx context.Context, job Job) (result Result, err error) {
+// Compile runs a compiler and collects its single declared artifact on success.
+func (e *executor) Compile(ctx context.Context, req CompileRequest) (CompileResult, error) {
+	result, err := e.execute(ctx, task{
+		files:         req.Files,
+		imageRef:      req.ImageRef,
+		command:       req.Command,
+		mountPath:     "/work",
+		readOnlyMount: false,
+		limits:        req.Limits,
+		enableSeccomp: false,
+		artifactName:  req.ArtifactName,
+	})
+	if err != nil {
+		return CompileResult{}, err
+	}
+
+	log := result.Stdout
+	if result.Stderr != "" {
+		if log != "" {
+			log += "\n"
+		}
+		log += result.Stderr
+	}
+
+	return CompileResult{Log: log, Artifact: result.artifact}, nil
+}
+
+// Run executes a compiled artifact in a read-only, seccomp-restricted workspace.
+func (e *executor) Run(ctx context.Context, req RunRequest) (RunResult, error) {
+	files := make([]File, 1, len(req.Files)+1)
+	files[0] = File{Name: req.Artifact.Name, Content: req.Artifact.Data, Mode: req.Artifact.Mode}
+	files = append(files, req.Files...)
+
+	result, err := e.execute(ctx, task{
+		files:         files,
+		imageRef:      req.ImageRef,
+		command:       req.Command,
+		mountPath:     "/sandbox",
+		readOnlyMount: true,
+		stdin:         req.Stdin,
+		limits:        req.Limits,
+		enableSeccomp: true,
+	})
+	if err != nil {
+		return RunResult{}, err
+	}
+	return result.ExecuteResult, nil
+}
+
+func (e *executor) execute(ctx context.Context, t task) (result taskResult, err error) {
 	if err := e.sem.Acquire(ctx, 1); err != nil {
-		return Result{}, err
+		return taskResult{}, err
 	}
 	defer e.sem.Release(1)
 
 	ws, err := newWorkspace()
 	if err != nil {
-		return Result{}, fmt.Errorf("create workspace: %w", err)
+		return taskResult{}, fmt.Errorf("create workspace: %w", err)
 	}
 	defer func() {
 		err = errors.Join(err, ws.cleanup())
 	}()
 
-	if err := ws.writeFiles(job.Files); err != nil {
-		return Result{}, fmt.Errorf("write execution files: %w", err)
+	if err := ws.writeFiles(t.files); err != nil {
+		return taskResult{}, fmt.Errorf("write execution files: %w", err)
 	}
 
 	sandboxReq := sandbox.ExecuteRequest{
-		ImageRef: job.ImageRef,
-		Command:  job.Command,
+		ImageRef: t.imageRef,
+		Command:  t.command,
 		MountDir: &sandbox.Mount{
 			HostPath:      ws.dir(),
-			ContainerPath: job.MountPath,
-			ReadOnly:      job.ReadOnlyMount,
+			ContainerPath: t.mountPath,
+			ReadOnly:      t.readOnlyMount,
 		},
-		Stdin:         job.Stdin,
-		Limits:        job.Limits,
-		EnableSeccomp: job.EnableSeccomp,
+		Stdin:         t.stdin,
+		Limits:        t.limits,
+		EnableSeccomp: t.enableSeccomp,
 	}
 
 	sandboxResult, err := e.sandbox.Execute(ctx, sandboxReq)
 	if err != nil {
-		return Result{}, fmt.Errorf("sandbox execute: %w", err)
+		return taskResult{}, fmt.Errorf("sandbox execute: %w", err)
 	}
 
-	result = Result{RawResult: sandboxResult}
+	result = taskResult{ExecuteResult: sandboxResult}
 
-	if job.ArtifactName == "" || result.ExitCode != 0 || result.Verdict != VerdictOK {
+	if t.artifactName == "" || result.ExitCode != 0 || result.Verdict != VerdictOK {
 		return result, nil
 	}
 
-	artifact, err := collectArtifact(ws, job.ArtifactName)
+	artifact, err := collectArtifact(ws, t.artifactName)
 	if err != nil {
-		return Result{}, err
+		return taskResult{}, err
 	}
-	result.Artifact = artifact
+	result.artifact = artifact
 	return result, nil
 }
 
@@ -162,8 +237,5 @@ func collectArtifact(ws *workspace, name string) (*Artifact, error) {
 		return nil, fmt.Errorf("read artifact %q: %w", name, err)
 	}
 
-	return &Artifact{
-		Data: data,
-		Mode: info.Mode().Perm(),
-	}, nil
+	return &Artifact{Name: name, Data: data, Mode: info.Mode().Perm()}, nil
 }

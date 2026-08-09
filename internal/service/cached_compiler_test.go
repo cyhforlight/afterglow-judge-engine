@@ -9,34 +9,45 @@ import (
 	"testing/synctest"
 
 	"afterglow-judge-engine/internal/execution"
-	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type cachedCompilerFake struct {
-	mu       sync.Mutex
-	artifact *execution.Artifact
-	result   model.CompileResult
-	err      error
-	calls    int
+	runStub
+	mu     sync.Mutex
+	result execution.CompileResult
+	err    error
+	calls  int
 }
 
-func (c *cachedCompilerFake) Compile(_ context.Context, _ CompileRequest) (CompileOutput, error) {
+type runStub struct{}
+
+func (runStub) Run(
+	context.Context,
+	execution.RunRequest,
+) (execution.RunResult, error) {
+	return execution.RunResult{}, nil
+}
+
+func (c *cachedCompilerFake) Compile(
+	_ context.Context,
+	_ execution.CompileRequest,
+) (execution.CompileResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.calls++
-	return CompileOutput{Result: c.result, Artifact: c.artifact}, c.err
+	return c.result, c.err
 }
 
 func testCompiledArtifact() *execution.Artifact {
-	return &execution.Artifact{Data: []byte("binary"), Mode: 0o755}
+	return &execution.Artifact{Name: "a.out", Data: []byte("binary"), Mode: 0o755}
 }
 
-func testCompileRequest(content string) CompileRequest {
-	return CompileRequest{
+func testCompileRequest(content string) execution.CompileRequest {
+	return execution.CompileRequest{
 		Files:        []execution.File{{Name: "main.cpp", Content: []byte(content), Mode: 0o644}},
 		ImageRef:     "gcc:12",
 		Command:      []string{"g++", "main.cpp"},
@@ -47,28 +58,27 @@ func testCompileRequest(content string) CompileRequest {
 
 func TestCachedCompiler_CacheHit(t *testing.T) {
 	inner := &cachedCompilerFake{
-		result:   model.CompileResult{Succeeded: true},
-		artifact: testCompiledArtifact(),
+		result: execution.CompileResult{Artifact: testCompiledArtifact()},
 	}
-	cc, err := NewCachedCompiler(inner, 16)
+	cc, err := newCachedCompiler(inner, 16)
 	require.NoError(t, err)
 
 	req := testCompileRequest("hello")
 	out1, err := cc.Compile(t.Context(), req)
 	require.NoError(t, err)
-	assert.True(t, out1.Result.Succeeded)
+	assert.NotNil(t, out1.Artifact)
 
 	out2, err := cc.Compile(t.Context(), req)
 	require.NoError(t, err)
-	assert.True(t, out2.Result.Succeeded)
+	assert.NotNil(t, out2.Artifact)
 	assert.Equal(t, 1, inner.calls, "inner should only be called once")
 }
 
 func TestCachedCompiler_FailedCompileNotCached(t *testing.T) {
 	inner := &cachedCompilerFake{
-		result: model.CompileResult{Succeeded: false, Log: "error"},
+		result: execution.CompileResult{Log: "error"},
 	}
-	cc, err := NewCachedCompiler(inner, 16)
+	cc, err := newCachedCompiler(inner, 16)
 	require.NoError(t, err)
 
 	req := testCompileRequest("bad")
@@ -87,10 +97,9 @@ func TestCachedCompiler_Singleflight(t *testing.T) {
 		inner := &gatedCompiler{
 			release:      release,
 			compileCount: &compileCount,
-			result:       model.CompileResult{Succeeded: true},
-			artifact:     testCompiledArtifact(),
+			result:       execution.CompileResult{Artifact: testCompiledArtifact()},
 		}
-		cc, err := NewCachedCompiler(inner, 16)
+		cc, err := newCachedCompiler(inner, 16)
 		require.NoError(t, err)
 
 		req := testCompileRequest("concurrent")
@@ -122,10 +131,9 @@ func TestCachedCompiler_CallerCancellationDoesNotCancelSharedCompile(t *testing.
 			release:      release,
 			started:      started,
 			compileCount: &compileCount,
-			result:       model.CompileResult{Succeeded: true},
-			artifact:     testCompiledArtifact(),
+			result:       execution.CompileResult{Artifact: testCompiledArtifact()},
 		}
-		cc, err := NewCachedCompiler(inner, 16)
+		cc, err := newCachedCompiler(inner, 16)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -157,7 +165,7 @@ func TestCachedCompiler_CallerCancellationDoesNotCancelSharedCompile(t *testing.
 
 func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 	inner := &cachedCompilerFake{err: errors.New("infra error")}
-	cc, err := NewCachedCompiler(inner, 16)
+	cc, err := newCachedCompiler(inner, 16)
 	require.NoError(t, err)
 
 	req := testCompileRequest("err")
@@ -171,18 +179,21 @@ func TestCachedCompiler_ErrorNotCached(t *testing.T) {
 
 // gatedCompiler blocks on a channel to test singleflight coalescing.
 type gatedCompiler struct {
+	runStub
 	release      chan struct{}
 	started      chan context.Context
 	compileCount *atomic.Int32
-	result       model.CompileResult
-	artifact     *execution.Artifact
+	result       execution.CompileResult
 }
 
-func (g *gatedCompiler) Compile(ctx context.Context, _ CompileRequest) (CompileOutput, error) {
+func (g *gatedCompiler) Compile(
+	ctx context.Context,
+	_ execution.CompileRequest,
+) (execution.CompileResult, error) {
 	if g.started != nil {
 		g.started <- ctx
 	}
 	<-g.release
 	g.compileCount.Add(1)
-	return CompileOutput{Result: g.result, Artifact: g.artifact}, nil
+	return g.result, nil
 }

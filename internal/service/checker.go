@@ -53,22 +53,20 @@ type checkerResult struct {
 }
 
 type checkerEngine struct {
-	compiler      Compiler
-	runner        Runner
+	executor      execution.Executor
 	bundledFS     fs.FS
 	externalFS    fs.FS
 	testlibHeader []byte
 }
 
 type checkerSnapshot struct {
-	compiler      Compiler
-	runner        Runner
+	executor      execution.Executor
 	source        []byte
 	testlibHeader []byte
 }
 
 type compiledChecker struct {
-	runner   Runner
+	executor execution.Executor
 	artifact execution.Artifact
 }
 
@@ -77,7 +75,7 @@ type checkerLocation struct {
 	path       string
 }
 
-func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (checker, error) {
+func newChecker(executor execution.Executor, bundledFS, externalFS fs.FS) (checker, error) {
 	testlibHeader, err := fs.ReadFile(bundledFS, testlibHeaderKey)
 	if err != nil {
 		return nil, fmt.Errorf("checker dependency %q is not available: %w", testlibHeaderKey, err)
@@ -87,14 +85,13 @@ func newChecker(compiler Compiler, runner Runner, bundledFS, externalFS fs.FS) (
 		return nil, fmt.Errorf("checker dependency %q is not available: %w", defaultCheckerPath, err)
 	}
 
-	cachedCompiler, err := NewCachedCompiler(compiler, checkerCacheEntries)
+	cachedCompiler, err := newCachedCompiler(executor, checkerCacheEntries)
 	if err != nil {
 		return nil, fmt.Errorf("create checker compile cache: %w", err)
 	}
 
 	return &checkerEngine{
-		compiler:      cachedCompiler,
-		runner:        runner,
+		executor:      cachedCompiler,
 		bundledFS:     bundledFS,
 		externalFS:    externalFS,
 		testlibHeader: testlibHeader,
@@ -108,8 +105,7 @@ func (c *checkerEngine) Materialize(location checkerLocation) (checkerPlan, erro
 	}
 
 	return &checkerSnapshot{
-		compiler:      c.compiler,
-		runner:        c.runner,
+		executor:      c.executor,
 		source:        source,
 		testlibHeader: c.testlibHeader,
 	}, nil
@@ -128,7 +124,7 @@ func validateResourceFile(fsys fs.FS, name string) error {
 
 func (p *checkerSnapshot) Prepare(ctx context.Context) (preparedChecker, error) {
 	profile := checkerCompileProfile()
-	compileOut, err := p.compiler.Compile(ctx, CompileRequest{
+	compileOut, err := p.executor.Compile(ctx, execution.CompileRequest{
 		Files: []execution.File{
 			{Name: profile.SourceFile, Content: p.source, Mode: 0o644},
 			{Name: testlibHeaderKey, Content: p.testlibHeader, Mode: 0o644},
@@ -146,11 +142,11 @@ func (p *checkerSnapshot) Prepare(ctx context.Context) (preparedChecker, error) 
 	if err != nil {
 		return nil, fmt.Errorf("checker setup failed: %w", err)
 	}
-	if !compileOut.Result.Succeeded {
-		message := cmp.Or(strings.TrimSpace(compileOut.Result.Log), "checker compilation failed")
+	if compileOut.Artifact == nil {
+		message := cmp.Or(strings.TrimSpace(compileOut.Log), "checker compilation failed")
 		return nil, fmt.Errorf("checker compilation failed: %s", message)
 	}
-	return &compiledChecker{runner: p.runner, artifact: *compileOut.Artifact}, nil
+	return &compiledChecker{executor: p.executor, artifact: *compileOut.Artifact}, nil
 }
 
 func (c *checkerEngine) readSource(location checkerLocation) ([]byte, error) {
@@ -179,16 +175,16 @@ func (c *compiledChecker) Check(
 	actualOutput string,
 	expectedOutput string,
 ) (checkerResult, error) {
-	runOut, err := c.runner.Run(ctx, RunRequest{
+	runOut, err := c.executor.Run(ctx, execution.RunRequest{
+		Artifact: c.artifact,
 		Files: []execution.File{
-			{Name: checkerArtifactName, Content: c.artifact.Data, Mode: c.artifact.Mode},
 			{Name: checkerInputFileName, Content: []byte(input), Mode: 0o644},
 			{Name: checkerOutputFileName, Content: []byte(actualOutput), Mode: 0o644},
 			{Name: checkerAnswerFileName, Content: []byte(expectedOutput), Mode: 0o644},
 		},
 		ImageRef: checkerRunImageRef,
 		Command: []string{
-			"./" + checkerArtifactName,
+			"./" + c.artifact.Name,
 			checkerInputFileName,
 			checkerOutputFileName,
 			checkerAnswerFileName,

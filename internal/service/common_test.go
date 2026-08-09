@@ -17,8 +17,7 @@ import (
 
 type serviceIntegrationEnv struct {
 	ctx      context.Context
-	compiler Compiler
-	runner   Runner
+	executor execution.Executor
 	language language
 }
 
@@ -64,13 +63,10 @@ func newServiceIntegrationEnv(t *testing.T, timeout time.Duration) serviceIntegr
 	t.Helper()
 
 	executor := newExecutorForTest(t)
-	compiler := newCompiler(executor)
-	runner := newRunner(executor)
 	return serviceIntegrationEnv{
 		ctx:      newIntegrationContext(t, timeout),
-		compiler: compiler,
-		runner:   runner,
-		language: newLanguage(compiler, runner),
+		executor: executor,
+		language: newLanguage(executor),
 	}
 }
 

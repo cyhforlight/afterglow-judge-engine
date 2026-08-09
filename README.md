@@ -125,7 +125,7 @@ curl -X POST http://localhost:8080/v1/execute \
 - `service`
   - 负责完整判题流程编排：加载测试数据、解析 checker、编译、执行、校验、汇总逐点结果和判题流程状态
 - `execution`
-  - 负责通用容器执行任务：准备临时 workspace、写入文件、表达资源限制、调用 sandbox、收集产物，并集中限制容器并发
+  - 负责容器内编译与运行：准备临时 workspace、集中编译/运行隔离策略、收集单一编译产物，并限制容器并发
 - `sandbox`
   - 负责通过 containerd 在受限环境中执行编译和运行动作
 - `resource`
@@ -150,7 +150,7 @@ transport -> service -> model
 3. 请求通过校验后，service 取得判题并发配额
 4. service 单次读取 checker 源码和全部文件型 testcase，构造不再持有外部路径、包含内容快照的内部判题计划
 5. service 编译用户代码并从源码快照准备 checker
-6. compiler / runner 通过 execution 层执行用户程序和 checker；容器并发由 execution 层统一限制
+6. execution 编译并运行用户程序和 checker；容器并发由该层统一限制
 7. service 汇总逐点结果和判题流程状态
 8. transport 将请求或资源 materialize 错误映射为 HTTP 400，或以 HTTP 200 返回判题结果
 
@@ -162,7 +162,7 @@ cmd/
 
 internal/
 ├── config/                     环境变量配置加载
-├── execution/                  通用容器执行任务、资源限制、内部 workspace 和产物收集
+├── execution/                  容器编译与运行、资源限制、内部 workspace 和单产物收集
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
 ├── resource/                   内置资源和外部文件的只读访问
 ├── sandbox/                    containerd 沙箱适配层

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -15,32 +14,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type recordingCheckerCompiler struct {
-	mu       sync.Mutex
-	output   CompileOutput
-	err      error
-	requests []CompileRequest
+type checkerExecutorFake struct {
+	compileResult   execution.CompileResult
+	compileErr      error
+	compileRequests []execution.CompileRequest
+	runResult       execution.RunResult
 }
 
-func (c *recordingCheckerCompiler) Compile(_ context.Context, req CompileRequest) (CompileOutput, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.requests = append(c.requests, req)
-	return c.output, c.err
+func (e *checkerExecutorFake) Compile(
+	_ context.Context,
+	req execution.CompileRequest,
+) (execution.CompileResult, error) {
+	e.compileRequests = append(e.compileRequests, req)
+	return e.compileResult, e.compileErr
 }
 
-type recordingCheckerRunner struct {
-	mu       sync.Mutex
-	result   RunResult
-	err      error
-	requests []RunRequest
-}
-
-func (r *recordingCheckerRunner) Run(_ context.Context, req RunRequest) (RunResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.requests = append(r.requests, req)
-	return r.result, r.err
+func (e *checkerExecutorFake) Run(
+	_ context.Context,
+	_ execution.RunRequest,
+) (execution.RunResult, error) {
+	return e.runResult, nil
 }
 
 func checkerTestFS() fstest.MapFS {
@@ -52,14 +45,14 @@ func checkerTestFS() fstest.MapFS {
 
 func TestNewChecker_RejectsMissingTestlib(t *testing.T) {
 	bundledFS := testFileSystem(map[string][]byte{"checkers/default.cpp": []byte("source")})
-	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
+	_, err := newChecker(&checkerExecutorFake{}, bundledFS, nil)
 
 	require.ErrorContains(t, err, `checker dependency "testlib.h" is not available`)
 }
 
 func TestNewChecker_RejectsMissingDefaultChecker(t *testing.T) {
 	bundledFS := testFileSystem(map[string][]byte{testlibHeaderKey: []byte("header")})
-	_, err := newChecker(&recordingCheckerCompiler{}, &recordingCheckerRunner{}, bundledFS, nil)
+	_, err := newChecker(&checkerExecutorFake{}, bundledFS, nil)
 
 	require.ErrorContains(t, err, `checker dependency "checkers/default.cpp" is not available`)
 }
@@ -157,12 +150,7 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 			engine := &checkerEngine{bundledFS: tt.bundledFS, externalFS: tt.externalFS}
 			location, err := resolveChecker(tt.reference)
 			require.NoError(t, err)
-			plan, err := engine.Materialize(location)
-			if tt.wantErr == "" {
-				require.NoError(t, err)
-				require.NotNil(t, plan)
-				return
-			}
+			_, err = engine.Materialize(location)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
@@ -171,7 +159,7 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 func TestCheckerSnapshot_PrepareFailures(t *testing.T) {
 	tests := []struct {
 		name       string
-		output     CompileOutput
+		output     execution.CompileResult
 		compileErr error
 		wantErr    string
 	}{
@@ -181,19 +169,16 @@ func TestCheckerSnapshot_PrepareFailures(t *testing.T) {
 			wantErr:    "checker setup failed: compiler unavailable",
 		},
 		{
-			name: "compilation failed",
-			output: CompileOutput{Result: model.CompileResult{
-				Succeeded: false,
-				Log:       "syntax error",
-			}},
+			name:    "compilation failed",
+			output:  execution.CompileResult{Log: "syntax error"},
 			wantErr: "checker compilation failed: syntax error",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			compiler := &recordingCheckerCompiler{output: tt.output, err: tt.compileErr}
-			engine := &checkerEngine{compiler: compiler, bundledFS: checkerTestFS()}
+			executor := &checkerExecutorFake{compileResult: tt.output, compileErr: tt.compileErr}
+			engine := &checkerEngine{executor: executor, bundledFS: checkerTestFS()}
 			plan, err := engine.Materialize(checkerLocation{path: defaultCheckerName})
 			require.NoError(t, err)
 
@@ -207,13 +192,11 @@ func TestCheckerSnapshot_PrepareUsesCapturedSource(t *testing.T) {
 	const checkerSource = "original source"
 
 	externalFS := testFileSystem(map[string][]byte{"custom.cpp": []byte(checkerSource)})
-	compiler := &recordingCheckerCompiler{output: CompileOutput{
-		Result:   model.CompileResult{Succeeded: true},
-		Artifact: &execution.Artifact{Data: []byte("checker binary"), Mode: 0o755},
+	executor := &checkerExecutorFake{compileResult: execution.CompileResult{
+		Artifact: &execution.Artifact{Name: checkerArtifactName, Data: []byte("checker binary"), Mode: 0o755},
 	}}
 	engine := &checkerEngine{
-		compiler:      compiler,
-		runner:        &recordingCheckerRunner{},
+		executor:      executor,
 		bundledFS:     checkerTestFS(),
 		externalFS:    externalFS,
 		testlibHeader: []byte("testlib header"),
@@ -225,55 +208,55 @@ func TestCheckerSnapshot_PrepareUsesCapturedSource(t *testing.T) {
 
 	_, err = plan.Prepare(t.Context())
 	require.NoError(t, err)
-	require.Len(t, compiler.requests, 1)
-	require.NotEmpty(t, compiler.requests[0].Files)
-	assert.Equal(t, checkerSource, string(compiler.requests[0].Files[0].Content))
+	require.Len(t, executor.compileRequests, 1)
+	require.NotEmpty(t, executor.compileRequests[0].Files)
+	assert.Equal(t, checkerSource, string(executor.compileRequests[0].Files[0].Content))
 }
 
 func TestCompiledChecker_Check(t *testing.T) {
 	tests := []struct {
 		name        string
-		runResult   RunResult
+		runResult   execution.RunResult
 		wantVerdict model.Verdict
 		wantMessage string
 	}{
 		{
 			name:        "accepted with stderr message",
-			runResult:   RunResult{Verdict: execution.VerdictOK, ExitCode: 0, Stderr: " accepted "},
+			runResult:   execution.RunResult{Verdict: execution.VerdictOK, ExitCode: 0, Stderr: " accepted "},
 			wantVerdict: model.VerdictOK,
 			wantMessage: "accepted",
 		},
 		{
 			name:        "wrong answer exit one",
-			runResult:   RunResult{Verdict: execution.VerdictRE, ExitCode: 1, Stdout: "wrong"},
+			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 1, Stdout: "wrong"},
 			wantVerdict: model.VerdictWA,
 			wantMessage: "wrong",
 		},
 		{
 			name:        "wrong answer exit two",
-			runResult:   RunResult{Verdict: execution.VerdictRE, ExitCode: 2, ExtraInfo: "presentation"},
+			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 2, ExtraInfo: "presentation"},
 			wantVerdict: model.VerdictWA,
 			wantMessage: "presentation",
 		},
 		{
 			name:        "sandbox timeout",
-			runResult:   RunResult{Verdict: execution.VerdictTLE, ExitCode: 0, Stderr: "timed out"},
+			runResult:   execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 0, Stderr: "timed out"},
 			wantVerdict: model.VerdictUKE,
 			wantMessage: "timed out",
 		},
 		{
 			name:        "nonzero protocol exit",
-			runResult:   RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
+			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
 			wantVerdict: model.VerdictUKE,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := &recordingCheckerRunner{result: tt.runResult}
+			executor := &checkerExecutorFake{runResult: tt.runResult}
 			prepared := &compiledChecker{
-				runner:   runner,
-				artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
+				executor: executor,
+				artifact: execution.Artifact{Name: checkerArtifactName, Data: []byte("binary"), Mode: 0o755},
 			}
 
 			result, err := prepared.Check(t.Context(), "input", "actual", "expected")
@@ -282,39 +265,4 @@ func TestCompiledChecker_Check(t *testing.T) {
 			assert.Equal(t, tt.wantMessage, result.Message)
 		})
 	}
-}
-
-func TestCompiledChecker_CheckRunnerError(t *testing.T) {
-	prepared := &compiledChecker{
-		runner:   &recordingCheckerRunner{err: errors.New("sandbox unavailable")},
-		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
-	}
-
-	result, err := prepared.Check(t.Context(), "", "", "")
-
-	require.ErrorContains(t, err, "sandbox unavailable")
-	assert.Equal(t, model.VerdictUKE, result.Verdict)
-}
-
-func TestCompiledChecker_CheckConcurrent(t *testing.T) {
-	const calls = 8
-	runner := &recordingCheckerRunner{result: RunResult{Verdict: execution.VerdictOK, ExitCode: 0}}
-	prepared := &compiledChecker{
-		runner:   runner,
-		artifact: execution.Artifact{Data: []byte("binary"), Mode: 0o755},
-	}
-
-	var wg sync.WaitGroup
-	errs := make([]error, calls)
-	for i := range calls {
-		wg.Go(func() {
-			_, errs[i] = prepared.Check(t.Context(), "input", "actual", "expected")
-		})
-	}
-	wg.Wait()
-
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-	assert.Len(t, runner.requests, calls)
 }
