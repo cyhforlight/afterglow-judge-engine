@@ -201,7 +201,6 @@ func (*Sandbox) watchExecution(
 	oleLimiter *outputLimiter,
 	limits ResourceLimits,
 ) (ExecuteResult, error) {
-	startTime := time.Now()
 	if err := task.Start(ctx); err != nil {
 		return ExecuteResult{}, fmt.Errorf("start task: %w", err)
 	}
@@ -216,7 +215,7 @@ func (*Sandbox) watchExecution(
 
 	event := waitForExecutionEvent(ctx, task, exitCh, oleLimiter.ch, wallDeadline.C, cpuTicker.C, limits.CPUTimeMs)
 	if event.exited {
-		return resultAfterTaskExit(ctx, task, event.status, startTime, limits, stdoutLW, stderrLW)
+		return resultAfterTaskExit(ctx, task, event.status, limits, stdoutLW, stderrLW)
 	}
 
 	if event.reason != cpuTimeLimitReason && event.err == nil {
@@ -274,7 +273,6 @@ func resultAfterTaskExit(
 	ctx context.Context,
 	task metricsReader,
 	status containerd.ExitStatus,
-	startTime time.Time,
 	limits ResourceLimits,
 	stdoutLW, stderrLW *limitedWriter,
 ) (ExecuteResult, error) {
@@ -286,7 +284,7 @@ func resultAfterTaskExit(
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("collect cgroup metrics: %w", err)
 	}
-	return buildVerdict(code, time.Since(startTime), metrics, limits, stdoutLW, stderrLW), nil
+	return buildVerdict(code, metrics, limits, stdoutLW, stderrLW), nil
 }
 
 func stopTask(

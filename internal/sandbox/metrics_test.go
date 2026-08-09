@@ -41,7 +41,7 @@ func TestParseCgroupMetrics_MapsV2Stats(t *testing.T) {
 			MaxUsage: uint64(48 * bytesPerMiB),
 		},
 		MemoryEvents: &cgroupsv2.MemoryEvents{
-			Max:     1,
+			Oom:     1,
 			OomKill: 1,
 		},
 	})
@@ -52,7 +52,7 @@ func TestParseCgroupMetrics_MapsV2Stats(t *testing.T) {
 
 	assert.Equal(t, uint64(12_345_000), got.cpuNanos)
 	assert.Equal(t, uint64(48*bytesPerMiB), got.peakMemBytes)
-	assert.True(t, got.memoryLimitHit)
+	assert.True(t, got.oomDetected)
 	assert.True(t, got.oomKillDetected)
 }
 

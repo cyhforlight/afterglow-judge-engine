@@ -1,15 +1,9 @@
 package sandbox
 
-import (
-	"fmt"
-	"time"
-)
-
-const memoryHitThresholdDivisor = 200 // within 0.5% of the limit
+import "fmt"
 
 func buildVerdict(
 	exitCode uint32,
-	wallElapsed time.Duration,
 	metrics cgroupMetrics,
 	limits ResourceLimits,
 	stdoutLW, stderrLW *limitedWriter,
@@ -25,18 +19,12 @@ func buildVerdict(
 		MemoryMB:  peakMemMB,
 	}
 
-	if cpuMs == 0 {
-		res.CPUTimeMs = int(wallElapsed.Milliseconds())
-	}
-
-	memoryHitLimit := memoryLimitReached(metrics, limits.MemoryMB)
-
 	switch {
-	case outputOverflowed(stdoutLW, stderrLW):
+	case stdoutLW.isOverflowed() || stderrLW.isOverflowed():
 		res.Verdict = VerdictOLE
 		res.ExtraInfo = fmt.Sprintf("output limit exceeded (%d bytes max)", limits.OutputBytes)
 
-	case metrics.oomKillDetected || exitCode == 137 || (exitCode != 0 && memoryHitLimit):
+	case metrics.oomKillDetected || (exitCode != 0 && metrics.oomDetected):
 		res.Verdict = VerdictMLE
 		res.ExtraInfo = fmt.Sprintf("memory limit exceeded (peak %dMB, limit %dMB)", peakMemMB, limits.MemoryMB)
 
@@ -70,39 +58,19 @@ func buildForcedStopVerdict(
 		Stderr:    stderrLW.String(),
 	}
 
-	if outputOverflowed(stdoutLW, stderrLW) {
+	switch reason {
+	case outputLimitReason:
 		res.Verdict = VerdictOLE
 		res.ExtraInfo = fmt.Sprintf("output limit exceeded (%d bytes max)", limits.OutputBytes)
-		return res
+	case cpuTimeLimitReason, wallTimeLimitReason:
+		res.Verdict = VerdictTLE
+		res.ExtraInfo = fmt.Sprintf(
+			"%s (cpu %dms, cpu limit %dms, wall limit %dms)",
+			reason,
+			cpuMs,
+			limits.CPUTimeMs,
+			limits.WallTimeMs,
+		)
 	}
-	if metrics.oomKillDetected || memoryLimitReached(metrics, limits.MemoryMB) {
-		res.Verdict = VerdictMLE
-		res.ExtraInfo = fmt.Sprintf("memory limit exceeded (peak %dMB, limit %dMB)", peakMemMB, limits.MemoryMB)
-		return res
-	}
-	res.Verdict = VerdictTLE
-	res.ExtraInfo = fmt.Sprintf(
-		"%s (cpu %dms, cpu limit %dms, wall limit %dms)",
-		reason,
-		cpuMs,
-		limits.CPUTimeMs,
-		limits.WallTimeMs,
-	)
 	return res
-}
-
-func memoryLimitReached(metrics cgroupMetrics, memoryLimitMB int) bool {
-	if metrics.memoryLimitHit {
-		return true
-	}
-
-	limitBytes := uint64(memoryLimitMB) * uint64(bytesPerMiB) //nolint:gosec // Limits come from admitted requests or fixed profiles.
-	if metrics.peakMemBytes >= limitBytes {
-		return true
-	}
-	return metrics.peakMemBytes >= limitBytes-limitBytes/memoryHitThresholdDivisor
-}
-
-func outputOverflowed(stdoutLW, stderrLW *limitedWriter) bool {
-	return stdoutLW.isOverflowed() || stderrLW.isOverflowed()
 }
