@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
-	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
@@ -85,7 +82,7 @@ type fakeCompiledProgram struct {
 func (p *fakeCompiledProgram) Run(
 	_ context.Context,
 	input string,
-	_, _ int,
+	_, _ uint32,
 ) (execution.RunResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -219,7 +216,6 @@ func newTestJudgeEngineWithExternalResources(
 		checkerModule,
 		externalFS,
 		10,
-		model.DefaultJudgeLimits(),
 	)
 }
 
@@ -244,48 +240,12 @@ func judgeSuccessfully(t *testing.T, engine *JudgeEngine, req model.JudgeRequest
 	return result
 }
 
-func TestNewJudgeEngine_ValidatesConfiguration(t *testing.T) {
-	limits := model.DefaultJudgeLimits()
-
+func TestNewJudgeEngine_RejectsNonPositiveConcurrency(t *testing.T) {
 	for _, maxConcurrent := range []int{0, -1} {
-		engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, maxConcurrent, limits)
+		engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, maxConcurrent)
 		assert.Nil(t, engine)
 		require.ErrorContains(t, err, "max concurrent judges must be positive")
 	}
-
-	limitTests := []struct {
-		name   string
-		mutate func(*model.JudgeLimits)
-	}{
-		{name: "time", mutate: func(limits *model.JudgeLimits) { limits.MaxTimeLimitMs = 0 }},
-		{name: "memory", mutate: func(limits *model.JudgeLimits) { limits.MaxMemoryMB = 0 }},
-		{name: "testcases", mutate: func(limits *model.JudgeLimits) { limits.MaxTestCases = 0 }},
-		{name: "source", mutate: func(limits *model.JudgeLimits) { limits.MaxSourceBytes = 0 }},
-		{name: "time overflow", mutate: func(limits *model.JudgeLimits) { limits.MaxTimeLimitMs = math.MaxInt }},
-		{
-			name: "wall duration conversion overflow",
-			mutate: func(limits *model.JudgeLimits) {
-				limits.MaxTimeLimitMs = int(math.MaxInt64/(int64(execution.WallTimeMultiplier)*int64(time.Millisecond))) + 1
-			},
-		},
-		{name: "memory overflow", mutate: func(limits *model.JudgeLimits) { limits.MaxMemoryMB = math.MaxInt }},
-		{
-			name: "memory byte conversion overflow",
-			mutate: func(limits *model.JudgeLimits) {
-				limits.MaxMemoryMB = int(math.MaxInt64 / (1024 * 1024))
-			},
-		},
-	}
-	for _, tt := range limitTests {
-		t.Run("invalid "+tt.name+" limit", func(t *testing.T) {
-			invalidLimits := limits
-			tt.mutate(&invalidLimits)
-			engine, err := NewJudgeEngine(nil, checkerTestFS(), nil, 1, invalidLimits)
-			assert.Nil(t, engine)
-			require.ErrorContains(t, err, "invalid judge limits")
-		})
-	}
-
 }
 
 func TestJudgeEngine_CompileError(t *testing.T) {
@@ -449,7 +409,6 @@ func TestJudgeEngine_RejectsUnmaterializableRequest(t *testing.T) {
 }
 
 func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
-	limits := model.DefaultJudgeLimits()
 	tests := []struct {
 		name    string
 		mutate  func(*model.JudgeRequest)
@@ -458,13 +417,10 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 		{name: "missing source", mutate: func(req *model.JudgeRequest) { req.SourceCode = "" }, wantErr: "sourceCode is required"},
 		{name: "missing language", mutate: func(req *model.JudgeRequest) { req.Language = model.LanguageUnknown }, wantErr: "language is required"},
 		{name: "unsupported language", mutate: func(req *model.JudgeRequest) { req.Language = model.Language("Rust") }, wantErr: "unsupported language"},
-		{name: "source too large", mutate: func(req *model.JudgeRequest) { req.SourceCode = strings.Repeat("x", limits.MaxSourceBytes+1) }, wantErr: "sourceCode must be at most"},
-		{name: "non-positive time limit", mutate: func(req *model.JudgeRequest) { req.TimeLimit = 0 }, wantErr: "timeLimit must be positive"},
-		{name: "time limit too large", mutate: func(req *model.JudgeRequest) { req.TimeLimit = limits.MaxTimeLimitMs + 1 }, wantErr: "timeLimit must be at most"},
-		{name: "non-positive memory limit", mutate: func(req *model.JudgeRequest) { req.MemoryLimit = 0 }, wantErr: "memoryLimit must be positive"},
-		{name: "memory limit too large", mutate: func(req *model.JudgeRequest) { req.MemoryLimit = limits.MaxMemoryMB + 1 }, wantErr: "memoryLimit must be at most"},
+		{name: "zero time limit", mutate: func(req *model.JudgeRequest) { req.TimeLimit = 0 }, wantErr: "timeLimit must be positive"},
+		{name: "zero memory limit", mutate: func(req *model.JudgeRequest) { req.MemoryLimit = 0 }, wantErr: "memoryLimit must be positive"},
 		{name: "missing testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = nil }, wantErr: "testcases must not be empty"},
-		{name: "too many testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = make([]model.JudgeTestCase, limits.MaxTestCases+1) }, wantErr: "testcases must contain at most"},
+		{name: "too many testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = make([]model.JudgeTestCase, maxTestCases+1) }, wantErr: "testcases must contain at most"},
 		{name: "mixed testcase data", mutate: func(req *model.JudgeRequest) {
 			req.TestCases = []model.JudgeTestCase{{InputText: "x", InputFile: "1.in", ExpectedOutputFile: "1.out"}}
 		}, wantErr: "cannot mix text and file data"},

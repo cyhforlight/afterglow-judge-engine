@@ -62,7 +62,6 @@ func TestJudgeEngine_ConcurrencyLimit(t *testing.T) {
 			checkerModule,
 			externalFS,
 			maxConcurrent,
-			model.DefaultJudgeLimits(),
 		)
 		req := externalFileJudgeRequest()
 		results := make([]model.JudgeResult, numRequests)
@@ -99,7 +98,6 @@ func TestJudgeEngine_ConcurrencyTimeout(t *testing.T) {
 			newFakeChecker(),
 			externalFS,
 			1,
-			model.DefaultJudgeLimits(),
 		)
 		req := externalFileJudgeRequest()
 

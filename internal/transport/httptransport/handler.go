@@ -11,15 +11,17 @@ import (
 	"afterglow-judge-engine/internal/model"
 )
 
+const maxRequestBodyBytes = 256 << 20
+
 // JudgeService is the judging capability required by the HTTP transport.
 type JudgeService interface {
 	Judge(context.Context, model.JudgeRequest) (model.JudgeResult, error)
 }
 
 type handler struct {
-	judge   JudgeService
-	logger  *slog.Logger
-	maxSize int64 // max request body size in bytes
+	judge        JudgeService
+	logger       *slog.Logger
+	maxBodyBytes int64
 }
 
 type errorResponse struct {
@@ -28,18 +30,18 @@ type errorResponse struct {
 	Details string `json:"details,omitempty"`
 }
 
-func newHandler(judge JudgeService, logger *slog.Logger, maxSize int64) *handler {
+func newHandler(judge JudgeService, logger *slog.Logger, maxBodyBytes int64) *handler {
 	return &handler{
-		judge:   judge,
-		logger:  logger,
-		maxSize: maxSize,
+		judge:        judge,
+		logger:       logger,
+		maxBodyBytes: maxBodyBytes,
 	}
 }
 
 func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	r.Body = http.MaxBytesReader(w, r.Body, h.maxSize)
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 
 	var req model.JudgeRequest
 	decoder := json.NewDecoder(r.Body)

@@ -3,14 +3,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
-	"afterglow-judge-engine/internal/config"
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/resource"
 	"afterglow-judge-engine/internal/sandbox"
@@ -18,14 +20,25 @@ import (
 	"afterglow-judge-engine/internal/transport/httptransport"
 )
 
+const containerdNamespace = "afterglow-sandbox"
+
+type settings struct {
+	listenAddr              string
+	containerdSocket        string
+	maxConcurrentContainers int
+	maxConcurrentJudges     int
+	externalDataDir         string
+	logLevel                slog.Level
+}
+
 func main() {
-	cfg, err := config.Load()
+	cfg, err := loadSettings()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "load settings: %v\n", err)
 		os.Exit(1)
 	}
 
-	logger := setupLogger(cfg.LogLevel)
+	logger := setupLogger(cfg.logLevel)
 	slog.SetDefault(logger)
 
 	server, err := initializeServer(cfg, logger)
@@ -48,60 +61,91 @@ func setupLogger(level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 }
 
-func initializeServer(cfg *config.Config, logger *slog.Logger) (*httptransport.Server, error) {
-	// 1. Create the shared containerd sandbox.
-	sb, err := sandbox.New(cfg.ContainerdSocket, cfg.ContainerdNamespace)
+func loadSettings() (settings, error) {
+	cfg := settings{
+		listenAddr:       env("HTTP_LISTEN_ADDR", ":8080"),
+		containerdSocket: env("CONTAINERD_SOCKET", "/run/containerd/containerd.sock"),
+		externalDataDir:  env("EXTERNAL_DATA_DIR", ""),
+	}
+	if cfg.listenAddr == "" {
+		return settings{}, errors.New("HTTP_LISTEN_ADDR must not be empty")
+	}
+
+	var err error
+	cfg.maxConcurrentContainers, err = envInt("MAX_CONCURRENT_CONTAINERS", 8)
+	if err != nil {
+		return settings{}, err
+	}
+	cfg.maxConcurrentJudges, err = envInt("MAX_CONCURRENT_JUDGES", 4)
+	if err != nil {
+		return settings{}, err
+	}
+
+	logLevel := env("LOG_LEVEL", "info")
+	if err := cfg.logLevel.UnmarshalText([]byte(logLevel)); err != nil {
+		return settings{}, fmt.Errorf("LOG_LEVEL must be a valid slog level, got %q: %w", logLevel, err)
+	}
+	return cfg, nil
+}
+
+func env(key, fallback string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	return strings.TrimSpace(value)
+}
+
+func envInt(key string, fallback int) (int, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback, nil
+	}
+
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer, got %q", key, value)
+	}
+	return n, nil
+}
+
+func initializeServer(cfg settings, logger *slog.Logger) (*httptransport.Server, error) {
+	sb, err := sandbox.New(cfg.containerdSocket, containerdNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("initialize sandbox: %w", err)
 	}
 
-	// 2. Load bundled internal resources before the service starts listening.
 	bundledFS, err := resource.NewBundled()
 	if err != nil {
 		return nil, fmt.Errorf("initialize bundled resources: %w", err)
 	}
 
-	// 3. Optionally enable external test data / checker files when configured.
 	var externalFS fs.FS
-	if cfg.ExternalDataDir != "" {
-		ext, err := resource.NewExternal(cfg.ExternalDataDir)
+	if cfg.externalDataDir != "" {
+		ext, err := resource.NewExternal(cfg.externalDataDir)
 		if err != nil {
-			return nil, fmt.Errorf("initialize external resources %q: %w", cfg.ExternalDataDir, err)
+			return nil, fmt.Errorf("initialize external resources %q: %w", cfg.externalDataDir, err)
 		}
 		externalFS = ext
 	}
 
-	// 4. Create shared execution primitives.
-	executor, err := execution.NewExecutor(sb, cfg.MaxConcurrentContainers)
+	executor, err := execution.NewExecutor(sb, cfg.maxConcurrentContainers)
 	if err != nil {
 		return nil, fmt.Errorf("initialize executor: %w", err)
 	}
 
-	// 5. Create judge engine with internal checker resources.
 	judge, err := service.NewJudgeEngine(
 		executor,
 		bundledFS,
 		externalFS,
-		cfg.MaxConcurrentJudges,
-		cfg.JudgeLimits,
+		cfg.maxConcurrentJudges,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("initialize judge engine: %w", err)
 	}
 
-	// 6. Assemble the HTTP transport after its dependencies are ready.
-	server, err := httptransport.NewServer(httptransport.ServerOptions{
-		Addr:         cfg.HTTPAddr,
-		Port:         cfg.HTTPPort,
-		ReadTimeout:  cfg.HTTPReadTimeout,
-		WriteTimeout: cfg.HTTPWriteTimeout,
-		MaxBodyBytes: cfg.MaxInputBytes,
-	}, judge, logger)
-	if err != nil {
-		return nil, fmt.Errorf("initialize HTTP server: %w", err)
-	}
+	server := httptransport.NewServer(cfg.listenAddr, judge, logger)
 
-	// 7. Verify runtime dependencies only after all configuration is accepted.
 	if err := sb.CheckEnvironment(context.Background()); err != nil {
 		return nil, fmt.Errorf("sandbox environment check failed: %w", err)
 	}

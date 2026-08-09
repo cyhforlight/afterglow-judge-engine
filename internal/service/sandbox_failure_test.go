@@ -16,7 +16,7 @@ func runUserProgram(
 	env serviceIntegrationEnv,
 	program compiledProgram,
 	input string,
-	timeLimit, memoryLimit int,
+	timeLimit, memoryLimit uint32,
 ) execution.RunResult {
 	t.Helper()
 
@@ -34,7 +34,7 @@ type sandboxFailureCase struct {
 func testProgramVerdicts(
 	t *testing.T,
 	tests []sandboxFailureCase,
-	timeLimit, memoryLimit int,
+	timeLimit, memoryLimit uint32,
 	want execution.Verdict,
 ) {
 	t.Helper()

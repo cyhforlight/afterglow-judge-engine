@@ -46,8 +46,8 @@
   - 直接在请求体中传 `inputText` / `expectedOutputText`
   - 通过 `inputFile` / `expectedOutputFile` 引用外部文件
 - HTTP 边界保护：
-  - 请求体大小限制
-  - 单次请求的时间、内存、测试点数量和源码大小上限
+  - 固定的请求体大小限制和读取超时
+  - 时间和内存必须为正数，单次请求限制测试点数量
   - 严格 JSON 解码，拒绝未知字段
 
 ## 安全边界
@@ -148,7 +148,7 @@ transport -> service -> model
 1. HTTP 层限制请求体大小并做严格 JSON 解码
 2. transport 单次调用 service；service 校验请求字段、资源限制、语言和 checker 引用语法
 3. 请求通过校验后，service 取得判题并发配额
-4. service 单次读取 checker 源码和全部文件型 testcase，构造不再持有外部路径、包含内容快照的内部判题计划
+4. service 单次读取 checker 源码和全部文件型 testcase，将这些外部资源的内容快照放入不持有外部路径的内部判题计划
 5. service 编译用户代码并从源码快照准备 checker
 6. execution 编译并运行用户程序和 checker；容器并发由该层统一限制
 7. service 汇总逐点结果和判题流程状态
@@ -161,7 +161,6 @@ cmd/
 └── server/                     HTTP 服务入口
 
 internal/
-├── config/                     环境变量配置加载
 ├── execution/                  容器编译与运行、资源限制、内部 workspace 和单产物收集
 ├── model/                      领域模型（JudgeRequest / JudgeResult / Verdict）
 ├── resource/                   内置资源和外部文件的只读访问
@@ -194,8 +193,8 @@ Content-Type: application/json
 |------|------|------|------|
 | `sourceCode` | string | 是 | 源代码文本 |
 | `language` | string | 是 | `C` / `C++` / `Java` / `Python` |
-| `timeLimit` | int | 是 | 单测试点 CPU 时间限制，单位毫秒 |
-| `memoryLimit` | int | 是 | 单测试点内存限制，单位 MB；Java 中对应最大堆容量（`-Xmx`） |
+| `timeLimit` | uint32 | 是 | 单测试点 CPU 时间限制，单位毫秒 |
+| `memoryLimit` | uint32 | 是 | 单测试点内存限制，单位 MB；Java 中对应最大堆容量（`-Xmx`） |
 | `checker` | string | 否 | 内置 checker 短名，或 `external:<path>.cpp` |
 | `testcases` | array | 是 | 测试点列表 |
 
@@ -205,8 +204,8 @@ Content-Type: application/json
 |------|------|------|------|
 | `inputText` | string | 否 | 直接传入输入文本 |
 | `expectedOutputText` | string | 否 | 直接传入标准输出文本 |
-| `inputFile` | string | 否 | 相对于 `testdata/` 的输入文件路径 |
-| `expectedOutputFile` | string | 否 | 相对于 `testdata/` 的标准输出文件路径 |
+| `inputFile` | string | 否 | 相对于 `EXTERNAL_DATA_DIR` 资源根目录的输入文件路径 |
+| `expectedOutputFile` | string | 否 | 相对于 `EXTERNAL_DATA_DIR` 资源根目录的标准输出文件路径 |
 
 约束：
 
@@ -214,6 +213,9 @@ Content-Type: application/json
 - 文件型 testcase 必须同时提供 `inputFile` 和 `expectedOutputFile`
 - 请求体必须是且只能是一个 JSON 对象
 - 未知字段会被直接拒绝
+- `timeLimit` 和 `memoryLimit` 必须为正数；引擎不额外设置业务上限
+- 单次请求最多包含 64 个 testcase
+- HTTP 请求体上限固定为 256 MiB，`sourceCode` 和内联测试数据共同受该上限约束；读取超时固定为 30 秒，同步判题响应不设置写超时
 - Java 的 JVM 堆外开销由 Judge Engine 额外预留，不从 `memoryLimit` 中扣除
 - `memoryUsed` 表示容器整体内存峰值；Java 中包含 JVM 堆外内存，可能高于 `memoryLimit`
 - Judge Engine 会在达到 `timeLimit` 时主动停止任务，并以三倍 wall time 作为阻塞和休眠程序的生命周期兜底
@@ -318,27 +320,18 @@ Content-Type: application/json
 external:relative/path/to/checker.cpp
 ```
 
-这里的路径同样是相对于 `testdata/` 根目录解析的，并且必须是 `.cpp` 文件。
+这里的路径同样是相对于 `EXTERNAL_DATA_DIR` 资源根目录解析的，并且必须是 `.cpp` 文件。
 
 ## 配置
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `HTTP_ADDR` | `0.0.0.0` | HTTP 监听地址 |
-| `HTTP_PORT` | `8080` | HTTP 监听端口 |
-| `HTTP_READ_TIMEOUT_MS` | `30000` | HTTP 读取请求的超时时间 |
-| `HTTP_WRITE_TIMEOUT_MS` | `600000` | HTTP 写响应的超时时间 |
+| `HTTP_LISTEN_ADDR` | `:8080` | HTTP 监听地址 |
 | `CONTAINERD_SOCKET` | `/run/containerd/containerd.sock` | containerd 套接字 |
-| `CONTAINERD_NAMESPACE` | `afterglow-sandbox` | containerd namespace |
-| `MAX_INPUT_SIZE_MB` | `256` | HTTP 请求体大小上限 |
 | `MAX_CONCURRENT_CONTAINERS` | `8` | execution 层同时运行的最大容器数（编译、运行、checker 共享） |
 | `MAX_CONCURRENT_JUDGES` | `4` | 同时处理的最大判题请求数 |
-| `MAX_TIME_LIMIT_MS` | `10000` | 单测试点 CPU 时间上限 |
-| `MAX_MEMORY_MB` | `1024` | 单测试点内存上限 |
-| `MAX_TEST_CASES` | `64` | 单次请求测试点数量上限 |
-| `MAX_SOURCE_SIZE_KB` | `256` | 源代码大小上限 |
 | `EXTERNAL_DATA_DIR` | 空 | 外部测试数据和外部 checker 根目录；未配置时关闭该能力 |
-| `LOG_LEVEL` | `info` | 日志级别；当前支持 `info` 和 `debug` |
+| `LOG_LEVEL` | `info` | `slog` 日志级别 |
 
 ## 开发
 

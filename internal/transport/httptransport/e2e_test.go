@@ -26,8 +26,8 @@ type e2eProblemSuite struct {
 	name        string
 	dir         string
 	checker     string
-	timeLimit   int
-	memoryLimit int
+	timeLimit   uint32
+	memoryLimit uint32
 	codes       []e2eCodeExpectation
 }
 
@@ -164,14 +164,14 @@ func newE2EHandler(t *testing.T) *handler {
 
 	executor, err := execution.NewExecutor(sb, 8)
 	require.NoError(t, err)
-	judge, err := service.NewJudgeEngine(executor, bundledFS, externalFS, 10, model.DefaultJudgeLimits())
+	judge, err := service.NewJudgeEngine(executor, bundledFS, externalFS, 10)
 	require.NoError(t, err)
 
 	if err := sb.CheckEnvironment(t.Context()); err != nil {
 		t.Skipf("sandbox environment unavailable: %v", err)
 	}
 
-	return newHandler(judge, slog.Default(), 256*testBytesPerMiB)
+	return newHandler(judge, slog.Default(), maxRequestBodyBytes)
 }
 
 func executeJudgeRequest(t *testing.T, handler *handler, reqBody model.JudgeRequest) judgeHTTPResponse {

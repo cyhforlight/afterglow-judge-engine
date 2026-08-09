@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"math"
 	"strings"
 	"sync"
-	"time"
 
 	"afterglow-judge-engine/internal/execution"
 	"afterglow-judge-engine/internal/model"
@@ -17,19 +15,20 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+const maxTestCases = 64
+
 // JudgeEngine handles full judge orchestration.
 type JudgeEngine struct {
 	language       language
 	checker        checker
 	externalFS     fs.FS
 	concurrencySem *semaphore.Weighted
-	limits         model.JudgeLimits
 }
 
 type judgePlan struct {
 	sourceCode  string
-	timeLimit   int
-	memoryLimit int
+	timeLimit   uint32
+	memoryLimit uint32
 	cases       []caseData
 	compiler    languageCompiler
 	checker     checkerPlan
@@ -46,13 +45,9 @@ func NewJudgeEngine(
 	bundledFS fs.FS,
 	externalFS fs.FS,
 	maxConcurrent int,
-	limits model.JudgeLimits,
 ) (*JudgeEngine, error) {
 	if maxConcurrent <= 0 {
 		return nil, fmt.Errorf("max concurrent judges must be positive, got %d", maxConcurrent)
-	}
-	if err := validateJudgeLimits(limits); err != nil {
-		return nil, fmt.Errorf("invalid judge limits: %w", err)
 	}
 
 	checkerModule, err := newChecker(executor, bundledFS, externalFS)
@@ -60,33 +55,7 @@ func NewJudgeEngine(
 		return nil, fmt.Errorf("initialize checker: %w", err)
 	}
 
-	return newJudgeEngine(newLanguage(executor), checkerModule, externalFS, maxConcurrent, limits), nil
-}
-
-func validateJudgeLimits(limits model.JudgeLimits) error {
-	const bytesPerMiB = int64(1024 * 1024)
-
-	switch {
-	case limits.MaxTimeLimitMs <= 0:
-		return errors.New("maximum time limit must be positive")
-	case limits.MaxMemoryMB <= 0:
-		return errors.New("maximum memory limit must be positive")
-	case limits.MaxTestCases <= 0:
-		return errors.New("maximum testcase count must be positive")
-	case limits.MaxSourceBytes <= 0:
-		return errors.New("maximum source size must be positive")
-	case limits.MaxTimeLimitMs > math.MaxInt/execution.WallTimeMultiplier ||
-		int64(limits.MaxTimeLimitMs) > math.MaxInt64/(int64(execution.WallTimeMultiplier)*int64(time.Millisecond)):
-		return fmt.Errorf("maximum time limit is too large: %dms", limits.MaxTimeLimitMs)
-	}
-
-	javaReserveMB := max(javaNativeReserveMB, limits.MaxMemoryMB/4)
-	if limits.MaxMemoryMB > math.MaxInt-javaReserveMB ||
-		int64(limits.MaxMemoryMB+javaReserveMB) > math.MaxInt64/bytesPerMiB {
-		return fmt.Errorf("maximum memory limit is too large: %dMB", limits.MaxMemoryMB)
-	}
-
-	return nil
+	return newJudgeEngine(newLanguage(executor), checkerModule, externalFS, maxConcurrent), nil
 }
 
 func newJudgeEngine(
@@ -94,44 +63,33 @@ func newJudgeEngine(
 	checkerModule checker,
 	externalFS fs.FS,
 	maxConcurrent int,
-	limits model.JudgeLimits,
 ) *JudgeEngine {
 	return &JudgeEngine{
 		language:       languageModule,
 		checker:        checkerModule,
 		externalFS:     externalFS,
 		concurrencySem: semaphore.NewWeighted(int64(maxConcurrent)),
-		limits:         limits,
 	}
 }
 
-func validateJudgeRequest(req model.JudgeRequest, limits model.JudgeLimits) error {
+func validateJudgeRequest(req model.JudgeRequest) error {
 	if strings.TrimSpace(req.SourceCode) == "" {
 		return errors.New("sourceCode is required")
 	}
 	if req.Language == model.LanguageUnknown {
 		return errors.New("language is required")
 	}
-	if len(req.SourceCode) > limits.MaxSourceBytes {
-		return fmt.Errorf("sourceCode must be at most %d bytes", limits.MaxSourceBytes)
-	}
-	if req.TimeLimit <= 0 {
+	if req.TimeLimit == 0 {
 		return errors.New("timeLimit must be positive")
 	}
-	if req.TimeLimit > limits.MaxTimeLimitMs {
-		return fmt.Errorf("timeLimit must be at most %d ms", limits.MaxTimeLimitMs)
-	}
-	if req.MemoryLimit <= 0 {
+	if req.MemoryLimit == 0 {
 		return errors.New("memoryLimit must be positive")
-	}
-	if req.MemoryLimit > limits.MaxMemoryMB {
-		return fmt.Errorf("memoryLimit must be at most %d MB", limits.MaxMemoryMB)
 	}
 	if len(req.TestCases) == 0 {
 		return errors.New("testcases must not be empty")
 	}
-	if len(req.TestCases) > limits.MaxTestCases {
-		return fmt.Errorf("testcases must contain at most %d cases", limits.MaxTestCases)
+	if len(req.TestCases) > maxTestCases {
+		return fmt.Errorf("testcases must contain at most %d cases", maxTestCases)
 	}
 	for index, testCase := range req.TestCases {
 		if err := validateJudgeTestCase(index, testCase); err != nil {
@@ -165,7 +123,7 @@ func validateJudgeTestCase(index int, testCase model.JudgeTestCase) error {
 // before compiling and evaluating all test cases. An error means the request or
 // its resources were rejected before compilation; later failures are JudgeResults.
 func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
-	if err := validateJudgeRequest(req, s.limits); err != nil {
+	if err := validateJudgeRequest(req); err != nil {
 		return model.JudgeResult{}, err
 	}
 
@@ -324,8 +282,8 @@ func convertVerdict(v execution.Verdict) model.Verdict {
 
 func runSingleCase(
 	ctx context.Context,
-	timeLimit int,
-	memoryLimit int,
+	timeLimit uint32,
+	memoryLimit uint32,
 	program compiledProgram,
 	prepared preparedChecker,
 	testCase caseData,

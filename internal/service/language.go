@@ -21,7 +21,7 @@ type languageCompiler interface {
 }
 
 type compiledProgram interface {
-	Run(context.Context, string, int, int) (execution.RunResult, error)
+	Run(context.Context, string, uint32, uint32) (execution.RunResult, error)
 }
 
 type languageEngine struct {
@@ -119,9 +119,11 @@ func (l *resolvedLanguage) Compile(
 func (p *compiledLanguageProgram) Run(
 	ctx context.Context,
 	input string,
-	timeLimitMs int,
-	memoryLimitMB int,
+	timeLimit uint32,
+	memoryLimit uint32,
 ) (execution.RunResult, error) {
+	timeLimitMs := int(timeLimit)
+	memoryLimitMB := int(memoryLimit)
 	runOut, err := p.executor.Run(ctx, execution.RunRequest{
 		Artifact: p.artifact,
 		ImageRef: p.profile.ImageRef,

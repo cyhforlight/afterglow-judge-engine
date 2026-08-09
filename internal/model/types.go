@@ -40,8 +40,8 @@ type JudgeRequest struct {
 	SourceCode  string          `json:"sourceCode"`
 	Checker     string          `json:"checker,omitempty"`
 	Language    Language        `json:"language"`
-	TimeLimit   int             `json:"timeLimit"`   // CPU milliseconds, per test case
-	MemoryLimit int             `json:"memoryLimit"` // megabytes, per test case
+	TimeLimit   uint32          `json:"timeLimit"`   // CPU milliseconds, per test case
+	MemoryLimit uint32          `json:"memoryLimit"` // megabytes, per test case
 	TestCases   []JudgeTestCase `json:"testcases"`
 }
 
