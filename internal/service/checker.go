@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	defaultCheckerName  = "default"
-	externalPrefix      = "external:"
-	checkerCacheEntries = 64
+	defaultCheckerName = "default"
+	externalPrefix     = "external:"
 
 	testlibHeaderKey = "testlib.h"
 
@@ -53,16 +52,14 @@ type checkerResult struct {
 }
 
 type checkerEngine struct {
-	executor      execution.Executor
-	bundledFS     fs.FS
-	externalFS    fs.FS
-	testlibHeader []byte
+	compiler   *checkerCompiler
+	bundledFS  fs.FS
+	externalFS fs.FS
 }
 
 type checkerSnapshot struct {
-	executor      execution.Executor
-	source        []byte
-	testlibHeader []byte
+	compiler *checkerCompiler
+	source   []byte
 }
 
 type compiledChecker struct {
@@ -85,16 +82,15 @@ func newChecker(executor execution.Executor, bundledFS, externalFS fs.FS) (check
 		return nil, fmt.Errorf("checker dependency %q is not available: %w", defaultCheckerPath, err)
 	}
 
-	cachedCompiler, err := newCachedCompiler(executor, checkerCacheEntries)
+	compiler, err := newCheckerCompiler(executor, testlibHeader)
 	if err != nil {
 		return nil, fmt.Errorf("create checker compile cache: %w", err)
 	}
 
 	return &checkerEngine{
-		executor:      cachedCompiler,
-		bundledFS:     bundledFS,
-		externalFS:    externalFS,
-		testlibHeader: testlibHeader,
+		compiler:   compiler,
+		bundledFS:  bundledFS,
+		externalFS: externalFS,
 	}, nil
 }
 
@@ -105,9 +101,8 @@ func (c *checkerEngine) Materialize(location checkerLocation) (checkerPlan, erro
 	}
 
 	return &checkerSnapshot{
-		executor:      c.executor,
-		source:        source,
-		testlibHeader: c.testlibHeader,
+		compiler: c.compiler,
+		source:   source,
 	}, nil
 }
 
@@ -123,30 +118,7 @@ func validateResourceFile(fsys fs.FS, name string) error {
 }
 
 func (p *checkerSnapshot) Prepare(ctx context.Context) (preparedChecker, error) {
-	profile := checkerCompileProfile()
-	compileOut, err := p.executor.Compile(ctx, execution.CompileRequest{
-		Files: []execution.File{
-			{Name: profile.SourceFile, Content: p.source, Mode: 0o644},
-			{Name: testlibHeaderKey, Content: p.testlibHeader, Mode: 0o644},
-		},
-		ImageRef:     profile.ImageRef,
-		Command:      profile.BuildCommand,
-		ArtifactName: profile.ArtifactName,
-		Limits: execution.Limits{
-			CPUTimeMs:   profile.TimeoutMs,
-			WallTimeMs:  profile.TimeoutMs * execution.WallTimeMultiplier,
-			MemoryMB:    profile.MemoryMB,
-			OutputBytes: execution.DefaultCompileOutputLimitBytes,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("checker setup failed: %w", err)
-	}
-	if compileOut.Artifact == nil {
-		message := cmp.Or(strings.TrimSpace(compileOut.Log), "checker compilation failed")
-		return nil, fmt.Errorf("checker compilation failed: %s", message)
-	}
-	return &compiledChecker{executor: p.executor, artifact: *compileOut.Artifact}, nil
+	return p.compiler.prepare(ctx, p.source)
 }
 
 func (c *checkerEngine) readSource(location checkerLocation) ([]byte, error) {
