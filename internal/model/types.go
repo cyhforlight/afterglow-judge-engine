@@ -1,17 +1,6 @@
 // Package model defines core domain types for the sandbox system.
 package model
 
-import (
-	"cmp"
-	"encoding/json"
-)
-
-const unknownString = "Unknown"
-
-func stringOrUnknown(value string) string {
-	return cmp.Or(value, unknownString)
-}
-
 // Language identifies a programming language.
 type Language string
 
@@ -24,38 +13,19 @@ const (
 	LanguagePython  Language = "Python"
 )
 
-func (l Language) String() string {
-	return stringOrUnknown(string(l))
-}
-
-// MarshalJSON implements json.Marshaler for Language.
-func (l Language) MarshalJSON() ([]byte, error) {
-	return json.Marshal(l.String())
-}
-
 // Verdict represents the execution result status.
 type Verdict string
 
 // Execution verdicts.
 const (
-	VerdictUnknown Verdict = ""
-	VerdictOK      Verdict = "OK"
-	VerdictTLE     Verdict = "TimeLimitExceeded"
-	VerdictMLE     Verdict = "MemoryLimitExceeded"
-	VerdictOLE     Verdict = "OutputLimitExceeded"
-	VerdictRE      Verdict = "RuntimeError"
-	VerdictWA      Verdict = "WrongAnswer"
-	VerdictUKE     Verdict = "UnknownError"
+	VerdictOK  Verdict = "OK"
+	VerdictTLE Verdict = "TimeLimitExceeded"
+	VerdictMLE Verdict = "MemoryLimitExceeded"
+	VerdictOLE Verdict = "OutputLimitExceeded"
+	VerdictRE  Verdict = "RuntimeError"
+	VerdictWA  Verdict = "WrongAnswer"
+	VerdictUKE Verdict = "UnknownError"
 )
-
-func (v Verdict) String() string {
-	return stringOrUnknown(string(v))
-}
-
-// MarshalJSON implements json.Marshaler for Verdict.
-func (v Verdict) MarshalJSON() ([]byte, error) {
-	return json.Marshal(v.String())
-}
 
 // JudgeTestCase represents a single test case for judging.
 type JudgeTestCase struct {
@@ -102,15 +72,6 @@ const (
 	JudgeStatusCompileError JudgeStatus = "CompileError"
 	JudgeStatusSystemError  JudgeStatus = "SystemError"
 )
-
-func (s JudgeStatus) String() string {
-	return stringOrUnknown(string(s))
-}
-
-// MarshalJSON implements json.Marshaler for JudgeStatus.
-func (s JudgeStatus) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.String())
-}
 
 // JudgeResult contains the final judge outcome.
 // Cases preserves the order of JudgeRequest.TestCases.

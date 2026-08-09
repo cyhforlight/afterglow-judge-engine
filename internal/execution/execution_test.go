@@ -32,9 +32,6 @@ type fakeSandbox struct {
 }
 
 func (s *fakeSandbox) Execute(_ context.Context, req sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
-	if s.executeFunc == nil {
-		return sandbox.ExecuteResult{}, nil
-	}
 	return s.executeFunc(req)
 }
 
@@ -142,6 +139,18 @@ func TestExecutor_SandboxError(t *testing.T) {
 	_, err := exec.Compile(t.Context(), validCompileRequest())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sandbox execute: boom")
+}
+
+func TestExecutor_UnknownSandboxVerdictReturnsError(t *testing.T) {
+	exec := newTestExecutor(t, &fakeSandbox{
+		executeFunc: func(_ sandbox.ExecuteRequest) (sandbox.ExecuteResult, error) {
+			return sandbox.ExecuteResult{}, nil
+		},
+	}, 1)
+
+	_, err := exec.Compile(t.Context(), validCompileRequest())
+
+	require.ErrorContains(t, err, "sandbox execute returned unknown verdict")
 }
 
 type blockingSandbox struct {

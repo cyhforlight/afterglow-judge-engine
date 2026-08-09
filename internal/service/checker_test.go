@@ -391,6 +391,11 @@ func TestCompiledChecker_Check(t *testing.T) {
 			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
 			wantVerdict: model.VerdictUKE,
 		},
+		{
+			name:        "unset sandbox verdict",
+			runResult:   execution.RunResult{},
+			wantVerdict: model.VerdictUKE,
+		},
 	}
 
 	for _, tt := range tests {

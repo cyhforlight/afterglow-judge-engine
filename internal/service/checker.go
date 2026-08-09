@@ -174,15 +174,10 @@ func (c *compiledChecker) Check(
 	)
 
 	result := checkerResult{Verdict: model.VerdictUKE, Message: message}
-	switch runOut.Verdict {
-	case execution.VerdictTLE, execution.VerdictMLE, execution.VerdictOLE:
-		return result, nil
-	}
-
-	switch runOut.ExitCode {
-	case 0:
+	switch {
+	case runOut.Verdict == execution.VerdictOK && runOut.ExitCode == 0:
 		result.Verdict = model.VerdictOK
-	case 1, 2:
+	case runOut.Verdict == execution.VerdictRE && (runOut.ExitCode == 1 || runOut.ExitCode == 2):
 		result.Verdict = model.VerdictWA
 	}
 	return result, nil

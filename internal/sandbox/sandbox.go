@@ -50,7 +50,8 @@ type Verdict int
 
 // Execution verdicts.
 const (
-	VerdictOK Verdict = iota
+	VerdictUnknown Verdict = iota
+	VerdictOK
 	VerdictTLE
 	VerdictMLE
 	VerdictOLE

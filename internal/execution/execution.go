@@ -211,6 +211,9 @@ func (e *executor) execute(ctx context.Context, t task) (result taskResult, err 
 	if err != nil {
 		return taskResult{}, fmt.Errorf("sandbox execute: %w", err)
 	}
+	if sandboxResult.Verdict == sandbox.VerdictUnknown {
+		return taskResult{}, errors.New("sandbox execute returned unknown verdict")
+	}
 
 	result = taskResult{ExecuteResult: sandboxResult}
 
