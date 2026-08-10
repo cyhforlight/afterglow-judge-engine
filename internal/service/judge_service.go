@@ -26,12 +26,13 @@ type JudgeEngine struct {
 }
 
 type judgePlan struct {
-	sourceCode  string
-	timeLimit   uint32
-	memoryLimit uint32
-	cases       []caseData
-	compiler    languageCompiler
-	checker     checkerPlan
+	sourceCode               string
+	timeLimit                uint32
+	memoryLimit              uint32
+	cases                    []caseData
+	compiler                 languageCompiler
+	checker                  checkerPlan
+	checkerProvidedByRequest bool
 }
 
 type caseData struct {
@@ -131,7 +132,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.
 	if err != nil {
 		return model.JudgeResult{}, err
 	}
-	checkerLocation, err := resolveChecker(req.Checker)
+	choice, err := resolveChecker(req.Checker, req.CheckerSourceCode)
 	if err != nil {
 		return model.JudgeResult{}, err
 	}
@@ -141,7 +142,7 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.
 	}
 	defer s.concurrencySem.Release(1)
 
-	plan, err := s.materialize(req, compiler, checkerLocation)
+	plan, err := s.materialize(req, compiler, choice)
 	if err != nil {
 		return model.JudgeResult{}, err
 	}
@@ -151,9 +152,9 @@ func (s *JudgeEngine) Judge(ctx context.Context, req model.JudgeRequest) (model.
 func (s *JudgeEngine) materialize(
 	req model.JudgeRequest,
 	compiler languageCompiler,
-	checkerLocation checkerLocation,
+	choice checkerChoice,
 ) (judgePlan, error) {
-	checker, err := s.checker.Materialize(checkerLocation)
+	checker, err := s.checker.Materialize(choice)
 	if err != nil {
 		return judgePlan{}, err
 	}
@@ -168,12 +169,13 @@ func (s *JudgeEngine) materialize(
 	}
 
 	return judgePlan{
-		sourceCode:  req.SourceCode,
-		timeLimit:   req.TimeLimit,
-		memoryLimit: req.MemoryLimit,
-		cases:       cases,
-		compiler:    compiler,
-		checker:     checker,
+		sourceCode:               req.SourceCode,
+		timeLimit:                req.TimeLimit,
+		memoryLimit:              req.MemoryLimit,
+		cases:                    cases,
+		compiler:                 compiler,
+		checker:                  checker,
+		checkerProvidedByRequest: choice.providedByRequest(),
 	}, nil
 }
 
@@ -216,7 +218,7 @@ func executeJudgePlan(ctx context.Context, plan judgePlan) model.JudgeResult {
 		}
 	}
 
-	prepared, err := plan.checker.Prepare(ctx)
+	preparation, err := plan.checker.Prepare(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
 		return model.JudgeResult{
@@ -225,13 +227,28 @@ func executeJudgePlan(ctx context.Context, plan judgePlan) model.JudgeResult {
 			Cases:   []model.JudgeCaseResult{},
 		}
 	}
+	if !preparation.compile.Succeeded {
+		status := model.JudgeStatusSystemError
+		if plan.checkerProvidedByRequest {
+			status = model.JudgeStatusCheckerCompileError
+		} else {
+			slog.ErrorContext(ctx, "system checker compilation failed", "log", preparation.compile.Log)
+		}
+		return model.JudgeResult{
+			Status:         status,
+			Compile:        compileResult,
+			CheckerCompile: &preparation.compile,
+			Cases:          []model.JudgeCaseResult{},
+		}
+	}
 
-	caseResults := runAllCases(ctx, plan, program, prepared)
+	caseResults := runAllCases(ctx, plan, program, preparation.checker)
 
 	return model.JudgeResult{
-		Status:  aggregateStatus(caseResults),
-		Compile: compileResult,
-		Cases:   caseResults,
+		Status:         aggregateStatus(caseResults),
+		Compile:        compileResult,
+		CheckerCompile: &preparation.compile,
+		Cases:          caseResults,
 	}
 }
 
@@ -253,6 +270,7 @@ func runAllCases(
 				plan.memoryLimit,
 				program,
 				prepared,
+				plan.checkerProvidedByRequest,
 				testCase,
 				i,
 			)
@@ -286,6 +304,7 @@ func runSingleCase(
 	memoryLimit uint32,
 	program compiledProgram,
 	prepared preparedChecker,
+	checkerProvidedByRequest bool,
 	testCase caseData,
 	index int,
 ) model.JudgeCaseResult {
@@ -314,15 +333,30 @@ func runSingleCase(
 
 	message := checkResult.Message
 	if message == "" {
-		switch checkResult.Verdict {
-		case model.VerdictWA:
+		switch checkResult.Outcome {
+		case checkerRejected:
 			message = "checker reported wrong answer"
-		case model.VerdictUKE:
-			message = "checker reported infrastructure failure"
+		case checkerFailed:
+			message = "checker execution failed"
 		}
 	}
 
-	return judgeCaseResultFromExecution(runResult, checkResult.Verdict, message)
+	verdict := model.VerdictOK
+	switch checkResult.Outcome {
+	case checkerAccepted:
+		verdict = model.VerdictOK
+	case checkerRejected:
+		verdict = model.VerdictWA
+	case checkerFailed:
+		verdict = model.VerdictUKE
+		if checkerProvidedByRequest {
+			verdict = model.VerdictCheckerExecutionError
+		} else {
+			slog.ErrorContext(ctx, "system checker execution failed", "index", index, "details", message)
+		}
+	}
+
+	return judgeCaseResultFromExecution(runResult, verdict, message)
 }
 
 func failedBeforeRun(log string) model.JudgeResult {
@@ -348,15 +382,18 @@ func judgeCaseResultFromExecution(
 	}
 }
 
-// aggregateStatus returns the overall system-level status of a judge session.
-// It only reflects whether the judge infrastructure worked correctly:
-//   - SystemError if any case has an infrastructure error
-//   - OK otherwise (the per-case verdicts carry AC/WA/TLE/etc. details)
+// aggregateStatus returns the overall judge-pipeline status for completed cases.
+// System failures take priority over request-provided checker failures. User
+// program outcomes such as WA and TLE do not change the overall status.
 func aggregateStatus(cases []model.JudgeCaseResult) model.JudgeStatus {
+	status := model.JudgeStatusOK
 	for _, c := range cases {
 		if c.Verdict == model.VerdictUKE {
 			return model.JudgeStatusSystemError
 		}
+		if c.Verdict == model.VerdictCheckerExecutionError {
+			status = model.JudgeStatusCheckerExecutionError
+		}
 	}
-	return model.JudgeStatusOK
+	return status
 }

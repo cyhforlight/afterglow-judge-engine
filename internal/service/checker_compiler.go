@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"afterglow-judge-engine/internal/execution"
+	"afterglow-judge-engine/internal/model"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
@@ -27,6 +28,11 @@ type checkerCompiler struct {
 	group         singleflight.Group
 }
 
+type checkerCompilation struct {
+	artifact *execution.Artifact
+	log      string
+}
+
 func newCheckerCompiler(executor execution.Executor, testlibHeader []byte) (*checkerCompiler, error) {
 	cache, err := lru.New[[sha256.Size]byte, execution.Artifact](checkerCacheEntries)
 	if err != nil {
@@ -41,21 +47,32 @@ func newCheckerCompiler(executor execution.Executor, testlibHeader []byte) (*che
 	}, nil
 }
 
-func (c *checkerCompiler) prepare(ctx context.Context, source []byte) (preparedChecker, error) {
-	artifact, err := c.compile(ctx, source)
+func (c *checkerCompiler) prepare(
+	ctx context.Context,
+	source []byte,
+) (preparedChecker, model.CompileResult, error) {
+	compilation, err := c.compile(ctx, source)
 	if err != nil {
-		return nil, err
+		return nil, model.CompileResult{}, err
 	}
-	return &compiledChecker{executor: c.executor, artifact: artifact}, nil
+
+	result := model.CompileResult{
+		Succeeded: compilation.artifact != nil,
+		Log:       compilation.log,
+	}
+	if compilation.artifact == nil {
+		return nil, result, nil
+	}
+	return &compiledChecker{executor: c.executor, artifact: *compilation.artifact}, result, nil
 }
 
-func (c *checkerCompiler) compile(ctx context.Context, source []byte) (execution.Artifact, error) {
+func (c *checkerCompiler) compile(ctx context.Context, source []byte) (checkerCompilation, error) {
 	// The profile and testlib snapshot are fixed for the lifetime of this cache,
 	// so the checker source is the only varying compilation input.
 	key := sha256.Sum256(source)
 	if artifact, ok := c.cache.Get(key); ok {
 		slog.DebugContext(ctx, "checker compile cache hit", "key", hex.EncodeToString(key[:8]))
-		return artifact, nil
+		return checkerCompilation{artifact: &artifact}, nil
 	}
 
 	resultCh := c.group.DoChan(string(key[:]), func() (any, error) {
@@ -72,29 +89,31 @@ func (c *checkerCompiler) compile(ctx context.Context, source []byte) (execution
 				"key",
 				hex.EncodeToString(key[:8]),
 			)
-			return artifact, nil
+			return checkerCompilation{artifact: &artifact}, nil
 		}
 
-		artifact, err := c.compileUncached(compileCtx, source)
+		compilation, err := c.compileUncached(compileCtx, source)
 		if err != nil {
 			return nil, err
 		}
-		c.cache.Add(key, artifact)
-		return artifact, nil
+		if compilation.artifact != nil {
+			c.cache.Add(key, *compilation.artifact)
+		}
+		return compilation, nil
 	})
 
 	select {
 	case <-ctx.Done():
-		return execution.Artifact{}, fmt.Errorf("checker setup failed: %w", ctx.Err())
+		return checkerCompilation{}, fmt.Errorf("checker setup failed: %w", ctx.Err())
 	case result := <-resultCh:
 		if result.Err != nil {
-			return execution.Artifact{}, result.Err
+			return checkerCompilation{}, result.Err
 		}
-		return result.Val.(execution.Artifact), nil
+		return result.Val.(checkerCompilation), nil
 	}
 }
 
-func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (execution.Artifact, error) {
+func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (checkerCompilation, error) {
 	profile := c.profile
 	compileOut, err := c.executor.Compile(ctx, execution.CompileRequest{
 		Files: []execution.File{
@@ -112,11 +131,11 @@ func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (e
 		},
 	})
 	if err != nil {
-		return execution.Artifact{}, fmt.Errorf("checker setup failed: %w", err)
+		return checkerCompilation{}, fmt.Errorf("checker setup failed: %w", err)
 	}
 	if compileOut.Artifact == nil {
 		message := cmp.Or(strings.TrimSpace(compileOut.Log), "checker compilation failed")
-		return execution.Artifact{}, fmt.Errorf("checker compilation failed: %s", message)
+		return checkerCompilation{log: message}, nil
 	}
-	return *compileOut.Artifact, nil
+	return checkerCompilation{artifact: compileOut.Artifact}, nil
 }

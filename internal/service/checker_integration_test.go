@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"afterglow-judge-engine/internal/execution"
-	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
 
 	"github.com/stretchr/testify/assert"
@@ -34,13 +33,14 @@ func newCheckerForTest(t *testing.T, executor execution.Executor, externalFS fs.
 func prepareCheckerForTest(ctx context.Context, t *testing.T, checkerModule checker, reference string) preparedChecker {
 	t.Helper()
 
-	location, err := resolveChecker(reference)
+	choice, err := resolveChecker(reference, "")
 	require.NoError(t, err)
-	plan, err := checkerModule.Materialize(location)
+	plan, err := checkerModule.Materialize(choice)
 	require.NoError(t, err)
-	prepared, err := plan.Prepare(ctx)
+	preparation, err := plan.Prepare(ctx)
 	require.NoError(t, err)
-	return prepared
+	require.True(t, preparation.compile.Succeeded, preparation.compile.Log)
+	return preparation.checker
 }
 
 func checkForTest(
@@ -140,15 +140,15 @@ func TestChecker_AllBundledCheckers(t *testing.T) {
 			cases := []struct {
 				name         string
 				actualOutput string
-				wantVerdict  model.Verdict
+				wantOutcome  checkerOutcome
 			}{
-				{name: "ok", actualOutput: scenario.acceptedOutput, wantVerdict: model.VerdictOK},
-				{name: "fail", actualOutput: scenario.rejectedOutput, wantVerdict: model.VerdictWA},
+				{name: "ok", actualOutput: scenario.acceptedOutput, wantOutcome: checkerAccepted},
+				{name: "fail", actualOutput: scenario.rejectedOutput, wantOutcome: checkerRejected},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
 					result := checkForTest(env.ctx, t, prepared, "", tc.actualOutput, scenario.expectedOutput)
-					assert.Equal(t, tc.wantVerdict, result.Verdict)
+					assert.Equal(t, tc.wantOutcome, result.Outcome)
 				})
 			}
 		})

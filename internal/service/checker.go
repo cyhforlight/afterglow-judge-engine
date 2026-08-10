@@ -30,14 +30,14 @@ const (
 	checkerMemoryLimitMB  = 256
 )
 
-// checker materializes a resolved location into an immutable compile plan.
+// checker materializes a resolved choice into an immutable compile plan.
 type checker interface {
-	Materialize(location checkerLocation) (checkerPlan, error)
+	Materialize(choice checkerChoice) (checkerPlan, error)
 }
 
 // checkerPlan owns the source snapshot used to compile one checker.
 type checkerPlan interface {
-	Prepare(ctx context.Context) (preparedChecker, error)
+	Prepare(ctx context.Context) (checkerPreparation, error)
 }
 
 // preparedChecker checks outputs using one compiled checker artifact.
@@ -46,8 +46,21 @@ type preparedChecker interface {
 	Check(ctx context.Context, input, actualOutput, expectedOutput string) (checkerResult, error)
 }
 
+type checkerOutcome uint8
+
+const (
+	checkerFailed checkerOutcome = iota
+	checkerAccepted
+	checkerRejected
+)
+
+type checkerPreparation struct {
+	checker preparedChecker
+	compile model.CompileResult
+}
+
 type checkerResult struct {
-	Verdict model.Verdict
+	Outcome checkerOutcome
 	Message string
 }
 
@@ -67,9 +80,17 @@ type compiledChecker struct {
 	artifact execution.Artifact
 }
 
-type checkerLocation struct {
-	isExternal bool
-	path       string
+type checkerKind uint8
+
+const (
+	checkerBuiltin checkerKind = iota
+	checkerExternal
+	checkerInline
+)
+
+type checkerChoice struct {
+	kind  checkerKind
+	value string
 }
 
 func newChecker(executor execution.Executor, bundledFS, externalFS fs.FS) (checker, error) {
@@ -94,8 +115,8 @@ func newChecker(executor execution.Executor, bundledFS, externalFS fs.FS) (check
 	}, nil
 }
 
-func (c *checkerEngine) Materialize(location checkerLocation) (checkerPlan, error) {
-	source, err := c.readSource(location)
+func (c *checkerEngine) Materialize(choice checkerChoice) (checkerPlan, error) {
+	source, err := c.readSource(choice)
 	if err != nil {
 		return nil, err
 	}
@@ -117,26 +138,34 @@ func validateResourceFile(fsys fs.FS, name string) error {
 	return nil
 }
 
-func (p *checkerSnapshot) Prepare(ctx context.Context) (preparedChecker, error) {
-	return p.compiler.prepare(ctx, p.source)
+func (p *checkerSnapshot) Prepare(ctx context.Context) (checkerPreparation, error) {
+	checker, compileResult, err := p.compiler.prepare(ctx, p.source)
+	if err != nil {
+		return checkerPreparation{}, err
+	}
+	return checkerPreparation{checker: checker, compile: compileResult}, nil
 }
 
-func (c *checkerEngine) readSource(location checkerLocation) ([]byte, error) {
-	if location.isExternal {
+func (c *checkerEngine) readSource(choice checkerChoice) ([]byte, error) {
+	if choice.kind == checkerInline {
+		return []byte(choice.value), nil
+	}
+
+	if choice.kind == checkerExternal {
 		if c.externalFS == nil {
-			return nil, fmt.Errorf("external checker %q requires external resources", location.path)
+			return nil, fmt.Errorf("external checker %q requires external resources", choice.value)
 		}
-		checkerSource, err := fs.ReadFile(c.externalFS, location.path)
+		checkerSource, err := fs.ReadFile(c.externalFS, choice.value)
 		if err != nil {
-			return nil, fmt.Errorf("external checker %q is not available: %w", location.path, err)
+			return nil, fmt.Errorf("external checker %q is not available: %w", choice.value, err)
 		}
 		return checkerSource, nil
 	}
 
-	sourceKey := builtinCheckerPath(location.path)
+	sourceKey := builtinCheckerPath(choice.value)
 	checkerSource, err := fs.ReadFile(c.bundledFS, sourceKey)
 	if err != nil {
-		return nil, fmt.Errorf("builtin checker %q is not available: %w", location.path, err)
+		return nil, fmt.Errorf("builtin checker %q is not available: %w", choice.value, err)
 	}
 	return checkerSource, nil
 }
@@ -164,7 +193,7 @@ func (c *compiledChecker) Check(
 		Limits: checkerRunLimits(),
 	})
 	if err != nil {
-		return checkerResult{Verdict: model.VerdictUKE}, err
+		return checkerResult{}, err
 	}
 
 	message := cmp.Or(
@@ -173,34 +202,48 @@ func (c *compiledChecker) Check(
 		strings.TrimSpace(runOut.ExtraInfo),
 	)
 
-	result := checkerResult{Verdict: model.VerdictUKE, Message: message}
+	result := checkerResult{Outcome: checkerFailed, Message: message}
 	switch {
 	case runOut.Verdict == execution.VerdictOK && runOut.ExitCode == 0:
-		result.Verdict = model.VerdictOK
+		result.Outcome = checkerAccepted
 	case runOut.Verdict == execution.VerdictRE && (runOut.ExitCode == 1 || runOut.ExitCode == 2):
-		result.Verdict = model.VerdictWA
+		result.Outcome = checkerRejected
 	}
 	return result, nil
 }
 
-func resolveChecker(raw string) (checkerLocation, error) {
+func (c checkerChoice) providedByRequest() bool {
+	return c.kind == checkerInline
+}
+
+func resolveChecker(raw, inlineSource string) (checkerChoice, error) {
 	name := strings.TrimSpace(raw)
+	if inlineSource != "" {
+		if strings.TrimSpace(inlineSource) == "" {
+			return checkerChoice{}, errors.New("checkerSourceCode must not be blank")
+		}
+		if name != "" {
+			return checkerChoice{}, errors.New("checker and checkerSourceCode cannot be provided together")
+		}
+		return checkerChoice{kind: checkerInline, value: inlineSource}, nil
+	}
+
 	if name == "" {
-		return checkerLocation{path: defaultCheckerName}, nil
+		return checkerChoice{kind: checkerBuiltin, value: defaultCheckerName}, nil
 	}
 
 	if checkerPath, ok := strings.CutPrefix(name, externalPrefix); ok {
 		normalizedPath, err := validateExternalCheckerPath(checkerPath)
 		if err != nil {
-			return checkerLocation{}, err
+			return checkerChoice{}, err
 		}
-		return checkerLocation{isExternal: true, path: normalizedPath}, nil
+		return checkerChoice{kind: checkerExternal, value: normalizedPath}, nil
 	}
 
 	if err := validateCheckerShortName(name); err != nil {
-		return checkerLocation{}, err
+		return checkerChoice{}, err
 	}
-	return checkerLocation{path: name}, nil
+	return checkerChoice{kind: checkerBuiltin, value: name}, nil
 }
 
 func builtinCheckerPath(shortName string) string {

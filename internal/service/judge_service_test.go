@@ -83,11 +83,12 @@ type fakeChecker struct {
 
 func newFakeChecker() *fakeChecker {
 	return &fakeChecker{plan: &fakeCheckerPlan{
-		prepared: &fakePreparedChecker{result: checkerResult{Verdict: model.VerdictOK}},
+		compile:  model.CompileResult{Succeeded: true},
+		prepared: &fakePreparedChecker{result: checkerResult{Outcome: checkerAccepted}},
 	}}
 }
 
-func (c *fakeChecker) Materialize(checkerLocation) (checkerPlan, error) {
+func (c *fakeChecker) Materialize(checkerChoice) (checkerPlan, error) {
 	c.materializeCalls.Add(1)
 	if c.materializeErr != nil {
 		return nil, c.materializeErr
@@ -97,14 +98,15 @@ func (c *fakeChecker) Materialize(checkerLocation) (checkerPlan, error) {
 
 type fakeCheckerPlan struct {
 	prepareErr error
+	compile    model.CompileResult
 	prepared   *fakePreparedChecker
 }
 
-func (p *fakeCheckerPlan) Prepare(context.Context) (preparedChecker, error) {
+func (p *fakeCheckerPlan) Prepare(context.Context) (checkerPreparation, error) {
 	if p.prepareErr != nil {
-		return nil, p.prepareErr
+		return checkerPreparation{}, p.prepareErr
 	}
-	return p.prepared, nil
+	return checkerPreparation{checker: p.prepared, compile: p.compile}, nil
 }
 
 type checkerCall struct {
@@ -208,6 +210,7 @@ func TestJudgeEngine_CompileError(t *testing.T) {
 	assert.Equal(t, model.JudgeStatusCompileError, result.Status)
 	assert.False(t, result.Compile.Succeeded)
 	assert.Equal(t, "compile failed", result.Compile.Log)
+	assert.Nil(t, result.CheckerCompile)
 	assert.Empty(t, result.Cases)
 }
 
@@ -232,9 +235,9 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	}}
 	checkerModule := newFakeChecker()
 	checkerModule.plan.prepared.results = map[string]checkerResult{
-		"2\n": {Verdict: model.VerdictOK},
-		"4\n": {Verdict: model.VerdictUKE, Message: "checker timed out"},
-		"8\n": {Verdict: model.VerdictWA, Message: "4th lines differ"},
+		"2\n": {Outcome: checkerAccepted},
+		"4\n": {Outcome: checkerFailed, Message: "checker timed out"},
+		"8\n": {Outcome: checkerRejected, Message: "4th lines differ"},
 	}
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 
@@ -253,20 +256,125 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	assert.Equal(t, model.VerdictWA, result.Cases[3].Verdict)
 	assert.Equal(t, "4th lines differ", result.Cases[3].ExtraInfo)
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
+	require.NotNil(t, result.CheckerCompile)
+	assert.True(t, result.CheckerCompile.Succeeded)
 }
 
-func TestJudgeEngine_CheckerPrepareFailureReturnsNoCaseResults(t *testing.T) {
+func TestJudgeEngine_CheckerPrepareInfrastructureFailureReturnsNoCaseResults(t *testing.T) {
 	checkerModule := newFakeChecker()
-	checkerModule.plan.prepareErr = errors.New("checker compilation failed: fatal error: testlib.h missing")
+	checkerModule.plan.prepareErr = errors.New("compiler unavailable")
 	engine := newTestJudgeEngine(nil, checkerModule)
-
-	result := judgeSuccessfully(t, engine, baseJudgeRequest(
+	req := baseJudgeRequest(
 		model.JudgeTestCase{},
-	))
+	)
+	req.CheckerSourceCode = "checker source"
+
+	result := judgeSuccessfully(t, engine, req)
 
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
 	assert.True(t, result.Compile.Succeeded)
+	assert.Nil(t, result.CheckerCompile)
 	assert.Empty(t, result.Cases)
+}
+
+func TestJudgeEngine_CheckerCompileFailureClassifiedBySource(t *testing.T) {
+	tests := []struct {
+		name       string
+		configure  func(*model.JudgeRequest)
+		wantStatus model.JudgeStatus
+	}{
+		{
+			name:       "builtin checker is a system error",
+			configure:  func(*model.JudgeRequest) {},
+			wantStatus: model.JudgeStatusSystemError,
+		},
+		{
+			name: "external checker is a system error",
+			configure: func(req *model.JudgeRequest) {
+				req.Checker = "external:custom.cpp"
+			},
+			wantStatus: model.JudgeStatusSystemError,
+		},
+		{
+			name: "inline checker is a request error",
+			configure: func(req *model.JudgeRequest) {
+				req.CheckerSourceCode = "invalid checker source"
+			},
+			wantStatus: model.JudgeStatusCheckerCompileError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checkerModule := newFakeChecker()
+			checkerModule.plan.compile = model.CompileResult{Succeeded: false, Log: "syntax error"}
+			checkerModule.plan.prepared = nil
+			engine := newTestJudgeEngine(nil, checkerModule)
+			req := baseJudgeRequest()
+			tt.configure(&req)
+
+			result := judgeSuccessfully(t, engine, req)
+
+			assert.Equal(t, tt.wantStatus, result.Status)
+			assert.True(t, result.Compile.Succeeded)
+			require.NotNil(t, result.CheckerCompile)
+			assert.False(t, result.CheckerCompile.Succeeded)
+			assert.Equal(t, "syntax error", result.CheckerCompile.Log)
+			assert.Empty(t, result.Cases)
+		})
+	}
+}
+
+func TestJudgeEngine_CheckerExecutionFailureClassifiedBySource(t *testing.T) {
+	tests := []struct {
+		name        string
+		configure   func(*model.JudgeRequest)
+		wantStatus  model.JudgeStatus
+		wantVerdict model.Verdict
+	}{
+		{
+			name:        "builtin checker is a system error",
+			configure:   func(*model.JudgeRequest) {},
+			wantStatus:  model.JudgeStatusSystemError,
+			wantVerdict: model.VerdictUKE,
+		},
+		{
+			name: "external checker is a system error",
+			configure: func(req *model.JudgeRequest) {
+				req.Checker = "external:custom.cpp"
+			},
+			wantStatus:  model.JudgeStatusSystemError,
+			wantVerdict: model.VerdictUKE,
+		},
+		{
+			name: "inline checker is a request error",
+			configure: func(req *model.JudgeRequest) {
+				req.CheckerSourceCode = "checker source"
+			},
+			wantStatus:  model.JudgeStatusCheckerExecutionError,
+			wantVerdict: model.VerdictCheckerExecutionError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checkerModule := newFakeChecker()
+			checkerModule.plan.prepared.result = checkerResult{
+				Outcome: checkerFailed,
+				Message: "checker timed out",
+			}
+			engine := newTestJudgeEngine(nil, checkerModule)
+			req := baseJudgeRequest()
+			tt.configure(&req)
+
+			result := judgeSuccessfully(t, engine, req)
+
+			assert.Equal(t, tt.wantStatus, result.Status)
+			require.Len(t, result.Cases, 1)
+			assert.Equal(t, tt.wantVerdict, result.Cases[0].Verdict)
+			assert.Equal(t, "checker timed out", result.Cases[0].ExtraInfo)
+		})
+	}
 }
 
 func TestJudgeEngine_TestDataMaterializeFailureRejectsBeforeCompile(t *testing.T) {
@@ -335,6 +443,13 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 		{name: "missing source", mutate: func(req *model.JudgeRequest) { req.SourceCode = "" }, wantErr: "sourceCode is required"},
 		{name: "missing language", mutate: func(req *model.JudgeRequest) { req.Language = model.LanguageUnknown }, wantErr: "language is required"},
 		{name: "unsupported language", mutate: func(req *model.JudgeRequest) { req.Language = model.Language("Rust") }, wantErr: "unsupported language"},
+		{name: "named and inline checker", mutate: func(req *model.JudgeRequest) {
+			req.Checker = "default"
+			req.CheckerSourceCode = "checker source"
+		}, wantErr: "checker and checkerSourceCode cannot be provided together"},
+		{name: "blank inline checker", mutate: func(req *model.JudgeRequest) {
+			req.CheckerSourceCode = " \n\t"
+		}, wantErr: "checkerSourceCode must not be blank"},
 		{name: "zero time limit", mutate: func(req *model.JudgeRequest) { req.TimeLimit = 0 }, wantErr: "timeLimit must be positive"},
 		{name: "zero memory limit", mutate: func(req *model.JudgeRequest) { req.MemoryLimit = 0 }, wantErr: "memoryLimit must be positive"},
 		{name: "missing testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = nil }, wantErr: "testcases must not be empty"},
@@ -386,20 +501,31 @@ func TestJudgeEngine_UserRunInfrastructureErrorMarksCaseUnknown(t *testing.T) {
 	assert.Empty(t, checkerModule.plan.prepared.calls)
 }
 
-func TestJudgeEngine_CheckerErrorMarksCaseUnknownError(t *testing.T) {
+func TestJudgeEngine_InlineCheckerInfrastructureErrorRemainsSystemError(t *testing.T) {
 	program := &fakeCompiledProgram{runResult: userOKRunResult("42\n")}
 	checkerModule := newFakeChecker()
 	checkerModule.plan.prepared.err = errors.New("sandbox boom")
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
-
-	result := judgeSuccessfully(t, engine, baseJudgeRequest(
+	req := baseJudgeRequest(
 		model.JudgeTestCase{InputText: "1\n", ExpectedOutput: "42\n"},
-	))
+	)
+	req.CheckerSourceCode = "checker source"
+
+	result := judgeSuccessfully(t, engine, req)
 
 	require.Len(t, result.Cases, 1)
 	assert.Equal(t, model.VerdictUKE, result.Cases[0].Verdict)
 	assert.Contains(t, result.Cases[0].ExtraInfo, "checker infrastructure error")
 	assert.Equal(t, model.JudgeStatusSystemError, result.Status)
+}
+
+func TestAggregateStatus_SystemErrorTakesPriorityOverCheckerExecutionError(t *testing.T) {
+	status := aggregateStatus([]model.JudgeCaseResult{
+		{Verdict: model.VerdictCheckerExecutionError},
+		{Verdict: model.VerdictUKE},
+	})
+
+	assert.Equal(t, model.JudgeStatusSystemError, status)
 }
 
 func TestJudgeEngine_MaterializesExternalTestCase(t *testing.T) {

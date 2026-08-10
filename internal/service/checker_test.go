@@ -10,7 +10,6 @@ import (
 	"testing/synctest"
 
 	"afterglow-judge-engine/internal/execution"
-	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,10 +85,10 @@ func newUnitChecker(t *testing.T, executor execution.Executor, externalFS fs.FS)
 	return checkerModule
 }
 
-func materializeCheckerPlan(t *testing.T, checkerModule checker, location checkerLocation) checkerPlan {
+func materializeCheckerPlan(t *testing.T, checkerModule checker, choice checkerChoice) checkerPlan {
 	t.Helper()
 
-	plan, err := checkerModule.Materialize(location)
+	plan, err := checkerModule.Materialize(choice)
 	require.NoError(t, err)
 	return plan
 }
@@ -98,19 +97,33 @@ func TestResolveChecker(t *testing.T) {
 	tests := []struct {
 		name         string
 		input        string
-		wantPath     string
-		wantExternal bool
+		inlineSource string
+		wantKind     checkerKind
+		wantValue    string
 		wantErr      string
 	}{
-		{name: "empty selects default", input: "", wantPath: "default"},
-		{name: "valid name", input: "ncmp", wantPath: "ncmp"},
+		{name: "empty selects default", input: "", wantKind: checkerBuiltin, wantValue: "default"},
+		{name: "valid name", input: "ncmp", wantKind: checkerBuiltin, wantValue: "ncmp"},
 		{name: "path rejected", input: "../ncmp.cpp", wantErr: "invalid path characters"},
 		{
-			name:         "valid external path",
-			input:        "external:testcase-15/checker.cpp",
-			wantPath:     "testcase-15/checker.cpp",
-			wantExternal: true,
+			name:      "valid external path",
+			input:     "external:testcase-15/checker.cpp",
+			wantKind:  checkerExternal,
+			wantValue: "testcase-15/checker.cpp",
 		},
+		{
+			name:         "inline source",
+			inlineSource: "#include \"testlib.h\"\n",
+			wantKind:     checkerInline,
+			wantValue:    "#include \"testlib.h\"\n",
+		},
+		{
+			name:         "named and inline checker conflict",
+			input:        "default",
+			inlineSource: "checker source",
+			wantErr:      "cannot be provided together",
+		},
+		{name: "blank inline source", inlineSource: " \n\t", wantErr: "must not be blank"},
 		{name: "path traversal rejected", input: "external:../etc/passwd", wantErr: "escapes resource root"},
 		{name: "non-cpp rejected", input: "external:script.sh", wantErr: "must be a .cpp file"},
 		{name: "empty path", input: "external:", wantErr: "external checker path is required"},
@@ -118,14 +131,14 @@ func TestResolveChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			location, err := resolveChecker(tt.input)
+			choice, err := resolveChecker(tt.input, tt.inlineSource)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantPath, location.path)
-			assert.Equal(t, tt.wantExternal, location.isExternal)
+			assert.Equal(t, tt.wantKind, choice.kind)
+			assert.Equal(t, tt.wantValue, choice.value)
 		})
 	}
 }
@@ -158,12 +171,24 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := &checkerEngine{bundledFS: checkerTestFS(), externalFS: tt.externalFS}
-			location, err := resolveChecker(tt.reference)
+			choice, err := resolveChecker(tt.reference, "")
 			require.NoError(t, err)
-			_, err = engine.Materialize(location)
+			_, err = engine.Materialize(choice)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestCheckerEngine_MaterializesInlineSource(t *testing.T) {
+	const source = "  #include \"testlib.h\"\n"
+
+	engine := &checkerEngine{}
+	plan, err := engine.Materialize(checkerChoice{kind: checkerInline, value: source})
+	require.NoError(t, err)
+
+	snapshot, ok := plan.(*checkerSnapshot)
+	require.True(t, ok)
+	assert.Equal(t, source, string(snapshot.source))
 }
 
 func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
@@ -171,12 +196,15 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 		name             string
 		output           execution.CompileResult
 		compileErr       error
+		wantSucceeded    bool
+		wantLog          string
 		wantErr          string
 		wantCompileCalls int
 	}{
 		{
 			name:             "successful compilation",
 			output:           successfulCheckerCompile(),
+			wantSucceeded:    true,
 			wantCompileCalls: 1,
 		},
 		{
@@ -188,7 +216,7 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 		{
 			name:             "compilation failed",
 			output:           execution.CompileResult{Log: "syntax error"},
-			wantErr:          "checker compilation failed: syntax error",
+			wantLog:          "syntax error",
 			wantCompileCalls: 2,
 		},
 	}
@@ -199,15 +227,24 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 			checkerModule := newUnitChecker(t, executor, nil)
 
 			for range 2 {
-				plan := materializeCheckerPlan(t, checkerModule, checkerLocation{path: defaultCheckerName})
-				prepared, err := plan.Prepare(t.Context())
+				plan := materializeCheckerPlan(t, checkerModule, checkerChoice{
+					kind:  checkerBuiltin,
+					value: defaultCheckerName,
+				})
+				preparation, err := plan.Prepare(t.Context())
 				if tt.wantErr != "" {
 					require.ErrorContains(t, err, tt.wantErr)
-					assert.Nil(t, prepared)
+					assert.Nil(t, preparation.checker)
 					continue
 				}
 				require.NoError(t, err)
-				assert.NotNil(t, prepared)
+				assert.Equal(t, tt.wantSucceeded, preparation.compile.Succeeded)
+				assert.Equal(t, tt.wantLog, preparation.compile.Log)
+				if tt.wantSucceeded {
+					assert.NotNil(t, preparation.checker)
+				} else {
+					assert.Nil(t, preparation.checker)
+				}
 			}
 
 			assert.Len(t, executor.compileRequests, tt.wantCompileCalls)
@@ -224,8 +261,9 @@ func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *
 			started: started,
 		}
 		checkerModule := newUnitChecker(t, executor, nil)
-		firstPlan := materializeCheckerPlan(t, checkerModule, checkerLocation{path: defaultCheckerName})
-		secondPlan := materializeCheckerPlan(t, checkerModule, checkerLocation{path: defaultCheckerName})
+		choice := checkerChoice{kind: checkerBuiltin, value: defaultCheckerName}
+		firstPlan := materializeCheckerPlan(t, checkerModule, choice)
+		secondPlan := materializeCheckerPlan(t, checkerModule, choice)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		firstResult := make(chan error, 1)
@@ -263,10 +301,10 @@ func TestCheckerPlan_PrepareUsesCapturedSource(t *testing.T) {
 	externalFS := testFileSystem(map[string][]byte{"custom.cpp": []byte(originalSource)})
 	executor := &checkerExecutorFake{compileResult: successfulCheckerCompile()}
 	checkerModule := newUnitChecker(t, executor, externalFS)
-	location := checkerLocation{isExternal: true, path: "custom.cpp"}
-	originalPlan := materializeCheckerPlan(t, checkerModule, location)
+	choice := checkerChoice{kind: checkerExternal, value: "custom.cpp"}
+	originalPlan := materializeCheckerPlan(t, checkerModule, choice)
 	externalFS["custom.cpp"] = &fstest.MapFile{Data: []byte(updatedSource)}
-	updatedPlan := materializeCheckerPlan(t, checkerModule, location)
+	updatedPlan := materializeCheckerPlan(t, checkerModule, choice)
 
 	delete(externalFS, "custom.cpp")
 
@@ -285,37 +323,37 @@ func TestCompiledChecker_Check(t *testing.T) {
 	tests := []struct {
 		name        string
 		runResult   execution.RunResult
-		wantVerdict model.Verdict
+		wantOutcome checkerOutcome
 		wantMessage string
 	}{
 		{
 			name:        "accepted with stderr message",
 			runResult:   execution.RunResult{Verdict: execution.VerdictOK, ExitCode: 0, Stderr: " accepted "},
-			wantVerdict: model.VerdictOK,
+			wantOutcome: checkerAccepted,
 			wantMessage: "accepted",
 		},
 		{
 			name:        "wrong answer exit one",
 			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 1, Stdout: "wrong"},
-			wantVerdict: model.VerdictWA,
+			wantOutcome: checkerRejected,
 			wantMessage: "wrong",
 		},
 		{
 			name:        "wrong answer exit two",
 			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 2, ExtraInfo: "presentation"},
-			wantVerdict: model.VerdictWA,
+			wantOutcome: checkerRejected,
 			wantMessage: "presentation",
 		},
 		{
 			name:        "sandbox timeout",
 			runResult:   execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 0, Stderr: "timed out"},
-			wantVerdict: model.VerdictUKE,
+			wantOutcome: checkerFailed,
 			wantMessage: "timed out",
 		},
 		{
 			name:        "nonzero protocol exit",
 			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
-			wantVerdict: model.VerdictUKE,
+			wantOutcome: checkerFailed,
 		},
 	}
 
@@ -329,7 +367,7 @@ func TestCompiledChecker_Check(t *testing.T) {
 
 			result, err := prepared.Check(t.Context(), "input", "actual", "expected")
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantVerdict, result.Verdict)
+			assert.Equal(t, tt.wantOutcome, result.Outcome)
 			assert.Equal(t, tt.wantMessage, result.Message)
 		})
 	}

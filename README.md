@@ -12,14 +12,14 @@
 
 这个项目通常被设想为大型 OJ、命题系统或训练平台中的一个组成服务，而不是直接面向最终用户的公网 API。
 
-这意味着它的典型调用方是受控的上游系统，而不是任意外部客户端。因此在安全边界上，需要重点防御的是用户提交的 `sourceCode` 及其编译运行过程；至于 HTTP 调用方式、字段组合和接入形态，本质上属于内部系统之间的受控交互，不必为了“假想中的开放平台场景”额外堆叠过度复杂的安全设计。
+这意味着它的典型调用方是受控的上游系统，而不是任意外部客户端。因此在安全边界上，需要重点防御的是请求提交的 `sourceCode`、`checkerSourceCode` 及其编译运行过程；至于 HTTP 调用方式、字段组合和接入形态，本质上属于内部系统之间的受控交互，不必为了“假想中的开放平台场景”额外堆叠过度复杂的安全设计。
 
 ## 项目目标
 
 - 提供一个简单直接的 HTTP 评测入口
 - 支持多语言编译与隔离执行
 - 支持多测试点、逐点 verdict 和判题流程状态
-- 支持内置 checker，以及基于外部文件的测试数据和 checker
+- 支持内置 checker、请求内联 checker，以及基于外部文件的测试数据和 checker
 
 ## 当前实现范围
 
@@ -38,10 +38,11 @@
 - 受限执行：基于 containerd、cgroup 和 seccomp 运行编译与执行流程
 - 多语言：C / C++ / Java / Python
 - 多测试点：逐点评测并返回明细
-- 多种判定：`OK` / `WrongAnswer` / `CompileError` / `TimeLimitExceeded` / `MemoryLimitExceeded` / `OutputLimitExceeded` / `RuntimeError` / `UnknownError`
+- 多种判定：`OK` / `WrongAnswer` / `CompileError` / `CheckerCompileError` / `CheckerExecutionError` / `TimeLimitExceeded` / `MemoryLimitExceeded` / `OutputLimitExceeded` / `RuntimeError` / `UnknownError`
 - Checker 支持：
   - 内置 checker：`default`、`ncmp`、`wcmp`、`fcmp`、`yesno`、`nyesno`、`lcmp`、`hcmp`、`rcmp4`、`rcmp6`、`rcmp9`
   - 外部 checker：`external:<relative-path>.cpp`
+  - 请求内联 checker：通过 `checkerSourceCode` 直接提供 C++ testlib 源码
 - 测试数据支持：
   - 直接在请求体中传 `inputText` / `expectedOutputText`
   - 通过 `inputFile` / `expectedOutputFile` 引用外部文件
@@ -146,9 +147,9 @@ transport -> service -> model
 一次 `POST /v1/execute` 的处理流程如下：
 
 1. HTTP 层限制请求体大小并做严格 JSON 解码
-2. transport 单次调用 service；service 校验请求字段、资源限制、语言和 checker 引用语法
+2. transport 单次调用 service；service 校验请求字段、资源限制、语言和 checker 选择
 3. 请求通过校验后，service 取得判题并发配额
-4. service 单次读取 checker 源码和全部文件型 testcase，将这些外部资源的内容快照放入不持有外部路径的内部判题计划
+4. service 将内联 checker 或单次读取的 checker 资源连同全部 testcase 内容快照放入不持有外部路径的内部判题计划
 5. service 编译用户代码并从源码快照准备 checker
 6. execution 编译并运行用户程序和 checker；容器并发由该层统一限制
 7. service 汇总逐点结果和判题流程状态
@@ -196,6 +197,7 @@ Content-Type: application/json
 | `timeLimit` | uint32 | 是 | 单测试点 CPU 时间限制，单位毫秒 |
 | `memoryLimit` | uint32 | 是 | 单测试点内存限制，单位 MB；Java 中对应最大堆容量（`-Xmx`） |
 | `checker` | string | 否 | 内置 checker 短名，或 `external:<path>.cpp` |
+| `checkerSourceCode` | string | 否 | 请求内联的 C++ testlib checker 源码，与 `checker` 互斥 |
 | `testcases` | array | 是 | 测试点列表 |
 
 单个 testcase 字段：
@@ -213,9 +215,10 @@ Content-Type: application/json
 - 文件型 testcase 必须同时提供 `inputFile` 和 `expectedOutputFile`
 - 请求体必须是且只能是一个 JSON 对象
 - 未知字段会被直接拒绝
+- `checker` 和非空的 `checkerSourceCode` 不能同时提供
 - `timeLimit` 和 `memoryLimit` 必须为正数；引擎不额外设置业务上限
 - 单次请求最多包含 64 个 testcase
-- HTTP 请求体上限固定为 256 MiB，`sourceCode` 和内联测试数据共同受该上限约束；读取超时固定为 30 秒，同步判题响应不设置写超时
+- HTTP 请求体上限固定为 256 MiB，`sourceCode`、`checkerSourceCode` 和内联测试数据共同受该上限约束；读取超时固定为 30 秒，同步判题响应不设置写超时
 - Java 的 JVM 堆外开销由 Judge Engine 额外预留，不从 `memoryLimit` 中扣除
 - `memoryUsed` 表示容器整体内存峰值；Java 中包含 JVM 堆外内存，可能高于 `memoryLimit`
 - Judge Engine 会在达到 `timeLimit` 时主动停止任务，并以三倍 wall time 作为阻塞和休眠程序的生命周期兜底
@@ -265,6 +268,10 @@ Content-Type: application/json
     "succeeded": true,
     "log": ""
   },
+  "checkerCompile": {
+    "succeeded": true,
+    "log": ""
+  },
   "cases": [
     {
       "verdict": "WrongAnswer",
@@ -278,7 +285,9 @@ Content-Type: application/json
 }
 ```
 
-顶层 `status` 只表示判题流程状态：`OK` 表示测试点均已完成评测，`CompileError` 表示用户代码编译失败，`SystemError` 表示基础设施错误阻止了评测。它不会聚合测试点 verdict；业务判定应读取 `cases[].verdict`。`cases` 与请求中的 `testcases` 顺序一致；checker 编译准备失败时返回空数组。文件型 testcase 或 checker 源码无法读取时，请求以 HTTP 400 拒绝。
+顶层 `status` 表示判题流程状态：`OK` 表示测试点均已完成评测，即使其中存在 WA、TLE 等用户程序结果；`CompileError` 表示用户代码编译失败；`CheckerCompileError` 和 `CheckerExecutionError` 分别表示请求通过 `checkerSourceCode` 提供的 checker 编译失败或未能完成某个测试点的检查；`SystemError` 表示基础设施异常，或内置、外部 checker 发生编译或执行失败。业务判定仍应读取 `cases[].verdict`。
+
+`checkerCompile` 在 checker 编译或缓存准备得到正常结果后出现：`succeeded=false` 时携带编译日志且 `cases` 为空；用户代码编译失败、checker 编译基础设施异常等没有正常 checker 编译结果的场景会省略该字段。`cases` 与请求中的 `testcases` 顺序一致。文件型 testcase 或 checker 源码无法读取时，请求以 HTTP 400 拒绝。
 
 `cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 
@@ -321,6 +330,20 @@ external:relative/path/to/checker.cpp
 ```
 
 这里的路径同样是相对于 `EXTERNAL_DATA_DIR` 资源根目录解析的，并且必须是 `.cpp` 文件。
+
+### 请求内联 checker
+
+调用方可以直接通过 `checkerSourceCode` 提供 checker 源码：
+
+```json
+{
+  "checkerSourceCode": "#include \"testlib.h\"\nint main(int argc, char **argv) { registerTestlibCmd(argc, argv); quitf(_ok, \"accepted\"); }"
+}
+```
+
+内联 checker 与内置、外部 checker 使用相同的固定环境：C++20、项目内置的 `testlib.h`、固定编译和运行资源限制，以及 `input.txt output.txt answer.txt` 调用协议。相同源码共享现有 checker 编译缓存。`checkerSourceCode` 与 `checker` 不能同时提供；两者都为空时使用内置 `default` checker。
+
+内联 checker 的源码编译失败返回 `CheckerCompileError` 和 `checkerCompile.log`；checker 进程退出码不是 0/1/2，或发生 TLE、MLE、OLE、RE 等执行失败时，对应测试点返回 `CheckerExecutionError`。内置和外部 checker 的同类失败属于 `SystemError`。任意来源的 checker 遇到 containerd、workspace 等基础设施异常时也属于 `SystemError`。
 
 ## 配置
 

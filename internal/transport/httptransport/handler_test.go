@@ -19,12 +19,15 @@ import (
 
 type mockJudgeService struct {
 	err        error
+	result     model.JudgeResult
 	judgeCalls int
+	request    model.JudgeRequest
 }
 
-func (m *mockJudgeService) Judge(_ context.Context, _ model.JudgeRequest) (model.JudgeResult, error) {
+func (m *mockJudgeService) Judge(_ context.Context, req model.JudgeRequest) (model.JudgeResult, error) {
 	m.judgeCalls++
-	return model.JudgeResult{}, m.err
+	m.request = req
+	return m.result, m.err
 }
 
 func makeJudgeBody(t *testing.T, req model.JudgeRequest) io.Reader {
@@ -100,6 +103,50 @@ func TestHandleExecute_ServiceRejectionReturnsBadRequest(t *testing.T) {
 	assert.Equal(t, http.StatusText(http.StatusBadRequest), resp.Error)
 	assert.Equal(t, "INVALID_REQUEST", resp.Code)
 	assert.Equal(t, `inputFile "cases/1.in" is not available`, resp.Details)
+}
+
+func TestHandleExecute_AcceptsInlineCheckerSource(t *testing.T) {
+	judge := &mockJudgeService{}
+	handler := newTestHandler(judge)
+	dto := validJudgeRequest()
+	dto.Checker = ""
+	dto.CheckerSourceCode = "#include \"testlib.h\"\n"
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
+	w := httptest.NewRecorder()
+	handler.handleExecute(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, judge.judgeCalls)
+	assert.Equal(t, dto.CheckerSourceCode, judge.request.CheckerSourceCode)
+}
+
+func TestHandleExecute_EncodesCheckerCompileResult(t *testing.T) {
+	checkerCompile := model.CompileResult{Succeeded: false, Log: "syntax error"}
+	judge := &mockJudgeService{result: model.JudgeResult{
+		Status:         model.JudgeStatusCheckerCompileError,
+		Compile:        model.CompileResult{Succeeded: true},
+		CheckerCompile: &checkerCompile,
+		Cases:          []model.JudgeCaseResult{},
+	}}
+	handler := newTestHandler(judge)
+
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/v1/execute",
+		makeJudgeBody(t, validJudgeRequest()),
+	)
+	w := httptest.NewRecorder()
+	handler.handleExecute(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result model.JudgeResult
+	err := json.NewDecoder(w.Body).Decode(&result)
+	require.NoError(t, err)
+	assert.Equal(t, model.JudgeStatusCheckerCompileError, result.Status)
+	require.NotNil(t, result.CheckerCompile)
+	assert.Equal(t, checkerCompile, *result.CheckerCompile)
 }
 
 func TestHandleExecute_BodyTooLarge(t *testing.T) {

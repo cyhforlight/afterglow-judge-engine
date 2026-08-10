@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"afterglow-judge-engine/internal/execution"
-	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
 
 	"github.com/stretchr/testify/assert"
@@ -20,28 +19,28 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 	testcases := []struct {
 		num     int
 		checker string
-		want    model.Verdict
+		want    checkerOutcome
 	}{
-		{1, "default", model.VerdictOK},
-		{2, "rcmp6", model.VerdictOK},
-		{3, "ncmp", model.VerdictOK},
-		{4, "wcmp", model.VerdictOK},
-		{5, "lcmp", model.VerdictOK},
-		{6, "nyesno", model.VerdictOK},
-		{7, "rcmp6", model.VerdictOK},
-		{8, "lcmp", model.VerdictOK},
-		{9, "default", model.VerdictWA},
-		{10, "rcmp6", model.VerdictWA},
-		{11, "ncmp", model.VerdictWA},
-		{12, "wcmp", model.VerdictWA},
-		{13, "lcmp", model.VerdictWA},
-		{14, "nyesno", model.VerdictWA},
-		{15, "external:testcase-15/checker.cpp", model.VerdictOK},
-		{16, "external:testcase-16/checker.cpp", model.VerdictWA},
-		{17, "ncmp", model.VerdictWA},
-		{18, "rcmp6", model.VerdictWA},
-		{19, "default", model.VerdictWA},
-		{20, "lcmp", model.VerdictWA},
+		{1, "default", checkerAccepted},
+		{2, "rcmp6", checkerAccepted},
+		{3, "ncmp", checkerAccepted},
+		{4, "wcmp", checkerAccepted},
+		{5, "lcmp", checkerAccepted},
+		{6, "nyesno", checkerAccepted},
+		{7, "rcmp6", checkerAccepted},
+		{8, "lcmp", checkerAccepted},
+		{9, "default", checkerRejected},
+		{10, "rcmp6", checkerRejected},
+		{11, "ncmp", checkerRejected},
+		{12, "wcmp", checkerRejected},
+		{13, "lcmp", checkerRejected},
+		{14, "nyesno", checkerRejected},
+		{15, "external:testcase-15/checker.cpp", checkerAccepted},
+		{16, "external:testcase-16/checker.cpp", checkerRejected},
+		{17, "ncmp", checkerRejected},
+		{18, "rcmp6", checkerRejected},
+		{19, "default", checkerRejected},
+		{20, "lcmp", checkerRejected},
 	}
 	externalRoot, err := filepath.Abs(testdataPath("ok-and-checker-cases"))
 	require.NoError(t, err)
@@ -70,7 +69,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			checkerModule := newCheckerForTest(t, env.executor, externalFS)
 			prepared := prepareCheckerForTest(env.ctx, t, checkerModule, tc.checker)
 			checkResult := checkForTest(env.ctx, t, prepared, inputData, runOut.Stdout, expectedOutput)
-			assert.Equal(t, tc.want, checkResult.Verdict)
+			assert.Equal(t, tc.want, checkResult.Outcome)
 		})
 	}
 }

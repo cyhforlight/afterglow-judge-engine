@@ -25,6 +25,8 @@ const (
 	VerdictRE  Verdict = "RuntimeError"
 	VerdictWA  Verdict = "WrongAnswer"
 	VerdictUKE Verdict = "UnknownError"
+
+	VerdictCheckerExecutionError Verdict = "CheckerExecutionError"
 )
 
 // JudgeTestCase represents a single test case for judging.
@@ -37,12 +39,13 @@ type JudgeTestCase struct {
 
 // JudgeRequest contains parameters for a full judge session.
 type JudgeRequest struct {
-	SourceCode  string          `json:"sourceCode"`
-	Checker     string          `json:"checker,omitempty"`
-	Language    Language        `json:"language"`
-	TimeLimit   uint32          `json:"timeLimit"`   // CPU milliseconds, per test case
-	MemoryLimit uint32          `json:"memoryLimit"` // megabytes, per test case
-	TestCases   []JudgeTestCase `json:"testcases"`
+	SourceCode        string          `json:"sourceCode"`
+	Checker           string          `json:"checker,omitempty"`
+	CheckerSourceCode string          `json:"checkerSourceCode,omitempty"`
+	Language          Language        `json:"language"`
+	TimeLimit         uint32          `json:"timeLimit"`   // CPU milliseconds, per test case
+	MemoryLimit       uint32          `json:"memoryLimit"` // megabytes, per test case
+	TestCases         []JudgeTestCase `json:"testcases"`
 }
 
 // CompileResult contains compile phase details.
@@ -61,9 +64,9 @@ type JudgeCaseResult struct {
 	ExtraInfo  string  `json:"extraInfo"`
 }
 
-// JudgeStatus represents the overall system-level outcome of a judge session.
-// Unlike Verdict (which describes per-case test results like OK/WA/TLE),
-// JudgeStatus describes whether the judge pipeline itself completed successfully.
+// JudgeStatus represents the overall pipeline outcome of a judge session.
+// Unlike Verdict (which describes per-case results), JudgeStatus describes
+// whether compilation and all required checks completed successfully.
 type JudgeStatus string
 
 // Judge status constants.
@@ -71,12 +74,16 @@ const (
 	JudgeStatusOK           JudgeStatus = "OK" // all cases evaluated; check per-case verdicts for details
 	JudgeStatusCompileError JudgeStatus = "CompileError"
 	JudgeStatusSystemError  JudgeStatus = "SystemError"
+
+	JudgeStatusCheckerCompileError   JudgeStatus = "CheckerCompileError"
+	JudgeStatusCheckerExecutionError JudgeStatus = "CheckerExecutionError"
 )
 
 // JudgeResult contains the final judge outcome.
 // Cases preserves the order of JudgeRequest.TestCases.
 type JudgeResult struct {
-	Status  JudgeStatus       `json:"status"`
-	Compile CompileResult     `json:"compile"`
-	Cases   []JudgeCaseResult `json:"cases"`
+	Status         JudgeStatus       `json:"status"`
+	Compile        CompileResult     `json:"compile"`
+	CheckerCompile *CompileResult    `json:"checkerCompile,omitempty"`
+	Cases          []JudgeCaseResult `json:"cases"`
 }
