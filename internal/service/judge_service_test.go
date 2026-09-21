@@ -88,6 +88,8 @@ func newFakeChecker() *fakeChecker {
 	}}
 }
 
+func (*fakeChecker) Close() {}
+
 func (c *fakeChecker) Materialize(checkerChoice) (checkerPlan, error) {
 	c.materializeCalls.Add(1)
 	if c.materializeErr != nil {

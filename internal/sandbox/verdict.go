@@ -2,29 +2,40 @@ package sandbox
 
 import "fmt"
 
-func buildVerdict(
-	exitCode uint32,
-	metrics cgroupMetrics,
-	limits ResourceLimits,
-	stdoutLW, stderrLW *limitedWriter,
-) ExecuteResult {
-	cpuMs := metrics.cpuMillis()
-	peakMemMB := metrics.peakMemMB()
+type executionOutput struct {
+	stdout     string
+	stderr     string
+	overflowed bool
+}
+
+func buildVerdict(outcome executionOutcome, output executionOutput, limits ResourceLimits) ExecuteResult {
+	cpuMs := outcome.metrics.cpuMillis()
+	peakMemMB := outcome.metrics.peakMemMB()
 
 	res := ExecuteResult{
-		ExitCode:  int(exitCode),
-		Stdout:    stdoutLW.String(),
-		Stderr:    stderrLW.String(),
+		ExitCode:  int(outcome.exitCode),
+		Stdout:    output.stdout,
+		Stderr:    output.stderr,
 		CPUTimeMs: cpuMs,
 		MemoryMB:  peakMemMB,
 	}
 
 	switch {
-	case stdoutLW.isOverflowed() || stderrLW.isOverflowed():
+	case outcome.reason == outputLimitReason || (outcome.reason == "" && output.overflowed):
 		res.Verdict = VerdictOLE
 		res.ExtraInfo = fmt.Sprintf("output limit exceeded (%d bytes max)", limits.OutputBytes)
 
-	case metrics.oomKillDetected || (exitCode != 0 && metrics.oomDetected):
+	case outcome.reason == cpuTimeLimitReason || outcome.reason == wallTimeLimitReason:
+		res.Verdict = VerdictTLE
+		res.ExtraInfo = fmt.Sprintf(
+			"%s (cpu %dms, cpu limit %dms, wall limit %dms)",
+			outcome.reason,
+			cpuMs,
+			limits.CPUTimeMs,
+			limits.WallTimeMs,
+		)
+
+	case outcome.metrics.oomKillDetected || (outcome.exitCode != 0 && outcome.metrics.oomDetected):
 		res.Verdict = VerdictMLE
 		res.ExtraInfo = fmt.Sprintf("memory limit exceeded (peak %dMB, limit %dMB)", peakMemMB, limits.MemoryMB)
 
@@ -32,45 +43,12 @@ func buildVerdict(
 		res.Verdict = VerdictTLE
 		res.ExtraInfo = fmt.Sprintf("CPU time exceeded: %dms >= %dms", cpuMs, limits.CPUTimeMs)
 
-	case exitCode == 0:
+	case outcome.exitCode == 0:
 		res.Verdict = VerdictOK
 
 	default:
 		res.Verdict = VerdictRE
-		res.ExtraInfo = stderrLW.String()
-	}
-	return res
-}
-
-func buildForcedStopVerdict(
-	reason string,
-	metrics cgroupMetrics,
-	limits ResourceLimits,
-	stdoutLW, stderrLW *limitedWriter,
-) ExecuteResult {
-	cpuMs := metrics.cpuMillis()
-	peakMemMB := metrics.peakMemMB()
-
-	res := ExecuteResult{
-		CPUTimeMs: cpuMs,
-		MemoryMB:  peakMemMB,
-		Stdout:    stdoutLW.String(),
-		Stderr:    stderrLW.String(),
-	}
-
-	switch reason {
-	case outputLimitReason:
-		res.Verdict = VerdictOLE
-		res.ExtraInfo = fmt.Sprintf("output limit exceeded (%d bytes max)", limits.OutputBytes)
-	case cpuTimeLimitReason, wallTimeLimitReason:
-		res.Verdict = VerdictTLE
-		res.ExtraInfo = fmt.Sprintf(
-			"%s (cpu %dms, cpu limit %dms, wall limit %dms)",
-			reason,
-			cpuMs,
-			limits.CPUTimeMs,
-			limits.WallTimeMs,
-		)
+		res.ExtraInfo = output.stderr
 	}
 	return res
 }

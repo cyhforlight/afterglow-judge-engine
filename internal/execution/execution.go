@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"afterglow-judge-engine/internal/sandbox"
 
@@ -51,7 +52,8 @@ type CompileRequest struct {
 	Limits       Limits
 }
 
-// CompileResult contains compiler diagnostics and the optional compiled artifact.
+// CompileResult contains compiler diagnostics, execution failure reasons, and
+// the optional compiled artifact.
 // A nil artifact means compilation finished without a usable output.
 type CompileResult struct {
 	Log      string
@@ -82,6 +84,9 @@ const (
 
 	// DefaultCompileOutputLimitBytes caps compiler diagnostics.
 	DefaultCompileOutputLimitBytes = 1 * 1024 * 1024 // 1MB
+
+	// maxCompileArtifactBytes caps a compiled file before it enters host memory.
+	maxCompileArtifactBytes = 64 * 1024 * 1024 // 64MiB
 )
 
 // Executor compiles and runs programs with shared container capacity.
@@ -113,7 +118,7 @@ type task struct {
 
 type taskResult struct {
 	sandbox.ExecuteResult
-	artifact *Artifact
+	compile CompileResult
 }
 
 // NewExecutor creates a capacity-limited executor backed by a sandbox.
@@ -143,15 +148,22 @@ func (e *executor) Compile(ctx context.Context, req CompileRequest) (CompileResu
 		return CompileResult{}, err
 	}
 
-	log := result.Stdout
-	if result.Stderr != "" {
-		if log != "" {
-			log += "\n"
+	diagnostics := make([]string, 0, 3)
+	for _, message := range []string{result.Stdout, result.Stderr, result.compile.Log} {
+		if message != "" {
+			diagnostics = append(diagnostics, message)
 		}
-		log += result.Stderr
+	}
+	switch result.Verdict {
+	case VerdictTLE, VerdictMLE, VerdictOLE:
+		diagnostics = append(diagnostics, result.ExtraInfo)
+	}
+	log := strings.Join(diagnostics, "\n")
+	if result.Verdict == VerdictRE && strings.TrimSpace(log) == "" {
+		log = fmt.Sprintf("compiler exited with code %d", result.ExitCode)
 	}
 
-	return CompileResult{Log: log, Artifact: result.artifact}, nil
+	return CompileResult{Log: log, Artifact: result.compile.Artifact}, nil
 }
 
 // Run executes a compiled artifact in a read-only, seccomp-restricted workspace.
@@ -221,24 +233,32 @@ func (e *executor) execute(ctx context.Context, t task) (result taskResult, err 
 		return result, nil
 	}
 
-	artifact, err := collectArtifact(ws, t.artifactName)
+	result.compile, err = collectArtifact(ws, t.artifactName)
 	if err != nil {
 		return taskResult{}, err
 	}
-	result.artifact = artifact
 	return result, nil
 }
 
-func collectArtifact(ws *workspace, name string) (*Artifact, error) {
+func collectArtifact(ws *workspace, name string) (CompileResult, error) {
 	info, err := ws.stat(name)
 	if err != nil {
-		return nil, fmt.Errorf("stat artifact %q: %w", name, err)
+		return CompileResult{}, fmt.Errorf("stat artifact %q: %w", name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return CompileResult{Log: fmt.Sprintf("compiled artifact %q is not a regular file", name)}, nil
+	}
+	if info.Size() > maxCompileArtifactBytes {
+		return CompileResult{Log: fmt.Sprintf(
+			"compiled artifact %q exceeds size limit (%d bytes > %d bytes)",
+			name, info.Size(), maxCompileArtifactBytes,
+		)}, nil
 	}
 
 	data, err := ws.readFile(name)
 	if err != nil {
-		return nil, fmt.Errorf("read artifact %q: %w", name, err)
+		return CompileResult{}, fmt.Errorf("read artifact %q: %w", name, err)
 	}
 
-	return &Artifact{Name: name, Data: data, Mode: info.Mode().Perm()}, nil
+	return CompileResult{Artifact: &Artifact{Name: name, Data: data, Mode: info.Mode().Perm()}}, nil
 }

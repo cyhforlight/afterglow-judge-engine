@@ -32,6 +32,7 @@ type taskController interface {
 	Start(context.Context) error
 	CloseIO(context.Context, ...containerd.IOCloserOpts) error
 	Kill(context.Context, syscall.Signal, ...containerd.KillOpts) error
+	IO() cio.IO
 }
 
 type executionEvent struct {
@@ -40,6 +41,12 @@ type executionEvent struct {
 	reason  string
 	metrics cgroupMetrics
 	err     error
+}
+
+type executionOutcome struct {
+	exitCode uint32
+	reason   string
+	metrics  cgroupMetrics
 }
 
 // Sandbox executes commands in isolated containerd containers.
@@ -208,14 +215,44 @@ func (*Sandbox) watchExecution(
 		slog.DebugContext(context.WithoutCancel(ctx), "failed to close task stdin", "error", err)
 	}
 
+	outcome, err := waitForTask(ctx, task, exitCh, oleLimiter.ch, limits)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
+	if err := waitForOutput(ctx, task.IO()); err != nil {
+		return ExecuteResult{}, err
+	}
+	output := executionOutput{
+		stdout:     stdoutLW.String(),
+		stderr:     stderrLW.String(),
+		overflowed: stdoutLW.isOverflowed() || stderrLW.isOverflowed(),
+	}
+	return buildVerdict(outcome, output, limits), nil
+}
+
+func waitForTask(
+	ctx context.Context,
+	task taskController,
+	exitCh <-chan containerd.ExitStatus,
+	outputLimit <-chan struct{},
+	limits ResourceLimits,
+) (executionOutcome, error) {
 	wallDeadline := time.NewTimer(time.Duration(limits.WallTimeMs) * time.Millisecond)
 	defer wallDeadline.Stop()
 	cpuTicker := time.NewTicker(cpuTimeCheckInterval)
 	defer cpuTicker.Stop()
 
-	event := waitForExecutionEvent(ctx, task, exitCh, oleLimiter.ch, wallDeadline.C, cpuTicker.C, limits.CPUTimeMs)
+	event := waitForExecutionEvent(ctx, task, exitCh, outputLimit, wallDeadline.C, cpuTicker.C, limits.CPUTimeMs)
 	if event.exited {
-		return resultAfterTaskExit(ctx, task, event.status, limits, stdoutLW, stderrLW)
+		code, _, err := event.status.Result()
+		if err != nil {
+			return executionOutcome{}, fmt.Errorf("read task exit result: %w", err)
+		}
+		metrics, err := collectMetrics(ctx, task)
+		if err != nil {
+			return executionOutcome{}, fmt.Errorf("collect cgroup metrics: %w", err)
+		}
+		return executionOutcome{exitCode: code, metrics: metrics}, nil
 	}
 
 	if event.reason != cpuTimeLimitReason && event.err == nil {
@@ -226,10 +263,10 @@ func (*Sandbox) watchExecution(
 	}
 	stopErr := stopTask(ctx, task, exitCh, lifecycleOperationTimeout)
 	if err := errors.Join(event.err, stopErr); err != nil {
-		return ExecuteResult{}, err
+		return executionOutcome{}, err
 	}
 
-	return buildForcedStopVerdict(event.reason, event.metrics, limits, stdoutLW, stderrLW), nil
+	return executionOutcome{reason: event.reason, metrics: event.metrics}, nil
 }
 
 func waitForExecutionEvent(
@@ -269,22 +306,24 @@ func waitForExecutionEvent(
 	}
 }
 
-func resultAfterTaskExit(
-	ctx context.Context,
-	task metricsReader,
-	status containerd.ExitStatus,
-	limits ResourceLimits,
-	stdoutLW, stderrLW *limitedWriter,
-) (ExecuteResult, error) {
-	code, _, err := status.Result()
-	if err != nil {
-		return ExecuteResult{}, fmt.Errorf("read task exit result: %w", err)
+func waitForOutput(ctx context.Context, output cio.IO) error {
+	// Process exit does not join the output copiers. Delete cancels their pipes,
+	// so collect the remaining bytes before deferred task cleanup.
+	done := make(chan struct{})
+	go func() {
+		output.Wait()
+		close(done)
+	}()
+	drainCtx, cancel := context.WithTimeout(ctx, lifecycleOperationTimeout)
+	defer cancel()
+	select {
+	case <-done:
+		return nil
+	case <-drainCtx.Done():
+		output.Cancel()
+		<-done
+		return fmt.Errorf("collect task output: %w", drainCtx.Err())
 	}
-	metrics, err := collectMetrics(ctx, task)
-	if err != nil {
-		return ExecuteResult{}, fmt.Errorf("collect cgroup metrics: %w", err)
-	}
-	return buildVerdict(code, metrics, limits, stdoutLW, stderrLW), nil
 }
 
 func stopTask(

@@ -30,9 +30,10 @@ const (
 	checkerMemoryLimitMB  = 256
 )
 
-// checker materializes a resolved choice into an immutable compile plan.
+// checker owns shared compilation and materializes immutable compile plans.
 type checker interface {
 	Materialize(choice checkerChoice) (checkerPlan, error)
+	Close()
 }
 
 // checkerPlan owns the source snapshot used to compile one checker.
@@ -125,6 +126,10 @@ func (c *checkerEngine) Materialize(choice checkerChoice) (checkerPlan, error) {
 		compiler: c.compiler,
 		source:   source,
 	}, nil
+}
+
+func (c *checkerEngine) Close() {
+	c.compiler.close()
 }
 
 func validateResourceFile(fsys fs.FS, name string) error {

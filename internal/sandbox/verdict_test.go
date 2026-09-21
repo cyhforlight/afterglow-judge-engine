@@ -35,9 +35,7 @@ func TestBuildVerdict_UsesCgroupOOMEvents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr := verdictWriters(limits.OutputBytes)
-
-			got := buildVerdict(tt.exitCode, tt.metrics, limits, stdout, stderr)
+			got := buildVerdict(executionOutcome{exitCode: tt.exitCode, metrics: tt.metrics}, executionOutput{}, limits)
 
 			assert.Equal(t, VerdictMLE, got.Verdict)
 			assert.Contains(t, got.ExtraInfo, "memory limit exceeded")
@@ -52,14 +50,18 @@ func TestBuildVerdict_CPUTimeAtLimitIsTLE(t *testing.T) {
 		MemoryMB:    128,
 		OutputBytes: 1024,
 	}
-	stdout, stderr := verdictWriters(limits.OutputBytes)
-
-	got := buildVerdict(0, cgroupMetrics{cpuNanos: 100 * nanosPerMs}, limits, stdout, stderr)
+	got := buildVerdict(executionOutcome{metrics: cgroupMetrics{cpuNanos: 100 * nanosPerMs}}, executionOutput{}, limits)
 
 	assert.Equal(t, VerdictTLE, got.Verdict)
 }
 
-func verdictWriters(outputLimit int64) (*limitedWriter, *limitedWriter) {
-	limiter := newOutputLimiter(outputLimit)
-	return newLimitedWriter(limiter), newLimitedWriter(limiter)
+func TestBuildVerdict_PreservesForcedStopReason(t *testing.T) {
+	for _, reason := range []string{cpuTimeLimitReason, wallTimeLimitReason} {
+		t.Run(reason, func(t *testing.T) {
+			outcome := executionOutcome{reason: reason, metrics: cgroupMetrics{oomKillDetected: true}}
+			result := buildVerdict(outcome, executionOutput{overflowed: true}, standardLimits())
+			assert.Equal(t, VerdictTLE, result.Verdict)
+			assert.Contains(t, result.ExtraInfo, reason)
+		})
+	}
 }

@@ -73,6 +73,12 @@ func newJudgeEngine(
 	}
 }
 
+// Close cancels and waits for shared checker compilations. Call it after all
+// Judge calls have returned.
+func (s *JudgeEngine) Close() {
+	s.checker.Close()
+}
+
 func validateJudgeRequest(req model.JudgeRequest) error {
 	if strings.TrimSpace(req.SourceCode) == "" {
 		return errors.New("sourceCode is required")

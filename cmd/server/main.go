@@ -41,7 +41,7 @@ func main() {
 	logger := setupLogger(cfg.logLevel)
 	slog.SetDefault(logger)
 
-	server, err := initializeServer(cfg, logger)
+	server, judge, err := initializeServer(cfg, logger)
 	if err != nil {
 		logger.Error("initialization failed", "error", err)
 		os.Exit(1)
@@ -50,6 +50,7 @@ func main() {
 	serverCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	serverErr := server.Run(serverCtx)
 	stop()
+	judge.Close()
 
 	if serverErr != nil {
 		logger.Error("server error", "error", serverErr)
@@ -109,29 +110,32 @@ func envInt(key string, fallback int) (int, error) {
 	return n, nil
 }
 
-func initializeServer(cfg settings, logger *slog.Logger) (*httptransport.Server, error) {
+func initializeServer(cfg settings, logger *slog.Logger) (*httptransport.Server, *service.JudgeEngine, error) {
 	sb, err := sandbox.New(cfg.containerdSocket, containerdNamespace)
 	if err != nil {
-		return nil, fmt.Errorf("initialize sandbox: %w", err)
+		return nil, nil, fmt.Errorf("initialize sandbox: %w", err)
 	}
 
 	bundledFS, err := resource.NewBundled()
 	if err != nil {
-		return nil, fmt.Errorf("initialize bundled resources: %w", err)
+		return nil, nil, fmt.Errorf("initialize bundled resources: %w", err)
 	}
 
 	var externalFS fs.FS
 	if cfg.externalDataDir != "" {
 		ext, err := resource.NewExternal(cfg.externalDataDir)
 		if err != nil {
-			return nil, fmt.Errorf("initialize external resources %q: %w", cfg.externalDataDir, err)
+			return nil, nil, fmt.Errorf("initialize external resources %q: %w", cfg.externalDataDir, err)
 		}
 		externalFS = ext
 	}
 
 	executor, err := execution.NewExecutor(sb, cfg.maxConcurrentContainers)
 	if err != nil {
-		return nil, fmt.Errorf("initialize executor: %w", err)
+		return nil, nil, fmt.Errorf("initialize executor: %w", err)
+	}
+	if err := sb.CheckEnvironment(context.Background()); err != nil {
+		return nil, nil, fmt.Errorf("sandbox environment check failed: %w", err)
 	}
 
 	judge, err := service.NewJudgeEngine(
@@ -141,14 +145,10 @@ func initializeServer(cfg settings, logger *slog.Logger) (*httptransport.Server,
 		cfg.maxConcurrentJudges,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("initialize judge engine: %w", err)
+		return nil, nil, fmt.Errorf("initialize judge engine: %w", err)
 	}
 
 	server := httptransport.NewServer(cfg.listenAddr, judge, logger)
 
-	if err := sb.CheckEnvironment(context.Background()); err != nil {
-		return nil, fmt.Errorf("sandbox environment check failed: %w", err)
-	}
-
-	return server, nil
+	return server, judge, nil
 }

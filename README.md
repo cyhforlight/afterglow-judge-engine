@@ -58,6 +58,7 @@
 当前需要诚实看待的边界：
 
 - 编译阶段没有启用 seccomp，因为编译器和语言工具链需要创建进程
+- 编译产物必须是普通文件，且最多为 64 MiB；超限按编译失败处理，用户程序返回 `CompileError`，请求内联 checker 返回 `CheckerCompileError`，诊断写入对应编译日志
 - 运行阶段的 seccomp 仍是黑名单策略，不是完整 allowlist
 - 请求取消会立即停止 task；kill、wait 和 cleanup 使用独立的有界 context，避免请求取消阻断资源释放
 - 外部测试数据和外部 checker 只从 `EXTERNAL_DATA_DIR` 指定的资源根目录读取，并做路径穿越和 symlink escape 检查
@@ -90,6 +91,8 @@ go build -o server ./cmd/server
 - 外部测试数据和外部 checker 默认关闭；如需启用，可通过 `EXTERNAL_DATA_DIR` 显式指定根目录
 
 因此最简单的用法仍然是在仓库根目录直接构建并运行。
+
+收到 SIGINT 或 SIGTERM 后，服务停止接收新连接，并给正在处理的请求 10 秒完成。宽限结束后取消剩余请求、断开连接并等待判题清理，再取消并等待引擎持有的共享 checker 编译，最后退出。单个请求取消不会中断其他请求共用的 checker 编译；10 秒是正常完成的宽限，不包含后续资源清理时间。
 
 如果需要使用 `inputFile` / `expectedOutputFile` 或 `external:<path>.cpp`，再额外配置：
 
@@ -288,6 +291,8 @@ Content-Type: application/json
 顶层 `status` 表示判题流程状态：`OK` 表示测试点均已完成评测，即使其中存在 WA、TLE 等用户程序结果；`CompileError` 表示用户代码编译失败；`CheckerCompileError` 和 `CheckerExecutionError` 分别表示请求通过 `checkerSourceCode` 提供的 checker 编译失败或未能完成某个测试点的检查；`SystemError` 表示基础设施异常，或内置、外部 checker 发生编译或执行失败。业务判定仍应读取 `cases[].verdict`。
 
 `checkerCompile` 在 checker 编译或缓存准备得到正常结果后出现：`succeeded=false` 时携带编译日志且 `cases` 为空；用户代码编译失败、checker 编译基础设施异常等没有正常 checker 编译结果的场景会省略该字段。`cases` 与请求中的 `testcases` 顺序一致。文件型 testcase 或 checker 源码无法读取时，请求以 HTTP 400 拒绝。
+
+编译日志保留编译器诊断，以及编译阶段触发的时间、内存或输出限制原因。成功编译的 warning 也会保留；checker 缓存命中与首次编译返回相同日志。
 
 `cases[].timeUsed` 表示实际测得的 CPU 时间，不会截断到请求的 `timeLimit`。
 

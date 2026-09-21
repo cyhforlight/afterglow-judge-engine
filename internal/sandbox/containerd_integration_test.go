@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -232,6 +233,38 @@ print('done')
 			assert.Equal(t, VerdictOK, result.Verdict)
 
 			tt.checkResult(t, tmpDir, result)
+		})
+	}
+}
+
+func TestSandbox_CollectsFinalOutput(t *testing.T) {
+	const outputSize = 256*1024 + 17
+	for _, overflow := range []bool{false, true} {
+		t.Run(fmt.Sprintf("overflow=%t", overflow), func(t *testing.T) {
+			env := newSandboxTestEnv(t)
+			limits := standardLimits()
+			limits.OutputBytes = 2 * outputSize
+			if overflow {
+				limits.OutputBytes--
+			}
+			result, err := env.sb.Execute(env.ctx, ExecuteRequest{
+				ImageRef: testPythonImageRef,
+				Command: []string{"python3", "-c", fmt.Sprintf(
+					"import os; os.write(1, b'x' * %d); os.write(2, b'y' * %d)", outputSize, outputSize,
+				)},
+				Limits: limits,
+			})
+			require.NoError(t, err)
+			assert.EqualValues(t, limits.OutputBytes, len(result.Stdout)+len(result.Stderr))
+			assert.Empty(t, bytes.Trim([]byte(result.Stdout), "x"))
+			assert.Empty(t, bytes.Trim([]byte(result.Stderr), "y"))
+			if overflow {
+				assert.Equal(t, VerdictOLE, result.Verdict)
+			} else {
+				assert.Equal(t, VerdictOK, result.Verdict)
+				assert.Len(t, result.Stdout, outputSize)
+				assert.Len(t, result.Stderr, outputSize)
+			}
 		})
 	}
 }

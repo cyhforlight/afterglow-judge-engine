@@ -1,13 +1,12 @@
 package service
 
 import (
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"strings"
+	"sync"
 	"time"
 
 	"afterglow-judge-engine/internal/execution"
@@ -24,27 +23,36 @@ type checkerCompiler struct {
 	executor      execution.Executor
 	profile       compileConfig
 	testlibHeader []byte
-	cache         *lru.Cache[[sha256.Size]byte, execution.Artifact]
+	cache         *lru.Cache[[sha256.Size]byte, execution.CompileResult]
 	group         singleflight.Group
-}
-
-type checkerCompilation struct {
-	artifact *execution.Artifact
-	log      string
+	ctx           context.Context
+	cancel        context.CancelFunc
+	lifecycleMu   sync.Mutex
+	compilations  sync.WaitGroup
 }
 
 func newCheckerCompiler(executor execution.Executor, testlibHeader []byte) (*checkerCompiler, error) {
-	cache, err := lru.New[[sha256.Size]byte, execution.Artifact](checkerCacheEntries)
+	cache, err := lru.New[[sha256.Size]byte, execution.CompileResult](checkerCacheEntries)
 	if err != nil {
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &checkerCompiler{
 		executor:      executor,
 		profile:       checkerCompileProfile(),
 		testlibHeader: testlibHeader,
 		cache:         cache,
+		ctx:           ctx,
+		cancel:        cancel,
 	}, nil
+}
+
+func (c *checkerCompiler) close() {
+	c.lifecycleMu.Lock()
+	c.cancel()
+	c.lifecycleMu.Unlock()
+	c.compilations.Wait()
 }
 
 func (c *checkerCompiler) prepare(
@@ -57,63 +65,74 @@ func (c *checkerCompiler) prepare(
 	}
 
 	result := model.CompileResult{
-		Succeeded: compilation.artifact != nil,
-		Log:       compilation.log,
+		Succeeded: compilation.Artifact != nil,
+		Log:       compilation.Log,
 	}
-	if compilation.artifact == nil {
+	if compilation.Artifact == nil {
 		return nil, result, nil
 	}
-	return &compiledChecker{executor: c.executor, artifact: *compilation.artifact}, result, nil
+	return &compiledChecker{executor: c.executor, artifact: *compilation.Artifact}, result, nil
 }
 
-func (c *checkerCompiler) compile(ctx context.Context, source []byte) (checkerCompilation, error) {
+func (c *checkerCompiler) compile(ctx context.Context, source []byte) (execution.CompileResult, error) {
 	// The profile and testlib snapshot are fixed for the lifetime of this cache,
 	// so the checker source is the only varying compilation input.
 	key := sha256.Sum256(source)
-	if artifact, ok := c.cache.Get(key); ok {
+	if compilation, ok := c.cache.Get(key); ok {
 		slog.DebugContext(ctx, "checker compile cache hit", "key", hex.EncodeToString(key[:8]))
-		return checkerCompilation{artifact: &artifact}, nil
+		return compilation, nil
 	}
 
 	resultCh := c.group.DoChan(string(key[:]), func() (any, error) {
+		// Admission and cancellation share a lock: Close must also cover a
+		// singleflight callback that has been queued but has not started yet.
+		c.lifecycleMu.Lock()
+		if err := c.ctx.Err(); err != nil {
+			c.lifecycleMu.Unlock()
+			return nil, fmt.Errorf("checker setup failed: %w", err)
+		}
+		c.compilations.Add(1)
+		c.lifecycleMu.Unlock()
+		defer c.compilations.Done()
+
 		compileCtx, cancel := context.WithTimeout(
-			context.WithoutCancel(ctx),
+			c.ctx,
 			time.Duration(c.profile.TimeoutMs*execution.WallTimeMultiplier)*time.Millisecond,
 		)
 		defer cancel()
 
-		if artifact, ok := c.cache.Get(key); ok {
+		if compilation, ok := c.cache.Get(key); ok {
 			slog.DebugContext(
 				compileCtx,
 				"checker compile cache hit after singleflight wait",
 				"key",
 				hex.EncodeToString(key[:8]),
 			)
-			return checkerCompilation{artifact: &artifact}, nil
+			return compilation, nil
 		}
 
 		compilation, err := c.compileUncached(compileCtx, source)
 		if err != nil {
 			return nil, err
 		}
-		if compilation.artifact != nil {
-			c.cache.Add(key, *compilation.artifact)
+		if compilation.Artifact != nil {
+			c.cache.Add(key, compilation)
 		}
 		return compilation, nil
 	})
 
 	select {
 	case <-ctx.Done():
-		return checkerCompilation{}, fmt.Errorf("checker setup failed: %w", ctx.Err())
+		return execution.CompileResult{}, fmt.Errorf("checker setup failed: %w", ctx.Err())
 	case result := <-resultCh:
 		if result.Err != nil {
-			return checkerCompilation{}, result.Err
+			return execution.CompileResult{}, result.Err
 		}
-		return result.Val.(checkerCompilation), nil
+		return result.Val.(execution.CompileResult), nil
 	}
 }
 
-func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (checkerCompilation, error) {
+func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (execution.CompileResult, error) {
 	profile := c.profile
 	compileOut, err := c.executor.Compile(ctx, execution.CompileRequest{
 		Files: []execution.File{
@@ -131,11 +150,7 @@ func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (c
 		},
 	})
 	if err != nil {
-		return checkerCompilation{}, fmt.Errorf("checker setup failed: %w", err)
+		return execution.CompileResult{}, fmt.Errorf("checker setup failed: %w", err)
 	}
-	if compileOut.Artifact == nil {
-		message := cmp.Or(strings.TrimSpace(compileOut.Log), "checker compilation failed")
-		return checkerCompilation{log: message}, nil
-	}
-	return checkerCompilation{artifact: compileOut.Artifact}, nil
+	return compileOut, nil
 }

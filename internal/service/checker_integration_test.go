@@ -27,6 +27,7 @@ func newCheckerForTest(t *testing.T, executor execution.Executor, externalFS fs.
 	require.NoError(t, err)
 	checkerModule, err := newChecker(executor, bundledFS, externalFS)
 	require.NoError(t, err)
+	t.Cleanup(checkerModule.Close)
 	return checkerModule
 }
 

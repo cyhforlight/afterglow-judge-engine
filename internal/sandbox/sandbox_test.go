@@ -3,14 +3,18 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	cgroupsv2 "github.com/containerd/cgroups/v3/cgroup2/stats"
 	"github.com/containerd/containerd/api/types"
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/containerd/typeurl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +22,10 @@ import (
 type fakeTaskController struct {
 	kill    func(context.Context, syscall.Signal, ...containerd.KillOpts) error
 	metrics func(context.Context) (*types.Metric, error)
+	output  cio.IO
 }
+
+func (f *fakeTaskController) IO() cio.IO { return f.output }
 
 func (*fakeTaskController) Start(context.Context) error { return nil }
 
@@ -38,6 +45,108 @@ func (f *fakeTaskController) Metrics(ctx context.Context) (*types.Metric, error)
 		return f.metrics(ctx)
 	}
 	return nil, errors.New("metrics unavailable in lifecycle test")
+}
+
+type delayedTaskIO struct {
+	cio.IO
+	done   <-chan struct{}
+	cancel func()
+}
+
+func (d delayedTaskIO) Wait()   { <-d.done }
+func (d delayedTaskIO) Cancel() { d.cancel() }
+
+func TestWatchExecution_CollectsOutputAfterProcessExit(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		outputLimit int64
+		forceStop   bool
+	}{
+		{name: "normal exit", outputLimit: 1024},
+		{name: "overflow in final bytes", outputLimit: 5},
+		{name: "forced stop", outputLimit: 5, forceStop: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				limits := standardLimits()
+				limits.OutputBytes = tc.outputLimit
+				limiter := newOutputLimiter(tc.outputLimit)
+				stdout, stderr := newLimitedWriter(limiter), newLimitedWriter(limiter)
+				copyTail := make(chan struct{})
+				copied := make(chan struct{})
+				go func() {
+					<-copyTail
+					_, _ = stdout.Write([]byte("tail"))
+					_, _ = stderr.Write([]byte("error"))
+					close(copied)
+				}()
+				raw, err := typeurl.MarshalAnyToProto(&cgroupsv2.Metrics{})
+				require.NoError(t, err)
+				task := &fakeTaskController{
+					metrics: func(context.Context) (*types.Metric, error) {
+						return &types.Metric{Data: raw}, nil
+					},
+					output: delayedTaskIO{done: copied},
+				}
+				exitCh := make(chan containerd.ExitStatus, 1)
+				if tc.forceStop {
+					limiter.signal()
+					task.kill = func(context.Context, syscall.Signal, ...containerd.KillOpts) error {
+						exitCh <- *containerd.NewExitStatus(137, time.Now(), nil)
+						return nil
+					}
+				} else {
+					exitCh <- *containerd.NewExitStatus(0, time.Now(), nil)
+				}
+				finished := make(chan struct{})
+				var result ExecuteResult
+				var watchErr error
+				go func() {
+					result, watchErr = (&Sandbox{}).watchExecution(t.Context(), task, exitCh, stdout, stderr, limiter, limits)
+					close(finished)
+				}()
+
+				synctest.Wait()
+				select {
+				case <-finished:
+					t.Error("execution returned before the output tail was collected")
+				default:
+				}
+				close(copyTail)
+				synctest.Wait()
+
+				require.NoError(t, watchErr)
+				assert.Equal(t, "tail", result.Stdout)
+				if tc.outputLimit == 5 {
+					assert.Equal(t, "e", result.Stderr)
+					assert.Equal(t, VerdictOLE, result.Verdict)
+				} else {
+					assert.Equal(t, "error", result.Stderr)
+					assert.Equal(t, VerdictOK, result.Verdict)
+				}
+			})
+		})
+	}
+}
+
+func TestWaitForOutput_CancelsIncompleteCollection(t *testing.T) {
+	for _, cancelRequest := range []bool{false, true} {
+		t.Run(fmt.Sprintf("request canceled=%t", cancelRequest), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				expectedErr := context.DeadlineExceeded
+				if cancelRequest {
+					cancel()
+					expectedErr = context.Canceled
+				}
+				done := make(chan struct{})
+				output := delayedTaskIO{done: done, cancel: func() { close(done) }}
+				err := waitForOutput(ctx, output)
+				require.ErrorIs(t, err, expectedErr)
+			})
+		})
+	}
 }
 
 func TestWatchExecution_CancellationStopsTask(t *testing.T) {
