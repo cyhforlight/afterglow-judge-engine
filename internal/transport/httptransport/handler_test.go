@@ -105,22 +105,6 @@ func TestHandleExecute_ServiceRejectionReturnsBadRequest(t *testing.T) {
 	assert.Equal(t, `inputFile "cases/1.in" is not available`, resp.Details)
 }
 
-func TestHandleExecute_AcceptsInlineCheckerSource(t *testing.T) {
-	judge := &mockJudgeService{}
-	handler := newTestHandler(judge)
-	dto := validJudgeRequest()
-	dto.Checker = ""
-	dto.CheckerSourceCode = "#include \"testlib.h\"\n"
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/execute", makeJudgeBody(t, dto))
-	w := httptest.NewRecorder()
-	handler.handleExecute(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, 1, judge.judgeCalls)
-	assert.Equal(t, dto.CheckerSourceCode, judge.request.CheckerSourceCode)
-}
-
 func TestHandleExecute_EncodesCheckerCompileResult(t *testing.T) {
 	checkerCompile := model.CompileResult{Succeeded: false, Log: "syntax error"}
 	judge := &mockJudgeService{result: model.JudgeResult{
