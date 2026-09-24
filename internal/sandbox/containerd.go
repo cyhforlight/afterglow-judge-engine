@@ -118,7 +118,7 @@ func (s *Sandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResul
 
 	execCtx := namespaces.WithNamespace(ctx, s.namespace)
 
-	image, err := s.ensureImage(execCtx, client, req.ImageRef)
+	image, err := ensureImage(execCtx, client, req.ImageRef)
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("ensure image %q: %w", req.ImageRef, err)
 	}
@@ -126,7 +126,7 @@ func (s *Sandbox) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResul
 	return s.executeInContainer(execCtx, client, image, req)
 }
 
-func (*Sandbox) ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
+func ensureImage(ctx context.Context, client *containerd.Client, imageRef string) (containerd.Image, error) {
 	image, err := client.GetImage(ctx, imageRef)
 	if err == nil {
 		slog.DebugContext(ctx, "image found locally", "ref", imageRef)
@@ -206,7 +206,7 @@ func (s *Sandbox) executeInContainer(
 		return ExecuteResult{}, fmt.Errorf("setup wait: %w", err)
 	}
 
-	return s.watchExecution(ctx, task, exitCh, stdoutLW, stderrLW, oleLimiter, req.Limits)
+	return watchExecution(ctx, task, exitCh, stdoutLW, stderrLW, oleLimiter, req.Limits)
 }
 
 func cleanupResource(ctx context.Context, resource string, cleanup func(context.Context) error) {
@@ -219,7 +219,7 @@ func cleanupResource(ctx context.Context, resource string, cleanup func(context.
 	}
 }
 
-func (*Sandbox) watchExecution(
+func watchExecution(
 	ctx context.Context,
 	task taskController,
 	exitCh <-chan containerd.ExitStatus,

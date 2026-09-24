@@ -102,7 +102,7 @@ func TestWatchExecution_CollectsOutputAfterProcessExit(t *testing.T) {
 				var result ExecuteResult
 				var watchErr error
 				go func() {
-					result, watchErr = (&Sandbox{}).watchExecution(t.Context(), task, exitCh, stdout, stderr, limiter, limits)
+					result, watchErr = watchExecution(t.Context(), task, exitCh, stdout, stderr, limiter, limits)
 					close(finished)
 				}()
 
@@ -184,7 +184,7 @@ func TestWatchExecution_CancellationStopsTask(t *testing.T) {
 		var watchErr error
 		go func() {
 			limiter := newOutputLimiter(1024)
-			result, watchErr = (&Sandbox{}).watchExecution(
+			result, watchErr = watchExecution(
 				ctx,
 				task,
 				exitCh,
@@ -226,7 +226,7 @@ func TestWatchExecution_ForcedStopStillKillsTaskWhenMetricsFail(t *testing.T) {
 	limiter := newOutputLimiter(1024)
 	limiter.signal()
 
-	result, err := (&Sandbox{}).watchExecution(
+	result, err := watchExecution(
 		t.Context(),
 		task,
 		exitCh,
@@ -259,7 +259,7 @@ func TestWatchExecution_CPUMetricsFailureStopsTask(t *testing.T) {
 	limits := standardLimits()
 	limits.WallTimeMs = 1000
 
-	result, err := (&Sandbox{}).watchExecution(
+	result, err := watchExecution(
 		t.Context(),
 		task,
 		exitCh,
