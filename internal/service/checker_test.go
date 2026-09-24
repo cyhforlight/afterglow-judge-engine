@@ -191,7 +191,7 @@ func TestCheckerEngine_SourceInlineSource(t *testing.T) {
 	assert.Equal(t, source, string(snapshot.source))
 }
 
-func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
+func TestCheckerPlan_CompileCachesOnlySuccessfulCompilations(t *testing.T) {
 	tests := []struct {
 		name             string
 		output           execution.CompileResult
@@ -252,7 +252,7 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 	}
 }
 
-func TestCheckerPlan_PreparePreservesDiagnosticsInCache(t *testing.T) {
+func TestCheckerPlan_CompilePreservesDiagnosticsInCache(t *testing.T) {
 	const warning = "warning: unused parameter\n"
 	output := successfulCheckerCompile()
 	output.Log = warning
@@ -271,7 +271,7 @@ func TestCheckerPlan_PreparePreservesDiagnosticsInCache(t *testing.T) {
 	assert.Len(t, executor.compileRequests, 1)
 }
 
-func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *testing.T) {
+func TestCheckerPlan_CompileCallerCancellationDoesNotCancelSharedCompilation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
 		started := make(chan context.Context, 1)
@@ -311,7 +311,7 @@ func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *
 	})
 }
 
-func TestCheckerPlan_PrepareUsesCapturedSource(t *testing.T) {
+func TestCheckerPlan_CompileUsesCapturedSource(t *testing.T) {
 	const (
 		originalSource = "original source"
 		updatedSource  = "updated source"
