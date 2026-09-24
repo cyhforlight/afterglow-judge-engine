@@ -292,8 +292,8 @@ func (r caseRunner) runCase(ctx context.Context, tc caseData, index int) model.J
 		}
 	}
 
-	if runResult.Verdict != execution.VerdictOK {
-		return judgeCaseResultFromExecution(runResult, convertVerdict(runResult.Verdict), runResult.ExtraInfo)
+	if runResult.Verdict != model.VerdictOK {
+		return judgeCaseResultFromExecution(runResult, runResult.Verdict, runResult.ExtraInfo)
 	}
 
 	checkResult, err := r.checker.Check(ctx, tc.input, runResult.Stdout, tc.expectedOutput)
@@ -332,23 +332,6 @@ func (r caseRunner) runCase(ctx context.Context, tc caseData, index int) model.J
 	}
 
 	return judgeCaseResultFromExecution(runResult, verdict, message)
-}
-
-func convertVerdict(v execution.Verdict) model.Verdict {
-	switch v {
-	case execution.VerdictOK:
-		return model.VerdictOK
-	case execution.VerdictTLE:
-		return model.VerdictTLE
-	case execution.VerdictMLE:
-		return model.VerdictMLE
-	case execution.VerdictOLE:
-		return model.VerdictOLE
-	case execution.VerdictRE:
-		return model.VerdictRE
-	default:
-		return model.VerdictUKE
-	}
 }
 
 func failedBeforeRun(log string) model.JudgeResult {

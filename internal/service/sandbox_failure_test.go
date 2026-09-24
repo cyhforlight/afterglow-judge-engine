@@ -35,7 +35,7 @@ func testProgramVerdicts(
 	t *testing.T,
 	tests []sandboxFailureCase,
 	timeLimit, memoryLimit uint32,
-	want execution.Verdict,
+	want model.Verdict,
 ) {
 	t.Helper()
 
@@ -88,7 +88,7 @@ func TestSandboxFailure_TimeLimit(t *testing.T) {
 		{"Python infinite loop", model.LanguagePython, "tle/tle_infinite_loop.py"},
 	}
 
-	testProgramVerdicts(t, tests, 1000, 256, execution.VerdictTLE)
+	testProgramVerdicts(t, tests, 1000, 256, model.VerdictTLE)
 }
 
 func TestSandboxFailure_MemoryLimit(t *testing.T) {
@@ -101,7 +101,7 @@ func TestSandboxFailure_MemoryLimit(t *testing.T) {
 		{"Python list append", model.LanguagePython, "mle/mle_list_append.py"},
 	}
 
-	testProgramVerdicts(t, tests, 2000, 64, execution.VerdictMLE)
+	testProgramVerdicts(t, tests, 2000, 64, model.VerdictMLE)
 }
 
 func TestJavaHeapMatchesRequestedMemoryLimit(t *testing.T) {
@@ -121,7 +121,7 @@ public class Main {
 	require.True(t, result.Succeeded, "compilation should succeed")
 
 	runOut := runUserProgram(t, env, program, "", 2000, 128)
-	require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %s", runOut.ExtraInfo)
+	require.Equal(t, model.VerdictOK, runOut.Verdict, "execution failed: %s", runOut.ExtraInfo)
 	assert.Equal(t, "67108864\n", runOut.Stdout)
 }
 
@@ -137,7 +137,7 @@ func TestSandboxFailure_RuntimeError(t *testing.T) {
 		{"Python index error", model.LanguagePython, "re/re_index_error.py"},
 	}
 
-	testProgramVerdicts(t, tests, 2000, 256, execution.VerdictRE)
+	testProgramVerdicts(t, tests, 2000, 256, model.VerdictRE)
 }
 
 func TestSandboxFailure_OutputLimit(t *testing.T) {
@@ -148,7 +148,7 @@ func TestSandboxFailure_OutputLimit(t *testing.T) {
 		{"Python infinite print", model.LanguagePython, "ole/ole_infinite_print.py"},
 	}
 
-	testProgramVerdicts(t, tests, 2000, 256, execution.VerdictOLE)
+	testProgramVerdicts(t, tests, 2000, 256, model.VerdictOLE)
 }
 
 func TestSandboxFailure_PolicyViolation(t *testing.T) {
@@ -168,7 +168,7 @@ func TestSandboxFailure_PolicyViolation(t *testing.T) {
 			require.True(t, result.Succeeded, "compilation should succeed")
 
 			runOut := runUserProgram(t, env, program, "", 2000, 256)
-			assert.Equal(t, execution.VerdictOK, runOut.Verdict)
+			assert.Equal(t, model.VerdictOK, runOut.Verdict)
 			assert.Contains(t, runOut.Stdout, "blocked")
 		})
 	}

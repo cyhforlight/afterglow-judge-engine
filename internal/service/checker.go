@@ -200,9 +200,9 @@ func (c *compiledChecker) Check(
 
 	result := checkerResult{Outcome: checkerFailed, Message: message}
 	switch {
-	case runOut.Verdict == execution.VerdictOK && runOut.ExitCode == 0:
+	case runOut.Verdict == model.VerdictOK && runOut.ExitCode == 0:
 		result.Outcome = checkerAccepted
-	case runOut.Verdict == execution.VerdictRE && (runOut.ExitCode == 1 || runOut.ExitCode == 2):
+	case runOut.Verdict == model.VerdictRE && (runOut.ExitCode == 1 || runOut.ExitCode == 2):
 		result.Outcome = checkerRejected
 	}
 	return result, nil

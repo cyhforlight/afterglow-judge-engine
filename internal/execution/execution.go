@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/sandbox"
 
 	"golang.org/x/sync/semaphore"
@@ -30,18 +31,6 @@ type File struct {
 
 // Limits defines resource constraints for a compilation or run.
 type Limits = sandbox.ResourceLimits
-
-// Verdict classifies the raw execution outcome.
-type Verdict = sandbox.Verdict
-
-// Execution verdicts.
-const (
-	VerdictOK  = sandbox.VerdictOK
-	VerdictTLE = sandbox.VerdictTLE
-	VerdictMLE = sandbox.VerdictMLE
-	VerdictOLE = sandbox.VerdictOLE
-	VerdictRE  = sandbox.VerdictRE
-)
 
 // CompileRequest describes one isolated compilation.
 type CompileRequest struct {
@@ -70,8 +59,16 @@ type RunRequest struct {
 	Limits   Limits
 }
 
-// RunResult contains the outcome reported by the sandbox.
-type RunResult = sandbox.ExecuteResult
+// RunResult contains the outcome of a sandboxed execution.
+type RunResult struct {
+	Verdict   model.Verdict
+	ExitCode  int
+	Stdout    string
+	Stderr    string
+	CPUTimeMs int
+	MemoryMB  int
+	ExtraInfo string
+}
 
 // Default execution policy values shared by compile and run primitives.
 const (
@@ -117,7 +114,7 @@ type task struct {
 }
 
 type taskResult struct {
-	sandbox.ExecuteResult
+	RunResult
 	compile CompileResult
 }
 
@@ -155,11 +152,11 @@ func (e *executor) Compile(ctx context.Context, req CompileRequest) (CompileResu
 		}
 	}
 	switch result.Verdict {
-	case VerdictTLE, VerdictMLE, VerdictOLE:
+	case model.VerdictTLE, model.VerdictMLE, model.VerdictOLE:
 		diagnostics = append(diagnostics, result.ExtraInfo)
 	}
 	log := strings.Join(diagnostics, "\n")
-	if result.Verdict == VerdictRE && strings.TrimSpace(log) == "" {
+	if result.Verdict == model.VerdictRE && strings.TrimSpace(log) == "" {
 		log = fmt.Sprintf("compiler exited with code %d", result.ExitCode)
 	}
 
@@ -185,7 +182,7 @@ func (e *executor) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if err != nil {
 		return RunResult{}, err
 	}
-	return result.ExecuteResult, nil
+	return result.RunResult, nil
 }
 
 func (e *executor) execute(ctx context.Context, t task) (result taskResult, err error) {
@@ -227,9 +224,9 @@ func (e *executor) execute(ctx context.Context, t task) (result taskResult, err 
 		return taskResult{}, errors.New("sandbox execute returned unknown verdict")
 	}
 
-	result = taskResult{ExecuteResult: sandboxResult}
+	result = taskResult{RunResult: sandboxResultToRunResult(sandboxResult)}
 
-	if t.artifactName == "" || result.ExitCode != 0 || result.Verdict != VerdictOK {
+	if t.artifactName == "" || result.ExitCode != 0 || result.Verdict != model.VerdictOK {
 		return result, nil
 	}
 
@@ -238,6 +235,37 @@ func (e *executor) execute(ctx context.Context, t task) (result taskResult, err 
 		return taskResult{}, err
 	}
 	return result, nil
+}
+
+// sandboxResultToRunResult translates the sandbox-internal verdict enum to the
+// model-level verdict used by all layers above execution.
+func sandboxResultToRunResult(r sandbox.ExecuteResult) RunResult {
+	return RunResult{
+		Verdict:   sandboxVerdictToModel(r.Verdict),
+		ExitCode:  r.ExitCode,
+		Stdout:    r.Stdout,
+		Stderr:    r.Stderr,
+		CPUTimeMs: r.CPUTimeMs,
+		MemoryMB:  r.MemoryMB,
+		ExtraInfo: r.ExtraInfo,
+	}
+}
+
+func sandboxVerdictToModel(v sandbox.Verdict) model.Verdict {
+	switch v {
+	case sandbox.VerdictOK:
+		return model.VerdictOK
+	case sandbox.VerdictTLE:
+		return model.VerdictTLE
+	case sandbox.VerdictMLE:
+		return model.VerdictMLE
+	case sandbox.VerdictOLE:
+		return model.VerdictOLE
+	case sandbox.VerdictRE:
+		return model.VerdictRE
+	default:
+		return model.VerdictUKE
+	}
 }
 
 func collectArtifact(ws *workspace, name string) (CompileResult, error) {

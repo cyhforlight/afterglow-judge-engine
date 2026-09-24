@@ -267,9 +267,9 @@ func sandboxMemoryLimitMB(lang model.Language, memoryLimitMB int) int {
 
 func normalizeLanguageRunResult(lang model.Language, runOut execution.RunResult) execution.RunResult {
 	if lang == model.LanguageJava &&
-		runOut.Verdict == execution.VerdictRE &&
+		runOut.Verdict == model.VerdictRE &&
 		strings.Contains(runOut.Stderr, "java.lang.OutOfMemoryError") {
-		runOut.Verdict = execution.VerdictMLE
+		runOut.Verdict = model.VerdictMLE
 	}
 	return runOut
 }

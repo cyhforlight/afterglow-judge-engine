@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 
 	"afterglow-judge-engine/internal/execution"
+	"afterglow-judge-engine/internal/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,31 +348,31 @@ func TestCompiledChecker_Check(t *testing.T) {
 	}{
 		{
 			name:        "accepted with stderr message",
-			runResult:   execution.RunResult{Verdict: execution.VerdictOK, ExitCode: 0, Stderr: " accepted "},
+			runResult:   execution.RunResult{Verdict: model.VerdictOK, ExitCode: 0, Stderr: " accepted "},
 			wantOutcome: checkerAccepted,
 			wantMessage: "accepted",
 		},
 		{
 			name:        "wrong answer exit one",
-			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 1, Stdout: "wrong"},
+			runResult:   execution.RunResult{Verdict: model.VerdictRE, ExitCode: 1, Stdout: "wrong"},
 			wantOutcome: checkerRejected,
 			wantMessage: "wrong",
 		},
 		{
 			name:        "wrong answer exit two",
-			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 2, ExtraInfo: "presentation"},
+			runResult:   execution.RunResult{Verdict: model.VerdictRE, ExitCode: 2, ExtraInfo: "presentation"},
 			wantOutcome: checkerRejected,
 			wantMessage: "presentation",
 		},
 		{
 			name:        "sandbox timeout",
-			runResult:   execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 0, Stderr: "timed out"},
+			runResult:   execution.RunResult{Verdict: model.VerdictTLE, ExitCode: 0, Stderr: "timed out"},
 			wantOutcome: checkerFailed,
 			wantMessage: "timed out",
 		},
 		{
 			name:        "nonzero protocol exit",
-			runResult:   execution.RunResult{Verdict: execution.VerdictRE, ExitCode: 3},
+			runResult:   execution.RunResult{Verdict: model.VerdictRE, ExitCode: 3},
 			wantOutcome: checkerFailed,
 		},
 	}

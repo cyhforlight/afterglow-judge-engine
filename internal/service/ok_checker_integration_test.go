@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"afterglow-judge-engine/internal/execution"
+	"afterglow-judge-engine/internal/model"
 	"afterglow-judge-engine/internal/resource"
 
 	"github.com/stretchr/testify/assert"
@@ -62,7 +62,7 @@ func TestOKAndChecker_AllTestcases(t *testing.T) {
 			expectedOutput := readTestdata(t, "ok-and-checker-cases", testcaseName, "data.out")
 
 			runOut := runUserProgram(t, env, program, inputData, 2000, 256)
-			require.Equal(t, execution.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
+			require.Equal(t, model.VerdictOK, runOut.Verdict, "execution failed: %v", runOut.Verdict)
 
 			externalFS, err := resource.NewExternal(externalRoot)
 			require.NoError(t, err)

@@ -152,7 +152,7 @@ func testFileSystem(files map[string][]byte) fstest.MapFS {
 }
 
 func userOKRunResult(stdout string) execution.RunResult {
-	return execution.RunResult{ExitCode: 0, Stdout: stdout, Verdict: execution.VerdictOK}
+	return execution.RunResult{ExitCode: 0, Stdout: stdout, Verdict: model.VerdictOK}
 }
 
 func newTestJudgeEngine(languageModule language, checkerModule checker) *JudgeEngine {
@@ -230,7 +230,7 @@ func TestJudgeEngine_MultipleTestCases_MixedResults(t *testing.T) {
 	program := &fakeCompiledProgram{results: map[string]execution.RunResult{
 		"1\n": userOKRunResult("2\n"),
 		"2\n": userOKRunResult("4\n"),
-		"3\n": {Verdict: execution.VerdictTLE, ExitCode: 124},
+		"3\n": {Verdict: model.VerdictTLE, ExitCode: 124},
 		"4\n": userOKRunResult("8\n"),
 	}}
 	checkerModule := newFakeChecker()
@@ -477,7 +477,7 @@ func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
 }
 
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
-	program := &fakeCompiledProgram{runResult: execution.RunResult{Verdict: execution.VerdictTLE, ExitCode: 124}}
+	program := &fakeCompiledProgram{runResult: execution.RunResult{Verdict: model.VerdictTLE, ExitCode: 124}}
 	checkerModule := newFakeChecker()
 	engine := newTestJudgeEngine(newFakeLanguageWithProgram(program), checkerModule)
 

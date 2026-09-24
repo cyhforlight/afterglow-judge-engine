@@ -14,32 +14,32 @@ func TestNormalizeLanguageRunResult(t *testing.T) {
 		name        string
 		language    model.Language
 		stderr      string
-		wantVerdict execution.Verdict
+		wantVerdict model.Verdict
 	}{
 		{
 			name:        "Java out of memory becomes MLE",
 			language:    model.LanguageJava,
 			stderr:      "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space",
-			wantVerdict: execution.VerdictMLE,
+			wantVerdict: model.VerdictMLE,
 		},
 		{
 			name:        "ordinary Java exception stays RE",
 			language:    model.LanguageJava,
 			stderr:      "java.lang.NullPointerException",
-			wantVerdict: execution.VerdictRE,
+			wantVerdict: model.VerdictRE,
 		},
 		{
 			name:        "other languages are unchanged",
 			language:    model.LanguageCPP,
 			stderr:      "java.lang.OutOfMemoryError",
-			wantVerdict: execution.VerdictRE,
+			wantVerdict: model.VerdictRE,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := normalizeLanguageRunResult(tt.language, execution.RunResult{
-				Verdict: execution.VerdictRE,
+				Verdict: model.VerdictRE,
 				Stderr:  tt.stderr,
 			})
 			assert.Equal(t, tt.wantVerdict, result.Verdict)

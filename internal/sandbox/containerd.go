@@ -28,7 +28,7 @@ const (
 type stopReason uint8
 
 const (
-	stopCPUTime     stopReason = iota + 1
+	stopCPUTime stopReason = iota + 1
 	stopWallTime
 	stopOutputLimit
 )
