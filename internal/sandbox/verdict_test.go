@@ -56,12 +56,12 @@ func TestBuildVerdict_CPUTimeAtLimitIsTLE(t *testing.T) {
 }
 
 func TestBuildVerdict_PreservesForcedStopReason(t *testing.T) {
-	for _, reason := range []string{cpuTimeLimitReason, wallTimeLimitReason} {
-		t.Run(reason, func(t *testing.T) {
+	for _, reason := range []stopReason{stopCPUTime, stopWallTime} {
+		t.Run(reason.String(), func(t *testing.T) {
 			outcome := executionOutcome{reason: reason, metrics: cgroupMetrics{oomKillDetected: true}}
 			result := buildVerdict(outcome, executionOutput{overflowed: true}, standardLimits())
 			assert.Equal(t, VerdictTLE, result.Verdict)
-			assert.Contains(t, result.ExtraInfo, reason)
+			assert.Contains(t, result.ExtraInfo, reason.String())
 		})
 	}
 }

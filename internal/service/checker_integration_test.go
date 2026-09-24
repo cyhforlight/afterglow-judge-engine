@@ -36,12 +36,12 @@ func prepareCheckerForTest(ctx context.Context, t *testing.T, checkerModule chec
 
 	choice, err := resolveChecker(reference, "")
 	require.NoError(t, err)
-	plan, err := checkerModule.Materialize(choice)
+	src, err := checkerModule.Source(choice)
 	require.NoError(t, err)
-	preparation, err := plan.Prepare(ctx)
+	compilation, err := src.Compile(ctx)
 	require.NoError(t, err)
-	require.True(t, preparation.compile.Succeeded, preparation.compile.Log)
-	return preparation.checker
+	require.True(t, compilation.compile.Succeeded, compilation.compile.Log)
+	return compilation.checker
 }
 
 func checkForTest(

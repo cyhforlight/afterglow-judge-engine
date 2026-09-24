@@ -30,15 +30,15 @@ const (
 	checkerMemoryLimitMB  = 256
 )
 
-// checker owns shared compilation and materializes immutable compile plans.
+// checker owns shared compilation and materializes immutable source snapshots.
 type checker interface {
-	Materialize(choice checkerChoice) (checkerPlan, error)
+	Source(choice checkerChoice) (checkerSource, error)
 	Close()
 }
 
-// checkerPlan owns the source snapshot used to compile one checker.
-type checkerPlan interface {
-	Prepare(ctx context.Context) (checkerPreparation, error)
+// checkerSource holds the source bytes for one checker and can compile them.
+type checkerSource interface {
+	Compile(ctx context.Context) (checkerCompilation, error)
 }
 
 // preparedChecker checks outputs using one compiled checker artifact.
@@ -55,7 +55,7 @@ const (
 	checkerRejected
 )
 
-type checkerPreparation struct {
+type checkerCompilation struct {
 	checker preparedChecker
 	compile model.CompileResult
 }
@@ -116,7 +116,7 @@ func newChecker(executor execution.Executor, bundledFS, externalFS fs.FS) (check
 	}, nil
 }
 
-func (c *checkerEngine) Materialize(choice checkerChoice) (checkerPlan, error) {
+func (c *checkerEngine) Source(choice checkerChoice) (checkerSource, error) {
 	source, err := c.readSource(choice)
 	if err != nil {
 		return nil, err
@@ -143,12 +143,12 @@ func validateResourceFile(fsys fs.FS, name string) error {
 	return nil
 }
 
-func (p *checkerSnapshot) Prepare(ctx context.Context) (checkerPreparation, error) {
+func (p *checkerSnapshot) Compile(ctx context.Context) (checkerCompilation, error) {
 	checker, compileResult, err := p.compiler.prepare(ctx, p.source)
 	if err != nil {
-		return checkerPreparation{}, err
+		return checkerCompilation{}, err
 	}
-	return checkerPreparation{checker: checker, compile: compileResult}, nil
+	return checkerCompilation{checker: checker, compile: compileResult}, nil
 }
 
 func (c *checkerEngine) readSource(choice checkerChoice) ([]byte, error) {

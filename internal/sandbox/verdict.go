@@ -21,11 +21,11 @@ func buildVerdict(outcome executionOutcome, output executionOutput, limits Resou
 	}
 
 	switch {
-	case outcome.reason == outputLimitReason || (outcome.reason == "" && output.overflowed):
+	case outcome.reason == stopOutputLimit || (outcome.reason == 0 && output.overflowed):
 		res.Verdict = VerdictOLE
 		res.ExtraInfo = fmt.Sprintf("output limit exceeded (%d bytes max)", limits.OutputBytes)
 
-	case outcome.reason == cpuTimeLimitReason || outcome.reason == wallTimeLimitReason:
+	case outcome.reason == stopCPUTime || outcome.reason == stopWallTime:
 		res.Verdict = VerdictTLE
 		res.ExtraInfo = fmt.Sprintf(
 			"%s (cpu %dms, cpu limit %dms, wall limit %dms)",

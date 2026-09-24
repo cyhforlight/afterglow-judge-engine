@@ -22,9 +22,15 @@ import (
 const (
 	lifecycleOperationTimeout = 5 * time.Second
 	cpuTimeCheckInterval      = 10 * time.Millisecond
-	cpuTimeLimitReason        = "CPU time limit exceeded"
-	outputLimitReason         = "output limit exceeded"
-	wallTimeLimitReason       = "wall time limit exceeded"
+)
+
+// stopReason classifies why a task was forcibly stopped before it exited on its own.
+type stopReason uint8
+
+const (
+	stopCPUTime     stopReason = iota + 1
+	stopWallTime
+	stopOutputLimit
 )
 
 type taskController interface {
@@ -35,17 +41,30 @@ type taskController interface {
 	IO() cio.IO
 }
 
+func (r stopReason) String() string {
+	switch r {
+	case stopCPUTime:
+		return "CPU time limit exceeded"
+	case stopWallTime:
+		return "wall time limit exceeded"
+	case stopOutputLimit:
+		return "output limit exceeded"
+	default:
+		return "unknown"
+	}
+}
+
 type executionEvent struct {
 	status  containerd.ExitStatus
 	exited  bool
-	reason  string
+	reason  stopReason
 	metrics cgroupMetrics
 	err     error
 }
 
 type executionOutcome struct {
 	exitCode uint32
-	reason   string
+	reason   stopReason
 	metrics  cgroupMetrics
 }
 
@@ -255,7 +274,9 @@ func waitForTask(
 		return executionOutcome{exitCode: code, metrics: metrics}, nil
 	}
 
-	if event.reason != cpuTimeLimitReason && event.err == nil {
+	// Metrics are already known for CPU time limit (collected during polling);
+	// for other limits, collect them now before killing the task.
+	if event.reason != stopCPUTime && event.err == nil {
 		event.metrics, event.err = collectMetrics(ctx, task)
 		if event.err != nil {
 			event.err = fmt.Errorf("collect cgroup metrics: %w", event.err)
@@ -291,14 +312,14 @@ func waitForExecutionEvent(
 				return executionEvent{err: fmt.Errorf("monitor CPU time: %w", err)}
 			}
 			if metrics.cpuMillis() >= cpuTimeLimitMs {
-				return executionEvent{reason: cpuTimeLimitReason, metrics: metrics}
+				return executionEvent{reason: stopCPUTime, metrics: metrics}
 			}
 
 		case <-outputLimit:
-			return executionEvent{reason: outputLimitReason}
+			return executionEvent{reason: stopOutputLimit}
 
 		case <-wallDeadline:
-			return executionEvent{reason: wallTimeLimitReason}
+			return executionEvent{reason: stopWallTime}
 
 		case <-ctx.Done():
 			return executionEvent{err: fmt.Errorf("execution canceled: %w", ctx.Err())}

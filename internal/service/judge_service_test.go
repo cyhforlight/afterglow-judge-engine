@@ -90,7 +90,7 @@ func newFakeChecker() *fakeChecker {
 
 func (*fakeChecker) Close() {}
 
-func (c *fakeChecker) Materialize(checkerChoice) (checkerPlan, error) {
+func (c *fakeChecker) Source(checkerChoice) (checkerSource, error) {
 	c.materializeCalls.Add(1)
 	if c.materializeErr != nil {
 		return nil, c.materializeErr
@@ -104,11 +104,11 @@ type fakeCheckerPlan struct {
 	prepared   *fakePreparedChecker
 }
 
-func (p *fakeCheckerPlan) Prepare(context.Context) (checkerPreparation, error) {
+func (p *fakeCheckerPlan) Compile(context.Context) (checkerCompilation, error) {
 	if p.prepareErr != nil {
-		return checkerPreparation{}, p.prepareErr
+		return checkerCompilation{}, p.prepareErr
 	}
-	return checkerPreparation{checker: p.prepared, compile: p.compile}, nil
+	return checkerCompilation{checker: p.prepared, compile: p.compile}, nil
 }
 
 type checkerCall struct {

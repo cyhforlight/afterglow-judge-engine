@@ -86,12 +86,12 @@ func newUnitChecker(t *testing.T, executor execution.Executor, externalFS fs.FS)
 	return checkerModule
 }
 
-func materializeCheckerPlan(t *testing.T, checkerModule checker, choice checkerChoice) checkerPlan {
+func sourceChecker(t *testing.T, checkerModule checker, choice checkerChoice) checkerSource {
 	t.Helper()
 
-	plan, err := checkerModule.Materialize(choice)
+	src, err := checkerModule.Source(choice)
 	require.NoError(t, err)
-	return plan
+	return src
 }
 
 func TestResolveChecker(t *testing.T) {
@@ -144,7 +144,7 @@ func TestResolveChecker(t *testing.T) {
 	}
 }
 
-func TestCheckerEngine_Materialize(t *testing.T) {
+func TestCheckerEngine_Source(t *testing.T) {
 	tests := []struct {
 		name       string
 		reference  string
@@ -174,17 +174,17 @@ func TestCheckerEngine_Materialize(t *testing.T) {
 			engine := &checkerEngine{bundledFS: checkerTestFS(), externalFS: tt.externalFS}
 			choice, err := resolveChecker(tt.reference, "")
 			require.NoError(t, err)
-			_, err = engine.Materialize(choice)
+			_, err = engine.Source(choice)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
 
-func TestCheckerEngine_MaterializesInlineSource(t *testing.T) {
+func TestCheckerEngine_SourceInlineSource(t *testing.T) {
 	const source = "  #include \"testlib.h\"\n"
 
 	engine := &checkerEngine{}
-	plan, err := engine.Materialize(checkerChoice{kind: checkerInline, value: source})
+	plan, err := engine.Source(checkerChoice{kind: checkerInline, value: source})
 	require.NoError(t, err)
 
 	snapshot, ok := plan.(*checkerSnapshot)
@@ -228,11 +228,11 @@ func TestCheckerPlan_PrepareCachesOnlySuccessfulCompilations(t *testing.T) {
 			checkerModule := newUnitChecker(t, executor, nil)
 
 			for range 2 {
-				plan := materializeCheckerPlan(t, checkerModule, checkerChoice{
+				plan := sourceChecker(t, checkerModule, checkerChoice{
 					kind:  checkerBuiltin,
 					value: defaultCheckerName,
 				})
-				preparation, err := plan.Prepare(t.Context())
+				preparation, err := plan.Compile(t.Context())
 				if tt.wantErr != "" {
 					require.ErrorContains(t, err, tt.wantErr)
 					assert.Nil(t, preparation.checker)
@@ -260,11 +260,11 @@ func TestCheckerPlan_PreparePreservesDiagnosticsInCache(t *testing.T) {
 	executor := &checkerExecutorFake{compileResult: output}
 	checkerModule := newUnitChecker(t, executor, nil)
 	for range 2 {
-		plan := materializeCheckerPlan(t, checkerModule, checkerChoice{
+		plan := sourceChecker(t, checkerModule, checkerChoice{
 			kind:  checkerBuiltin,
 			value: defaultCheckerName,
 		})
-		preparation, err := plan.Prepare(t.Context())
+		preparation, err := plan.Compile(t.Context())
 		require.NoError(t, err)
 		assert.True(t, preparation.compile.Succeeded)
 		assert.Equal(t, warning, preparation.compile.Log)
@@ -282,20 +282,20 @@ func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *
 		}
 		checkerModule := newUnitChecker(t, executor, nil)
 		choice := checkerChoice{kind: checkerBuiltin, value: defaultCheckerName}
-		firstPlan := materializeCheckerPlan(t, checkerModule, choice)
-		secondPlan := materializeCheckerPlan(t, checkerModule, choice)
+		firstPlan := sourceChecker(t, checkerModule, choice)
+		secondPlan := sourceChecker(t, checkerModule, choice)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		firstResult := make(chan error, 1)
 		go func() {
-			_, err := firstPlan.Prepare(ctx)
+			_, err := firstPlan.Compile(ctx)
 			firstResult <- err
 		}()
 
 		compileCtx := <-started
 		secondResult := make(chan error, 1)
 		go func() {
-			_, err := secondPlan.Prepare(t.Context())
+			_, err := secondPlan.Compile(t.Context())
 			secondResult <- err
 		}()
 		synctest.Wait()
@@ -319,13 +319,13 @@ func TestCheckerCloseCancelsAndWaitsForSharedCompilation(t *testing.T) {
 			started: make(chan context.Context, 1),
 		}
 		checkerModule := newUnitChecker(t, executor, nil)
-		plan := materializeCheckerPlan(t, checkerModule, checkerChoice{
+		plan := sourceChecker(t, checkerModule, checkerChoice{
 			kind:  checkerBuiltin,
 			value: defaultCheckerName,
 		})
 		prepared := make(chan struct{})
 		go func() {
-			_, _ = plan.Prepare(t.Context())
+			_, _ = plan.Compile(t.Context())
 			close(prepared)
 		}()
 		compileCtx := <-executor.started
@@ -348,11 +348,11 @@ func TestCheckerCloseCancelsAndWaitsForSharedCompilation(t *testing.T) {
 		<-closed
 		<-prepared
 
-		latePlan := materializeCheckerPlan(t, checkerModule, checkerChoice{
+		latePlan := sourceChecker(t, checkerModule, checkerChoice{
 			kind:  checkerInline,
 			value: "a checker that was not cached before Close",
 		})
-		_, err := latePlan.Prepare(t.Context())
+		_, err := latePlan.Compile(t.Context())
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, int32(1), executor.compileCount.Load())
 	})
@@ -368,15 +368,15 @@ func TestCheckerPlan_PrepareUsesCapturedSource(t *testing.T) {
 	executor := &checkerExecutorFake{compileResult: successfulCheckerCompile()}
 	checkerModule := newUnitChecker(t, executor, externalFS)
 	choice := checkerChoice{kind: checkerExternal, value: "custom.cpp"}
-	originalPlan := materializeCheckerPlan(t, checkerModule, choice)
+	originalPlan := sourceChecker(t, checkerModule, choice)
 	externalFS["custom.cpp"] = &fstest.MapFile{Data: []byte(updatedSource)}
-	updatedPlan := materializeCheckerPlan(t, checkerModule, choice)
+	updatedPlan := sourceChecker(t, checkerModule, choice)
 
 	delete(externalFS, "custom.cpp")
 
-	_, err := originalPlan.Prepare(t.Context())
+	_, err := originalPlan.Compile(t.Context())
 	require.NoError(t, err)
-	_, err = updatedPlan.Prepare(t.Context())
+	_, err = updatedPlan.Compile(t.Context())
 	require.NoError(t, err)
 	require.Len(t, executor.compileRequests, 2)
 	require.NotEmpty(t, executor.compileRequests[0].Files)

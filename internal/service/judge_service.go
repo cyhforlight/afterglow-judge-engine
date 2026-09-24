@@ -31,7 +31,7 @@ type judgePlan struct {
 	memoryLimit              uint32
 	cases                    []caseData
 	compiler                 languageCompiler
-	checker                  checkerPlan
+	checker                  checkerSource
 	checkerProvidedByRequest bool
 }
 
@@ -160,7 +160,7 @@ func (s *JudgeEngine) materialize(
 	compiler languageCompiler,
 	choice checkerChoice,
 ) (judgePlan, error) {
-	checker, err := s.checker.Materialize(choice)
+	src, err := s.checker.Source(choice)
 	if err != nil {
 		return judgePlan{}, err
 	}
@@ -180,7 +180,7 @@ func (s *JudgeEngine) materialize(
 		memoryLimit:              req.MemoryLimit,
 		cases:                    cases,
 		compiler:                 compiler,
-		checker:                  checker,
+		checker:                  src,
 		checkerProvidedByRequest: choice.providedByRequest(),
 	}, nil
 }
@@ -224,7 +224,7 @@ func executeJudgePlan(ctx context.Context, plan judgePlan) model.JudgeResult {
 		}
 	}
 
-	preparation, err := plan.checker.Prepare(ctx)
+	compilation, err := plan.checker.Compile(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker setup failed", "error", err)
 		return model.JudgeResult{
@@ -233,88 +233,63 @@ func executeJudgePlan(ctx context.Context, plan judgePlan) model.JudgeResult {
 			Cases:   []model.JudgeCaseResult{},
 		}
 	}
-	if !preparation.compile.Succeeded {
+	if !compilation.compile.Succeeded {
 		status := model.JudgeStatusSystemError
 		if plan.checkerProvidedByRequest {
 			status = model.JudgeStatusCheckerCompileError
 		} else {
-			slog.ErrorContext(ctx, "system checker compilation failed", "log", preparation.compile.Log)
+			slog.ErrorContext(ctx, "system checker compilation failed", "log", compilation.compile.Log)
 		}
 		return model.JudgeResult{
 			Status:         status,
 			Compile:        compileResult,
-			CheckerCompile: &preparation.compile,
+			CheckerCompile: &compilation.compile,
 			Cases:          []model.JudgeCaseResult{},
 		}
 	}
 
-	caseResults := runAllCases(ctx, plan, program, preparation.checker)
+	runner := caseRunner{
+		program:     program,
+		checker:     compilation.checker,
+		userChecker: plan.checkerProvidedByRequest,
+		timeLimit:   plan.timeLimit,
+		memLimit:    plan.memoryLimit,
+	}
+	caseResults := runAllCases(ctx, runner, plan.cases)
 
 	return model.JudgeResult{
 		Status:         aggregateStatus(caseResults),
 		Compile:        compileResult,
-		CheckerCompile: &preparation.compile,
+		CheckerCompile: &compilation.compile,
 		Cases:          caseResults,
 	}
 }
 
-// runAllCases executes preloaded test cases concurrently.
+// caseRunner holds the shared state for running all test cases in one judge session.
+type caseRunner struct {
+	program     compiledProgram
+	checker     preparedChecker
+	userChecker bool // checker was supplied by the request, not bundled
+	timeLimit   uint32
+	memLimit    uint32
+}
+
+// runAllCases executes all test cases concurrently.
 // Actual parallelism is bounded by the execution module.
-func runAllCases(
-	ctx context.Context,
-	plan judgePlan,
-	program compiledProgram,
-	prepared preparedChecker,
-) []model.JudgeCaseResult {
-	results := make([]model.JudgeCaseResult, len(plan.cases))
+func runAllCases(ctx context.Context, r caseRunner, cases []caseData) []model.JudgeCaseResult {
+	results := make([]model.JudgeCaseResult, len(cases))
 	var wg sync.WaitGroup
-	for i, testCase := range plan.cases {
+	for i, tc := range cases {
 		wg.Go(func() {
-			results[i] = runSingleCase(
-				ctx,
-				plan.timeLimit,
-				plan.memoryLimit,
-				program,
-				prepared,
-				plan.checkerProvidedByRequest,
-				testCase,
-				i,
-			)
+			results[i] = r.runCase(ctx, tc, i)
 		})
 	}
 	wg.Wait()
-
 	return results
 }
 
-func convertVerdict(v execution.Verdict) model.Verdict {
-	switch v {
-	case execution.VerdictOK:
-		return model.VerdictOK
-	case execution.VerdictTLE:
-		return model.VerdictTLE
-	case execution.VerdictMLE:
-		return model.VerdictMLE
-	case execution.VerdictOLE:
-		return model.VerdictOLE
-	case execution.VerdictRE:
-		return model.VerdictRE
-	default:
-		return model.VerdictUKE
-	}
-}
-
-func runSingleCase(
-	ctx context.Context,
-	timeLimit uint32,
-	memoryLimit uint32,
-	program compiledProgram,
-	prepared preparedChecker,
-	checkerProvidedByRequest bool,
-	testCase caseData,
-	index int,
-) model.JudgeCaseResult {
-	runResult, err := program.Run(ctx, testCase.input, timeLimit, memoryLimit)
+func (r caseRunner) runCase(ctx context.Context, tc caseData, index int) model.JudgeCaseResult {
+	runResult, err := r.program.Run(ctx, tc.input, r.timeLimit, r.memLimit)
 	if err != nil {
 		slog.ErrorContext(ctx, "program execution failed", "index", index, "error", err)
 		return model.JudgeCaseResult{
@@ -327,7 +302,7 @@ func runSingleCase(
 		return judgeCaseResultFromExecution(runResult, convertVerdict(runResult.Verdict), runResult.ExtraInfo)
 	}
 
-	checkResult, err := prepared.Check(ctx, testCase.input, runResult.Stdout, testCase.expectedOutput)
+	checkResult, err := r.checker.Check(ctx, tc.input, runResult.Stdout, tc.expectedOutput)
 	if err != nil {
 		slog.ErrorContext(ctx, "checker execution failed", "index", index, "error", err)
 		return judgeCaseResultFromExecution(
@@ -355,7 +330,7 @@ func runSingleCase(
 		verdict = model.VerdictWA
 	case checkerFailed:
 		verdict = model.VerdictUKE
-		if checkerProvidedByRequest {
+		if r.userChecker {
 			verdict = model.VerdictCheckerExecutionError
 		} else {
 			slog.ErrorContext(ctx, "system checker execution failed", "index", index, "details", message)
@@ -363,6 +338,23 @@ func runSingleCase(
 	}
 
 	return judgeCaseResultFromExecution(runResult, verdict, message)
+}
+
+func convertVerdict(v execution.Verdict) model.Verdict {
+	switch v {
+	case execution.VerdictOK:
+		return model.VerdictOK
+	case execution.VerdictTLE:
+		return model.VerdictTLE
+	case execution.VerdictMLE:
+		return model.VerdictMLE
+	case execution.VerdictOLE:
+		return model.VerdictOLE
+	case execution.VerdictRE:
+		return model.VerdictRE
+	default:
+		return model.VerdictUKE
+	}
 }
 
 func failedBeforeRun(log string) model.JudgeResult {
