@@ -30,10 +30,9 @@ const (
 	checkerMemoryLimitMB  = 256
 )
 
-// checker owns shared compilation and materializes immutable source snapshots.
+// checker owns shared compilation state and provides source snapshots for compilation.
 type checker interface {
 	Source(choice checkerChoice) (checkerSource, error)
-	Close()
 }
 
 // checkerSource holds the source bytes for one checker and can compile them.
@@ -121,15 +120,7 @@ func (c *checkerEngine) Source(choice checkerChoice) (checkerSource, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return &checkerSnapshot{
-		compiler: c.compiler,
-		source:   source,
-	}, nil
-}
-
-func (c *checkerEngine) Close() {
-	c.compiler.close()
+	return &checkerSnapshot{compiler: c.compiler, source: source}, nil
 }
 
 func validateResourceFile(fsys fs.FS, name string) error {

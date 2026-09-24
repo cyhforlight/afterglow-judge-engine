@@ -166,7 +166,6 @@ func newE2EHandler(t *testing.T) *handler {
 	require.NoError(t, err)
 	judge, err := service.NewJudgeEngine(executor, bundledFS, externalFS, 10)
 	require.NoError(t, err)
-	t.Cleanup(judge.Close)
 
 	if err := sb.CheckEnvironment(t.Context()); err != nil {
 		t.Skipf("sandbox environment unavailable: %v", err)

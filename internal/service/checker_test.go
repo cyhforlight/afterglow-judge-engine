@@ -82,7 +82,6 @@ func newUnitChecker(t *testing.T, executor execution.Executor, externalFS fs.FS)
 
 	checkerModule, err := newChecker(executor, checkerTestFS(), externalFS)
 	require.NoError(t, err)
-	t.Cleanup(checkerModule.Close)
 	return checkerModule
 }
 
@@ -308,52 +307,6 @@ func TestCheckerPlan_PrepareCallerCancellationDoesNotCancelSharedCompilation(t *
 		close(release)
 		synctest.Wait()
 		require.NoError(t, <-secondResult)
-		assert.Equal(t, int32(1), executor.compileCount.Load())
-	})
-}
-
-func TestCheckerCloseCancelsAndWaitsForSharedCompilation(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		executor := &gatedCheckerExecutor{
-			release: make(chan struct{}),
-			started: make(chan context.Context, 1),
-		}
-		checkerModule := newUnitChecker(t, executor, nil)
-		plan := sourceChecker(t, checkerModule, checkerChoice{
-			kind:  checkerBuiltin,
-			value: defaultCheckerName,
-		})
-		prepared := make(chan struct{})
-		go func() {
-			_, _ = plan.Compile(t.Context())
-			close(prepared)
-		}()
-		compileCtx := <-executor.started
-
-		closed := make(chan struct{})
-		go func() {
-			checkerModule.Close()
-			close(closed)
-		}()
-		synctest.Wait()
-		require.ErrorIs(t, compileCtx.Err(), context.Canceled)
-		select {
-		case <-closed:
-			t.Fatal("Close returned before compilation cleanup finished")
-		default:
-		}
-
-		close(executor.release)
-		synctest.Wait()
-		<-closed
-		<-prepared
-
-		latePlan := sourceChecker(t, checkerModule, checkerChoice{
-			kind:  checkerInline,
-			value: "a checker that was not cached before Close",
-		})
-		_, err := latePlan.Compile(t.Context())
-		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, int32(1), executor.compileCount.Load())
 	})
 }
