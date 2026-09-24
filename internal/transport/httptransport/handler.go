@@ -57,9 +57,7 @@ func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.judge.Judge(ctx, req)
 	if err != nil {
-		// Judge returns an error only for invalid requests (missing fields, unsupported
-		// language, malformed checker path). Judging failures such as compile errors,
-		// checker failures, or sandbox errors are represented in JudgeResult.Status.
+		// Judge only errors on invalid requests; judging failures (CE, TLE, etc.) are in JudgeResult.
 		h.writeInvalidRequest(w, err.Error())
 		return
 	}
