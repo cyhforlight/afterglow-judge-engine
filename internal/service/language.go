@@ -12,6 +12,15 @@ import (
 
 const javaNativeReserveMB = 64
 
+// Container images used for compilation and execution.
+const (
+	imageGCC12    = "docker.io/library/gcc:12-bookworm"
+	imageDebian12 = "docker.io/library/debian:12-slim"
+	imageJDK21    = "docker.io/library/eclipse-temurin:21-jdk-jammy"
+	imageJRE21    = "docker.io/library/eclipse-temurin:21-jre-jammy"
+	imagePy311    = "docker.io/library/python:3.11-slim-bookworm"
+)
+
 type language interface {
 	Resolve(model.Language) (languageCompiler, error)
 }
@@ -161,7 +170,7 @@ func profileForLanguage(lang model.Language) (languageProfile, error) {
 func cProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			ImageRef:     imageGCC12,
 			SourceFile:   "main.c",
 			ArtifactName: "program",
 			BuildCommand: []string{
@@ -172,7 +181,7 @@ func cProfile() languageProfile {
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:       "docker.io/library/debian:12-slim",
+			ImageRef:       imageDebian12,
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -181,7 +190,7 @@ func cProfile() languageProfile {
 func cppProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     "docker.io/library/gcc:12-bookworm",
+			ImageRef:     imageGCC12,
 			SourceFile:   "main.cpp",
 			ArtifactName: "program",
 			BuildCommand: []string{
@@ -192,7 +201,7 @@ func cppProfile() languageProfile {
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef:       "docker.io/library/debian:12-slim",
+			ImageRef:       imageDebian12,
 			RuntimeCommand: func(p string, _ int) []string { return []string{p} },
 		},
 	}
@@ -201,7 +210,7 @@ func cppProfile() languageProfile {
 func javaProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     "docker.io/library/eclipse-temurin:21-jdk-jammy",
+			ImageRef:     imageJDK21,
 			SourceFile:   "Main.java",
 			ArtifactName: "solution.jar",
 			BuildCommand: []string{
@@ -214,7 +223,7 @@ func javaProfile() languageProfile {
 			MemoryMB:  512,
 		},
 		Run: runConfig{
-			ImageRef: "docker.io/library/eclipse-temurin:21-jre-jammy",
+			ImageRef: imageJRE21,
 			RuntimeCommand: func(p string, memoryMB int) []string {
 				initialHeapMB := min(memoryMB, 64)
 				return []string{
@@ -232,7 +241,7 @@ func javaProfile() languageProfile {
 func pythonProfile() languageProfile {
 	return languageProfile{
 		Compile: compileConfig{
-			ImageRef:     "docker.io/library/python:3.11-slim-bookworm",
+			ImageRef:     imagePy311,
 			SourceFile:   "solution.py",
 			ArtifactName: "solution.pyc",
 			BuildCommand: []string{
@@ -243,7 +252,7 @@ func pythonProfile() languageProfile {
 			MemoryMB:  256,
 		},
 		Run: runConfig{
-			ImageRef:       "docker.io/library/python:3.11-slim-bookworm",
+			ImageRef:       imagePy311,
 			RuntimeCommand: func(p string, _ int) []string { return []string{"python3", p} },
 		},
 	}

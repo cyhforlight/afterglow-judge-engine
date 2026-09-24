@@ -24,7 +24,7 @@ const (
 	checkerOutputFileName = "output.txt"
 	checkerAnswerFileName = "answer.txt"
 	checkerArtifactName   = "checker"
-	checkerRunImageRef    = "docker.io/library/debian:12-slim"
+	checkerRunImageRef    = imageDebian12
 
 	checkerCPUTimeLimitMs = 3000
 	checkerMemoryLimitMB  = 256
@@ -287,7 +287,7 @@ func validateExternalCheckerPath(checkerPath string) (string, error) {
 
 func checkerCompileProfile() compileConfig {
 	return compileConfig{
-		ImageRef:     "docker.io/library/gcc:12-bookworm",
+		ImageRef:     imageGCC12,
 		SourceFile:   "checker.cpp",
 		ArtifactName: checkerArtifactName,
 		BuildCommand: []string{
