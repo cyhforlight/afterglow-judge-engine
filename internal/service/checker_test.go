@@ -24,9 +24,11 @@ type checkerExecutorFake struct {
 }
 
 type gatedCheckerExecutor struct {
-	release      chan struct{}
-	started      chan context.Context
-	compileCount atomic.Int32
+	release       chan struct{}
+	started       chan context.Context
+	compileResult execution.CompileResult
+	compileErr    error
+	compileCount  atomic.Int32
 }
 
 func (e *checkerExecutorFake) Compile(
@@ -53,7 +55,7 @@ func (e *gatedCheckerExecutor) Compile(
 	}
 	<-e.release
 	e.compileCount.Add(1)
-	return successfulCheckerCompile(), nil
+	return e.compileResult, e.compileErr
 }
 
 func (e *gatedCheckerExecutor) Run(
@@ -272,44 +274,76 @@ func TestCheckerPlan_CompilePreservesDiagnosticsInCache(t *testing.T) {
 	assert.Len(t, executor.compileRequests, 1)
 }
 
-func TestCheckerPlan_CompileCallerCancellationDoesNotCancelSharedCompilation(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		release := make(chan struct{})
-		started := make(chan context.Context, 1)
-		executor := &gatedCheckerExecutor{
-			release: release,
-			started: started,
-		}
-		checkerModule := newUnitChecker(t, executor, nil)
-		choice := checkerChoice{kind: checkerBuiltin, value: defaultCheckerName}
-		firstPlan := sourceChecker(t, checkerModule, choice)
-		secondPlan := sourceChecker(t, checkerModule, choice)
+func TestCheckerPlan_CompileWaitsForSharedResultAfterCancellation(t *testing.T) {
+	tests := []struct {
+		name   string
+		result execution.CompileResult
+		err    error
+	}{
+		{name: "success", result: successfulCheckerCompile()},
+		{name: "compile failure", result: execution.CompileResult{Log: "invalid source"}},
+		{name: "infrastructure failure", err: errors.New("compiler unavailable")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				release := make(chan struct{})
+				started := make(chan context.Context, 1)
+				executor := &gatedCheckerExecutor{
+					release:       release,
+					started:       started,
+					compileResult: tt.result,
+					compileErr:    tt.err,
+				}
+				checkerModule := newUnitChecker(t, executor, nil)
+				choice := checkerChoice{kind: checkerBuiltin, value: defaultCheckerName}
+				firstPlan := sourceChecker(t, checkerModule, choice)
+				secondPlan := sourceChecker(t, checkerModule, choice)
 
-		ctx, cancel := context.WithCancel(t.Context())
-		firstResult := make(chan error, 1)
-		go func() {
-			_, err := firstPlan.Compile(ctx)
-			firstResult <- err
-		}()
+				type result struct {
+					compilation checkerCompilation
+					err         error
+				}
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				firstResult := make(chan result, 1)
+				go func() {
+					compilation, err := firstPlan.Compile(ctx)
+					firstResult <- result{compilation, err}
+				}()
 
-		compileCtx := <-started
-		secondResult := make(chan error, 1)
-		go func() {
-			_, err := secondPlan.Compile(t.Context())
-			secondResult <- err
-		}()
-		synctest.Wait()
+				compileCtx := <-started
+				secondResult := make(chan result, 1)
+				go func() {
+					compilation, err := secondPlan.Compile(t.Context())
+					secondResult <- result{compilation, err}
+				}()
+				synctest.Wait()
 
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, <-firstResult, context.Canceled)
-		require.NoError(t, compileCtx.Err())
+				cancel()
+				synctest.Wait()
+				assert.Empty(t, firstResult, "cancelled caller must wait for compilation and cleanup")
+				assert.Empty(t, secondResult, "concurrent caller must wait for the same compilation")
+				compileErr := compileCtx.Err()
 
-		close(release)
-		synctest.Wait()
-		require.NoError(t, <-secondResult)
-		assert.Equal(t, int32(1), executor.compileCount.Load())
-	})
+				close(release)
+				synctest.Wait()
+				require.NoError(t, compileErr)
+				for _, got := range []result{<-firstResult, <-secondResult} {
+					if tt.err != nil {
+						require.ErrorIs(t, got.err, tt.err)
+						continue
+					}
+					require.NoError(t, got.err)
+					assert.Equal(t, model.CompileResult{
+						Succeeded: tt.result.Artifact != nil,
+						Log:       tt.result.Log,
+					}, got.compilation.compile)
+				}
+				assert.Equal(t, int32(1), executor.compileCount.Load())
+			})
+		})
+	}
 }
 
 func TestCheckerPlan_CompileUsesCapturedSource(t *testing.T) {

@@ -39,8 +39,6 @@ func newHandler(judge JudgeService, logger *slog.Logger, maxBodyBytes int64) *ha
 }
 
 func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 
 	var req model.JudgeRequest
@@ -55,7 +53,8 @@ func (h *handler) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.judge.Judge(ctx, req)
+	// Once the request is read, judging finishes even if the client disconnects.
+	result, err := h.judge.Judge(context.WithoutCancel(r.Context()), req)
 	if err != nil {
 		// Judge only errors on invalid requests; judging failures (CE, TLE, etc.) are in JudgeResult.
 		h.writeInvalidRequest(w, err.Error())

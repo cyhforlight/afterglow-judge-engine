@@ -70,11 +70,9 @@ func (c *checkerCompiler) compile(ctx context.Context, source []byte) (execution
 		return compilation, nil
 	}
 
-	resultCh := c.group.DoChan(string(key[:]), func() (any, error) {
-		// Use a detached context so the shared compilation is not cancelled
-		// if the first caller's context is cancelled before it completes.
-		// Other callers waiting on the same singleflight key would lose the
-		// result too, so the compilation must run to completion regardless.
+	result, err, _ := c.group.Do(string(key[:]), func() (any, error) {
+		// All callers wait for the shared compilation and its cleanup, even if
+		// their request is cancelled. The compilation has its own time budget.
 		compileCtx, cancel := context.WithTimeout(
 			context.WithoutCancel(ctx),
 			time.Duration(c.profile.TimeoutMs*execution.WallTimeMultiplier)*time.Millisecond,
@@ -97,15 +95,10 @@ func (c *checkerCompiler) compile(ctx context.Context, source []byte) (execution
 		return compilation, nil
 	})
 
-	select {
-	case <-ctx.Done():
-		return execution.CompileResult{}, fmt.Errorf("checker setup failed: %w", ctx.Err())
-	case result := <-resultCh:
-		if result.Err != nil {
-			return execution.CompileResult{}, result.Err
-		}
-		return result.Val.(execution.CompileResult), nil
+	if err != nil {
+		return execution.CompileResult{}, err
 	}
+	return result.(execution.CompileResult), nil
 }
 
 func (c *checkerCompiler) compileUncached(ctx context.Context, source []byte) (execution.CompileResult, error) {

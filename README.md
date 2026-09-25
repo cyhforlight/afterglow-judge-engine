@@ -35,7 +35,9 @@ export EXTERNAL_DATA_DIR=/absolute/path/to/testdata
 ./server
 ```
 
-收到 SIGINT / SIGTERM 后，服务停止接收新连接，给正在处理的请求 10 秒完成，再取消剩余请求并等待资源清理后退出。
+请求进入判题后会继续执行，即使客户端断开连接。相同源码的 checker 同步共享编译结果，调用方等待编译及资源清理完成。
+
+收到 SIGINT / SIGTERM 后，服务停止接收新请求，等待现有请求完成后退出，不设固定关闭时限。强制终止进程可能留下尚未清理的容器和临时文件。
 
 ### 调用评测 API
 

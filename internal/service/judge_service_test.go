@@ -434,6 +434,48 @@ func TestJudgeEngine_RejectsUnmaterializableRequest(t *testing.T) {
 	}
 }
 
+func TestJudgeEngine_RejectsMalformedRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*model.JudgeRequest)
+		wantErr string
+	}{
+		{name: "missing source", mutate: func(req *model.JudgeRequest) { req.SourceCode = "" }, wantErr: "sourceCode is required"},
+		{name: "missing language", mutate: func(req *model.JudgeRequest) { req.Language = model.LanguageUnknown }, wantErr: "language is required"},
+		{name: "unsupported language", mutate: func(req *model.JudgeRequest) { req.Language = model.Language("Rust") }, wantErr: "unsupported language"},
+		{name: "named and inline checker", mutate: func(req *model.JudgeRequest) {
+			req.Checker = "default"
+			req.CheckerSourceCode = "checker source"
+		}, wantErr: "checker and checkerSourceCode cannot be provided together"},
+		{name: "blank inline checker", mutate: func(req *model.JudgeRequest) {
+			req.CheckerSourceCode = " \n\t"
+		}, wantErr: "checkerSourceCode must not be blank"},
+		{name: "zero time limit", mutate: func(req *model.JudgeRequest) { req.TimeLimit = 0 }, wantErr: "timeLimit must be positive"},
+		{name: "zero memory limit", mutate: func(req *model.JudgeRequest) { req.MemoryLimit = 0 }, wantErr: "memoryLimit must be positive"},
+		{name: "missing testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = nil }, wantErr: "testcases must not be empty"},
+		{name: "too many testcases", mutate: func(req *model.JudgeRequest) { req.TestCases = make([]model.JudgeTestCase, maxTestCases+1) }, wantErr: "testcases must contain at most"},
+		{name: "mixed testcase data", mutate: func(req *model.JudgeRequest) {
+			req.TestCases = []model.JudgeTestCase{{InputText: "x", InputFile: "1.in", ExpectedOutputFile: "1.out"}}
+		}, wantErr: "cannot mix text and file data"},
+		{name: "incomplete file pair", mutate: func(req *model.JudgeRequest) { req.TestCases = []model.JudgeTestCase{{InputFile: "1.in"}} }, wantErr: "must be provided together"},
+		{name: "invalid input file path", mutate: func(req *model.JudgeRequest) {
+			req.TestCases = []model.JudgeTestCase{{InputFile: "../1.in", ExpectedOutputFile: "1.out"}}
+		}, wantErr: "inputFile must be a valid relative path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := baseJudgeRequest()
+			tt.mutate(&req)
+			engine := newTestJudgeEngine(newLanguage(nil), nil)
+
+			result, err := engine.Judge(t.Context(), req)
+			assert.Zero(t, result)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestJudgeEngine_UserRuntimeErrorSkipsChecker(t *testing.T) {
 	program := &fakeCompiledProgram{runResult: execution.RunResult{Verdict: model.VerdictTLE, ExitCode: 124}}
 	checkerModule := newFakeChecker()
